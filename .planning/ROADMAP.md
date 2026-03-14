@@ -64,7 +64,10 @@ Plans:
   2. A magnifying-glass Search Everywhere button is visible in the toolbar center-right area
   3. A gear Settings icon button is visible at the far-right of the toolbar
   4. Hovering any toolbar button shows a state change without CSS `:hover` desync after a window drag (macOS drag region pitfall handled)
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 03-01-PLAN.md — Migrate Header to CSS Module, replace local primitives, add SearchPill and Settings gear
 
 ### Phase 4: Tab Bar and Editor State
 **Goal**: The tab bar matches Rider's height and spacing; tab close buttons behave correctly; editor state survives tab switching
@@ -138,7 +141,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete   | 2026-03-14 |
 | 2. CSS Architecture | 1/2 | Complete    | 2026-03-14 |
-| 3. Title Bar | 0/? | Not started | - |
+| 3. Title Bar | 0/1 | Planned | - |
 | 4. Tab Bar and Editor State | 0/? | Not started | - |
 | 5. Tool Strips and Panels | 0/? | Not started | - |
 | 6. Status Bar | 0/? | Not started | - |

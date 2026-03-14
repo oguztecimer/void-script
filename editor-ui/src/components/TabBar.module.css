@@ -2,7 +2,8 @@
   display: flex;
   background-color: var(--bg-tab-inactive);
   overflow: hidden;
-  min-height: 36px;
+  height: 38px;
+  padding: 0 16px;
   align-items: stretch;
   border-bottom: 1px solid var(--border-default);
 }
@@ -55,10 +56,22 @@
   line-height: 1;
   margin-left: 2px;
   padding: 0;
-  transition: background-color var(--transition-hover), color var(--transition-hover);
+  opacity: 0;
+  pointer-events: none;
+  transition: background-color var(--transition-hover), color var(--transition-hover), opacity var(--transition-hover);
 }
 
 .closeBtn:hover {
   background-color: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.tab:hover .closeBtn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.active .closeBtn {
+  opacity: 1;
+  pointer-events: auto;
 }

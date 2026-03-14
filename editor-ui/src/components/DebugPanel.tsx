@@ -10,9 +10,9 @@ export function DebugPanel() {
 
   return (
     <div className={styles.panel}>
-      {/* Call Stack section */}
+      {/* Top-level Debug header with close action */}
       <PanelHeader
-        title="Frames"
+        title="Debug"
         actions={
           <ToolBtn size="small" onClick={() => toggleRightPanel()} title="Hide">
             <svg width="12" height="12" viewBox="0 0 16 16">
@@ -21,6 +21,9 @@ export function DebugPanel() {
           </ToolBtn>
         }
       />
+
+      {/* Call Stack section */}
+      <PanelHeader title="Frames" />
       <div className={styles.section}>
         {debugCallStack.map((frame, i) => (
           <div key={i} className={i === 0 ? styles.frameActive : styles.frameInactive}>

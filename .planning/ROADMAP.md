@@ -37,8 +37,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 01-01-PLAN.md — Install Fontsource fonts, create tokens.css, macOS rendering fixes
-- [ ] 01-02-PLAN.md — Migrate all components and theme to CSS tokens
+- [x] 01-01-PLAN.md — Install Fontsource fonts, create tokens.css, macOS rendering fixes
+- [x] 01-02-PLAN.md — Migrate all components and theme to CSS tokens
 
 ### Phase 2: CSS Architecture
 **Goal**: All component styles live in CSS Modules with real `:hover` pseudo-classes; shared atoms extracted as primitives

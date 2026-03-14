@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: "Checkpoint: Task 3 human-verify in 01-02-PLAN.md"
-last_updated: "2026-03-14T09:01:34.978Z"
-last_activity: 2026-03-14 — Roadmap created, 9 phases derived from 24 v1 requirements
+status: active
+stopped_at: "Completed 01-02-PLAN.md — Phase 1 Foundation complete"
+last_updated: "2026-03-14T09:15:00.000Z"
+last_activity: 2026-03-14 — Phase 1 Foundation complete (2/2 plans)
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
-  percent: 0
+  percent: 11
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-14)
 
 **Core value:** The code editor must look and feel like JetBrains Rider's New UI — professional, polished, and immediately familiar to developers.
-**Current focus:** Phase 1 — Foundation
+**Current focus:** Phase 2 — CSS Architecture
 
 ## Current Position
 
-Phase: 1 of 9 (Foundation)
-Plan: 0 of ? in current phase
-Status: Ready to plan
-Last activity: 2026-03-14 — Roadmap created, 9 phases derived from 24 v1 requirements
+Phase: 1 of 9 complete (Foundation) — Phase 2 next
+Plan: 2/2 plans complete in Phase 1
+Status: Phase 1 complete, ready for Phase 2
+Last activity: 2026-03-14 — Phase 1 Foundation complete (2/2 plans, wry CSS fix confirmed)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [#░░░░░░░░░] 11%
 
 ## Performance Metrics
 
@@ -50,8 +50,8 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
-| Phase 01-foundation P01 | 7 | 3 tasks | 5 files |
-| Phase 01-foundation P02 | 4 | 2 tasks | 10 files |
+| Phase 01-foundation P01 | 7 min | 3 tasks | 5 files |
+| Phase 01-foundation P02 | 15 min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -68,6 +68,8 @@ Recent decisions affecting current work:
 - [Phase 01-foundation]: tokens.css uses --{category}-{variant} naming convention; all 59 tokens available for Phase 2+ to reference instead of hardcoded hex
 - [Phase 01-foundation]: CSS var() works in React inline style strings — fontFamily: 'var(--font-mono)' resolves at browser render time
 - [Phase 01-foundation]: tokens.css already contained all component-specific tokens from Plan 01 — no new tokens needed for migration
+- [Phase 01-foundation P02]: CRITICAL — wry custom protocol (WKWebView) does NOT apply CSS :root blocks from external stylesheets. Production fix: inline all :root token definitions in index.html <style> block. tokens.css retained for dev server only.
+- [Phase 01-foundation P02]: Access-Control-Allow-Origin: * added to wry get_asset() responses; Vite crossOriginLoading: false prevents crossorigin attribute conflicts
 
 ### Pending Todos
 
@@ -75,13 +77,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 1: wry custom protocol CORS headers for font MIME types need empirical verification on a clean macOS account before Phase 1 is marked complete
 - Phase 4: CodeMirror 6 EditorState map pattern with Zustand needs careful design — see discuss.codemirror.net "Preserving state when switching between files"
 - Phase 8: Breakpoint overlay gutter requires a custom GutterMarker implementation; no off-the-shelf solution exists
 - Phase 9: VoidScript parser syntax node type names are not documented; need to read parser source before breadcrumb implementation
 
 ## Session Continuity
 
-Last session: 2026-03-14T09:01:34.976Z
-Stopped at: Checkpoint: Task 3 human-verify in 01-02-PLAN.md
+Last session: 2026-03-14T09:15:00.000Z
+Stopped at: Completed 01-02-PLAN.md — Phase 1 Foundation complete
 Resume file: None

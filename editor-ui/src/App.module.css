@@ -29,3 +29,20 @@
   flex-direction: column;
   border-top: 1px solid var(--border-strong);
 }
+
+.panelGroup {
+  flex: 1;
+  overflow: hidden;
+}
+
+.resizeHandle {
+  width: 1px;
+  background: var(--border-strong);
+  cursor: col-resize;
+  flex-shrink: 0;
+  /* Phase 7: add visible drag indicator, hover highlight */
+}
+
+.panelAnimated {
+  transition: flex-basis 150ms ease;
+}

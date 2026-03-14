@@ -1,10 +1,11 @@
 .panel {
-  width: 220px;
+  /* width: 220px; — REMOVED: now controlled by react-resizable-panels Panel */
   background-color: var(--bg-panel);
   overflow: auto;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border-strong);
+  height: 100%;
 }
 
 .list {

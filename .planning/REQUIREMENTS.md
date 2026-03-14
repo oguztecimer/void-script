@@ -24,8 +24,8 @@ Requirements for the Rider New UI pixel-accurate restyle. Each maps to roadmap p
 
 ### Tab Bar
 
-- [ ] **TABS-01**: Tab bar height increased to 38px with padding 0 16px matching Rider spacing
-- [ ] **TABS-02**: Close button hidden on inactive tabs, appearing on hover only (always visible on active tab)
+- [x] **TABS-01**: Tab bar height increased to 38px with padding 0 16px matching Rider spacing
+- [x] **TABS-02**: Close button hidden on inactive tabs, appearing on hover only (always visible on active tab)
 
 ### Editor
 
@@ -98,8 +98,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | TBAR-02 | Phase 3 | Complete |
 | TBAR-03 | Phase 3 | Complete |
 | TBAR-04 | Phase 3 | Complete |
-| TABS-01 | Phase 4 | Pending |
-| TABS-02 | Phase 4 | Pending |
+| TABS-01 | Phase 4 | Complete |
+| TABS-02 | Phase 4 | Complete |
 | EDIT-01 | Phase 9 | Pending |
 | EDIT-02 | Phase 8 | Pending |
 | EDIT-03 | Phase 8 | Pending |

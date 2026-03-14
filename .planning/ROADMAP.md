@@ -49,7 +49,11 @@ Plans:
   2. A `src/primitives/` directory contains at minimum `ToolBtn`, `PanelHeader`, `Separator`, and `StatusSegment` components
   3. All interactive elements transition on hover with a consistent 150ms ease — verifiable by observing any button or tab in browser DevTools
   4. Panel borders, separators, and dividers use the correct 3-level color hierarchy (`#1E1F22`, `#393B40`, `#43454A`) with no deviations
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Create ToolBtn, PanelHeader, Separator, StatusSegment primitives with CSS Modules
+- [ ] 02-02-PLAN.md — Migrate all non-titlebar components to CSS Modules with :hover and border hierarchy
 
 ### Phase 3: Title Bar
 **Goal**: The header is a pixel-accurate Rider New UI title bar with all required toolbar widgets
@@ -133,7 +137,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete   | 2026-03-14 |
-| 2. CSS Architecture | 0/? | Not started | - |
+| 2. CSS Architecture | 0/2 | Planned | - |
 | 3. Title Bar | 0/? | Not started | - |
 | 4. Tab Bar and Editor State | 0/? | Not started | - |
 | 5. Tool Strips and Panels | 0/? | Not started | - |

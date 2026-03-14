@@ -15,3 +15,26 @@
 .right {
   border-left: 1px solid var(--border-strong);
 }
+
+/* Override ToolBtn's default --text-secondary for strip context */
+.stripBtn {
+  color: var(--text-tertiary);
+}
+.stripBtn:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+/* Active strip button: edge indicator instead of solid blue fill */
+.activeBtn {
+  color: var(--text-primary);
+}
+
+/* Left strip: active indicator on RIGHT edge (inner edge) */
+.left .activeBtn {
+  box-shadow: inset -2px 0 0 var(--accent-blue);
+}
+
+/* Right strip: active indicator on LEFT edge (inner edge) */
+.right .activeBtn {
+  box-shadow: inset 2px 0 0 var(--accent-blue);
+}

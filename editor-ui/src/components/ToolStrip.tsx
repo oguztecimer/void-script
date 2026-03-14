@@ -1,9 +1,9 @@
 import { ToolBtn } from '../primitives/ToolBtn';
 import styles from './ToolStrip.module.css';
 
-interface ToolStripItem {
+export interface ToolStripItem {
   id: string;
-  icon: string;
+  icon: React.ReactNode;
   label: string;
   shortcut?: string;
 }
@@ -24,9 +24,9 @@ export function ToolStrip({ side, items, activeId, onToggle }: Props) {
           <ToolBtn
             key={item.id}
             size="default"
-            active={isActive}
             onClick={() => onToggle(item.id)}
             title={`${item.label}${item.shortcut ? ` (${item.shortcut})` : ''}`}
+            className={isActive ? styles.activeBtn : styles.stripBtn}
           >
             {item.icon}
           </ToolBtn>

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Header } from './components/Header';
-import { ToolStrip } from './components/ToolStrip';
+import { ToolStrip, type ToolStripItem } from './components/ToolStrip';
 import { TabBar } from './components/TabBar';
 import { Editor } from './components/Editor';
 import { ScriptList } from './components/ScriptList';
@@ -12,11 +12,31 @@ import { initIpcBridge } from './ipc/bridge';
 import { useStore } from './state/store';
 import styles from './App.module.css';
 
-const LEFT_ITEMS = [
-  { id: 'scripts', icon: 'S', label: 'Scripts', shortcut: 'Alt+1' },
+const LEFT_ITEMS: ToolStripItem[] = [
+  {
+    id: 'scripts',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M4 2h8v12H4V2z" stroke="currentColor" strokeWidth="1.2"/>
+        <path d="M6 5h4M6 7.5h4M6 10h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+      </svg>
+    ),
+    label: 'Scripts',
+    shortcut: 'Alt+1',
+  },
 ];
-const RIGHT_ITEMS = [
-  { id: 'debug', icon: 'D', label: 'Debug', shortcut: 'Alt+5' },
+const RIGHT_ITEMS: ToolStripItem[] = [
+  {
+    id: 'debug',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="6.5" r="3" stroke="currentColor" strokeWidth="1.2"/>
+        <path d="M5.5 4L4 2.5M10.5 4L12 2.5M4.5 6.5H2M11.5 6.5H14M5.5 9L4 11M10.5 9L12 11M8 9.5V13" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+      </svg>
+    ),
+    label: 'Debug',
+    shortcut: 'Alt+5',
+  },
 ];
 
 export function App() {

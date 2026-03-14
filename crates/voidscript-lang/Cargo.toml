@@ -1,0 +1,7 @@
+[package]
+name = "voidscript-lang"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+crossbeam-channel = "0.5"

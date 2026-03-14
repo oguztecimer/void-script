@@ -1,0 +1,10 @@
+[package]
+name = "voidscript-game"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bevy = { workspace = true }
+voidscript-editor = { path = "../voidscript-editor" }
+voidscript-lang = { path = "../voidscript-lang" }
+voidscript-sim = { path = "../voidscript-sim" }

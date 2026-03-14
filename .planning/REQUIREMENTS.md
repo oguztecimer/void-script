@@ -17,10 +17,10 @@ Requirements for the Rider New UI pixel-accurate restyle. Each maps to roadmap p
 
 ### Title Bar
 
-- [ ] **TBAR-01**: Widget buttons sized to 26px height matching Rider New UI proportions
-- [ ] **TBAR-02**: Correct spacing, separator positions, and font weights across all toolbar widgets
-- [ ] **TBAR-03**: Search Everywhere magnifying glass icon button in toolbar center-right area
-- [ ] **TBAR-04**: Settings gear icon at toolbar far-right position
+- [x] **TBAR-01**: Widget buttons sized to 26px height matching Rider New UI proportions
+- [x] **TBAR-02**: Correct spacing, separator positions, and font weights across all toolbar widgets
+- [x] **TBAR-03**: Search Everywhere magnifying glass icon button in toolbar center-right area
+- [x] **TBAR-04**: Settings gear icon at toolbar far-right position
 
 ### Tab Bar
 
@@ -94,10 +94,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | FOUN-03 | Phase 1 | Complete |
 | FOUN-04 | Phase 2 | Complete |
 | FOUN-05 | Phase 1 | Complete |
-| TBAR-01 | Phase 3 | Pending |
-| TBAR-02 | Phase 3 | Pending |
-| TBAR-03 | Phase 3 | Pending |
-| TBAR-04 | Phase 3 | Pending |
+| TBAR-01 | Phase 3 | Complete |
+| TBAR-02 | Phase 3 | Complete |
+| TBAR-03 | Phase 3 | Complete |
+| TBAR-04 | Phase 3 | Complete |
 | TABS-01 | Phase 4 | Pending |
 | TABS-02 | Phase 4 | Pending |
 | EDIT-01 | Phase 9 | Pending |

@@ -1,0 +1,19 @@
+.segment {
+  padding: 0 8px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: var(--font-size-status);
+  transition: background-color var(--transition-hover), color var(--transition-hover);
+}
+
+.segment:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}

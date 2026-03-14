@@ -77,7 +77,10 @@ Plans:
   1. The tab bar is 38px tall with `0 16px` padding — verified in DevTools
   2. Close buttons on inactive tabs are hidden by default and appear on hover; the active tab always shows its close button
   3. Switching between tabs does not reset undo history or scroll position in either tab
-**Plans**: TBD
+**Plans:** 1 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Rider tab bar sizing, close-button hover-reveal, and EditorState preservation
 
 ### Phase 5: Tool Strips and Panels
 **Goal**: Tool strips are the correct Rider width; all three side panels have Rider-style header chrome; the bottom panel has a proper tab strip; panels are resizable
@@ -142,7 +145,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 1. Foundation | 2/2 | Complete   | 2026-03-14 |
 | 2. CSS Architecture | 1/2 | Complete    | 2026-03-14 |
 | 3. Title Bar | 1/1 | Complete   | 2026-03-14 |
-| 4. Tab Bar and Editor State | 0/? | Not started | - |
+| 4. Tab Bar and Editor State | 0/1 | Not started | - |
 | 5. Tool Strips and Panels | 0/? | Not started | - |
 | 6. Status Bar | 0/? | Not started | - |
 | 7. Resizable Panels | 0/? | Not started | - |

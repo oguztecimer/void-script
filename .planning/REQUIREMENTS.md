@@ -9,11 +9,11 @@ Requirements for the Rider New UI pixel-accurate restyle. Each maps to roadmap p
 
 ### Foundation
 
-- [ ] **FOUN-01**: Inter font self-hosted via Fontsource and applied universally to all UI elements
-- [ ] **FOUN-02**: JetBrains Mono font self-hosted via Fontsource for code editor and console
-- [ ] **FOUN-03**: CSS custom properties token system (tokens.css) replacing all hardcoded hex values across components
+- [x] **FOUN-01**: Inter font self-hosted via Fontsource and applied universally to all UI elements
+- [x] **FOUN-02**: JetBrains Mono font self-hosted via Fontsource for code editor and console
+- [x] **FOUN-03**: CSS custom properties token system (tokens.css) replacing all hardcoded hex values across components
 - [ ] **FOUN-04**: CSS Modules migration replacing inline onMouseEnter/onMouseLeave hover patterns with CSS :hover pseudo-classes
-- [ ] **FOUN-05**: macOS font smoothing fix applied (-webkit-font-smoothing: antialiased, color-scheme: dark)
+- [x] **FOUN-05**: macOS font smoothing fix applied (-webkit-font-smoothing: antialiased, color-scheme: dark)
 
 ### Title Bar
 
@@ -89,11 +89,11 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUN-01 | Phase 1 | Pending |
-| FOUN-02 | Phase 1 | Pending |
-| FOUN-03 | Phase 1 | Pending |
+| FOUN-01 | Phase 1 | Complete |
+| FOUN-02 | Phase 1 | Complete |
+| FOUN-03 | Phase 1 | Complete |
 | FOUN-04 | Phase 2 | Pending |
-| FOUN-05 | Phase 1 | Pending |
+| FOUN-05 | Phase 1 | Complete |
 | TBAR-01 | Phase 3 | Pending |
 | TBAR-02 | Phase 3 | Pending |
 | TBAR-03 | Phase 3 | Pending |

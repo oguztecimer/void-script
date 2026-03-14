@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A `tokens.css` file exists and every design value (color, dimension, typography) is referenced via `var(--token)` — no hardcoded hex in component CSS
   4. UI text weight matches Rider's Regular weight visually on macOS (font-smoothing applied, no artificial bold artifact)
   5. The browser renders in forced dark mode with no white flash on cold launch
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 01-01-PLAN.md — Install Fontsource fonts, create tokens.css, macOS rendering fixes
@@ -132,7 +132,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/2 | Planning complete | - |
+| 1. Foundation | 1/2 | In Progress|  |
 | 2. CSS Architecture | 0/? | Not started | - |
 | 3. Title Bar | 0/? | Not started | - |
 | 4. Tab Bar and Editor State | 0/? | Not started | - |

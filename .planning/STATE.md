@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Phase 3 Plan 1 complete — all TBAR requirements met, drag fix applied
-last_updated: "2026-03-14T11:35:57.988Z"
+stopped_at: Completed 04-01-PLAN.md — tab bar restyling and EditorState preservation
+last_updated: "2026-03-14T11:55:31.462Z"
 last_activity: 2026-03-14 — Phase 2 Plan 2 complete (7 components migrated to CSS Modules)
 progress:
   total_phases: 9
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
   percent: 100
 ---
 
@@ -56,6 +56,7 @@ Progress: [██████████] 100%
 | Phase 02-css-architecture P02 | 4min | 2 tasks | 14 files |
 | Phase 03-title-bar P01 | 15min | 2 tasks | 2 files |
 | Phase 03-title-bar P01 | 30min | 3 tasks | 3 files |
+| Phase 04-tab-bar-and-editor-state P01 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,9 @@ Recent decisions affecting current work:
 - [Phase 03-title-bar]: HeaderWidget retains JS hover for drag-zone safety; RunConfigSelector switches to CSS :hover (inside no-drag rightGroup)
 - [Phase 03-title-bar]: No separator between project widget and VCS branch widget — matches Rider exact layout
 - [Phase 03-title-bar]: wry with_accept_first_mouse(true) required for frameless window drag — default false absorbs first mouseDown to focus window, preventing -webkit-app-region: drag on first click
+- [Phase 04-tab-bar-and-editor-state]: EditorState cache is module-level Map (not Zustand) — EditorState is large/non-serializable per CodeMirror docs
+- [Phase 04-tab-bar-and-editor-state]: scrollSnapshot() returns StateEffect<ScrollTarget>, dispatched after view construction via dispatch(), not passed as Extension
+- [Phase 04-tab-bar-and-editor-state]: opacity:0 + pointer-events:none for close button hiding — preserves tab width preventing layout shift
 
 ### Pending Todos
 
@@ -95,6 +99,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T11:30:17.710Z
-Stopped at: Phase 3 Plan 1 complete — all TBAR requirements met, drag fix applied
+Last session: 2026-03-14T11:55:31.459Z
+Stopped at: Completed 04-01-PLAN.md — tab bar restyling and EditorState preservation
 Resume file: None

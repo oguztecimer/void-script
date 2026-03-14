@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - Self-hosted fonts, CSS token system, and macOS rendering fixes (completed 2026-03-14)
 - [x] **Phase 2: CSS Architecture** - Primitive extraction, CSS Modules migration, hover pattern cleanup (completed 2026-03-14)
 - [x] **Phase 3: Title Bar** - Pixel-accurate header with Search Everywhere and Settings gear (completed 2026-03-14)
-- [ ] **Phase 4: Tab Bar and Editor State** - Rider tab sizing, close-button hover-reveal, EditorState preservation
+- [x] **Phase 4: Tab Bar and Editor State** - Rider tab sizing, close-button hover-reveal, EditorState preservation (completed 2026-03-14)
 - [ ] **Phase 5: Tool Strips and Panels** - 40px tool strip, panel headers, bottom panel tab strip
 - [ ] **Phase 6: Status Bar** - Navigation path, icon+count diagnostics widget
 - [ ] **Phase 7: Resizable Panels** - react-resizable-panels integration replacing fixed widths
@@ -77,7 +77,7 @@ Plans:
   1. The tab bar is 38px tall with `0 16px` padding — verified in DevTools
   2. Close buttons on inactive tabs are hidden by default and appear on hover; the active tab always shows its close button
   3. Switching between tabs does not reset undo history or scroll position in either tab
-**Plans:** 1 plans
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 04-01-PLAN.md — Rider tab bar sizing, close-button hover-reveal, and EditorState preservation
@@ -145,7 +145,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 1. Foundation | 2/2 | Complete   | 2026-03-14 |
 | 2. CSS Architecture | 1/2 | Complete    | 2026-03-14 |
 | 3. Title Bar | 1/1 | Complete   | 2026-03-14 |
-| 4. Tab Bar and Editor State | 0/1 | Not started | - |
+| 4. Tab Bar and Editor State | 1/1 | Complete   | 2026-03-14 |
 | 5. Tool Strips and Panels | 0/? | Not started | - |
 | 6. Status Bar | 0/? | Not started | - |
 | 7. Resizable Panels | 0/? | Not started | - |

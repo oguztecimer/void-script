@@ -13,15 +13,15 @@ export function Console() {
     <div style={{
       flex: 1,
       overflow: 'auto',
-      padding: '4px 12px',
+      padding: '6px 12px',
       fontSize: '12px',
-      lineHeight: '1.7',
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      backgroundColor: '#1e1f22',
+      lineHeight: '1.6',
+      fontFamily: 'var(--font-mono)',
+      backgroundColor: 'var(--bg-editor)',
     }}>
       {consoleOutput.map((entry, i) => (
         <div key={i} style={{
-          color: entry.level === 'error' ? '#ef5350' : entry.level === 'warn' ? '#e2a42b' : '#bcbec4',
+          color: entry.level === 'error' ? 'var(--accent-red)' : entry.level === 'warn' ? 'var(--accent-yellow)' : 'var(--text-primary)',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-all',
         }}>
@@ -29,7 +29,7 @@ export function Console() {
         </div>
       ))}
       {consoleOutput.length === 0 && (
-        <div style={{ color: '#5a5d63', fontStyle: 'italic', padding: '8px 0' }}>
+        <div style={{ color: 'var(--text-disabled)', fontStyle: 'italic', padding: '8px 0' }}>
           Run a script to see output here
         </div>
       )}

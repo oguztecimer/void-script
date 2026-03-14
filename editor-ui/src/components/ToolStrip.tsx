@@ -17,13 +17,13 @@ export function ToolStrip({ side, items, activeId, onToggle }: Props) {
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      width: '28px',
-      backgroundColor: '#2b2d30',
+      width: '36px',
+      backgroundColor: 'var(--bg-panel)',
       alignItems: 'center',
-      paddingTop: '4px',
+      paddingTop: '6px',
       gap: '2px',
-      borderLeft: side === 'right' ? '1px solid #1e1f22' : undefined,
-      borderRight: side === 'left' ? '1px solid #1e1f22' : undefined,
+      borderLeft: side === 'right' ? '1px solid var(--border-strong)' : undefined,
+      borderRight: side === 'left' ? '1px solid var(--border-strong)' : undefined,
     }}>
       {items.map((item) => {
         const isActive = activeId === item.id;
@@ -37,18 +37,18 @@ export function ToolStrip({ side, items, activeId, onToggle }: Props) {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              width: '24px',
-              height: '24px',
-              background: isActive ? '#393b40' : 'none',
+              width: '30px',
+              height: '30px',
+              background: isActive ? 'var(--accent-blue)' : 'none',
               border: 'none',
               borderRadius: '6px',
-              color: isActive ? '#bcbec4' : '#6f737a',
+              color: isActive ? 'white' : 'var(--text-secondary)',
               cursor: 'pointer',
               fontSize: '13px',
               padding: 0,
             }}
-            onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = '#313335'; }}
-            onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = isActive ? '#393b40' : 'transparent'; }}
+            onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; }}
+            onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = isActive ? 'var(--accent-blue)' : 'transparent'; }}
           >
             {item.icon}
           </button>

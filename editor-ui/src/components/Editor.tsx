@@ -17,7 +17,7 @@ import { sendToRust } from '../ipc/bridge';
 class BreakpointMarker extends GutterMarker {
   toDOM() {
     const el = document.createElement('div');
-    el.style.color = '#f85149';
+    el.style.color = 'var(--accent-breakpoint)';
     el.style.fontSize = '14px';
     el.style.lineHeight = '1';
     el.style.cursor = 'pointer';
@@ -77,7 +77,7 @@ function createBreakpointGutter(scriptId: string) {
 
 const setDebugLineEffect = StateEffect.define<number | null>();
 
-const debugLineDecoration = Decoration.line({ attributes: { style: 'background-color: #264d00' } });
+const debugLineDecoration = Decoration.line({ attributes: { style: 'background-color: var(--bg-selection)' } });
 
 const debugLineField = StateField.define<DecorationSet>({
   create() {
@@ -217,7 +217,7 @@ export function Editor() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#5a5d63',
+        color: 'var(--text-tertiary)',
         fontSize: '16px',
         fontStyle: 'italic',
       }}>

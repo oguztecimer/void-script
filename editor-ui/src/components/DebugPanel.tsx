@@ -8,47 +8,35 @@ export function DebugPanel() {
   return (
     <div style={{
       width: '250px',
-      backgroundColor: '#2b2d30',
+      backgroundColor: 'var(--bg-panel)',
       overflow: 'auto',
       display: 'flex',
       flexDirection: 'column',
-      borderLeft: '1px solid #393b40',
+      borderLeft: '1px solid var(--border-strong)',
     }}>
       {/* Call Stack section */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '6px 12px',
+        padding: '0 12px',
         fontSize: '12px',
         fontWeight: 600,
-        color: '#bcbec4',
-        borderBottom: '1px solid #393b40',
+        color: 'var(--text-primary)',
+        borderBottom: '1px solid var(--border-default)',
         minHeight: '30px',
       }}>
         <span>Frames</span>
-        <button
-          onClick={() => toggleRightPanel()}
-          title="Hide"
-          style={{
-            background: 'none', border: 'none', color: '#6f737a',
-            cursor: 'pointer', fontSize: '14px', padding: '2px 4px',
-            borderRadius: '4px', display: 'flex', alignItems: 'center',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#393b40'; e.currentTarget.style.color = '#bcbec4'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#6f737a'; }}
-        >
-          x
-        </button>
+        <ToolWindowBtn onClick={() => toggleRightPanel()} title="Hide" />
       </div>
-      <div style={{ padding: '4px 0', borderBottom: '1px solid #393b40' }}>
+      <div style={{ padding: '4px 0', borderBottom: '1px solid var(--border-default)' }}>
         {debugCallStack.map((frame, i) => (
           <div key={i} style={{
             padding: '3px 12px',
             fontSize: '12px',
-            color: i === 0 ? '#bcbec4' : '#6f737a',
-            backgroundColor: i === 0 ? '#214283' : 'transparent',
-            fontFamily: "'JetBrains Mono', monospace",
+            color: i === 0 ? 'var(--text-primary)' : 'var(--text-tertiary)',
+            backgroundColor: i === 0 ? 'var(--bg-selection)' : 'transparent',
+            fontFamily: 'var(--font-mono)',
           }}>
             {frame}
           </div>
@@ -59,18 +47,18 @@ export function DebugPanel() {
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        padding: '6px 12px',
+        padding: '0 12px',
         fontSize: '12px',
         fontWeight: 600,
-        color: '#bcbec4',
-        borderBottom: '1px solid #393b40',
+        color: 'var(--text-primary)',
+        borderBottom: '1px solid var(--border-default)',
         minHeight: '30px',
       }}>
         Variables
       </div>
       <div style={{ flex: 1, overflow: 'auto', padding: '4px 0' }}>
         {debugVariables.length === 0 && (
-          <div style={{ padding: '8px 12px', color: '#5a5d63', fontSize: '12px', fontStyle: 'italic' }}>
+          <div style={{ padding: '8px 12px', color: 'var(--text-disabled)', fontSize: '12px', fontStyle: 'italic' }}>
             No variables in scope
           </div>
         )}
@@ -80,11 +68,11 @@ export function DebugPanel() {
             justifyContent: 'space-between',
             padding: '2px 12px',
             fontSize: '12px',
-            fontFamily: "'JetBrains Mono', monospace",
+            fontFamily: 'var(--font-mono)',
           }}>
-            <span style={{ color: '#bcbec4' }}>{v.name}</span>
+            <span style={{ color: 'var(--text-primary)' }}>{v.name}</span>
             <span style={{
-              color: '#6897bb',
+              color: 'var(--text-secondary)',
               marginLeft: '8px',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -97,5 +85,31 @@ export function DebugPanel() {
         ))}
       </div>
     </div>
+  );
+}
+
+function ToolWindowBtn({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        background: 'none',
+        border: 'none',
+        color: 'var(--text-tertiary)',
+        cursor: 'pointer',
+        fontSize: '12px',
+        padding: '2px 6px',
+        borderRadius: '4px',
+        display: 'flex',
+        alignItems: 'center',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+    >
+      <svg width="12" height="12" viewBox="0 0 16 16">
+        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5"/>
+      </svg>
+    </button>
   );
 }

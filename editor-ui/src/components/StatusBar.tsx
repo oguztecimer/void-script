@@ -14,42 +14,49 @@ export function StatusBar() {
       display: 'flex',
       alignItems: 'center',
       height: '24px',
-      backgroundColor: '#2b2d30',
+      backgroundColor: 'var(--bg-panel)',
       fontSize: '11px',
-      color: '#6f737a',
-      padding: '0 8px',
-      borderTop: '1px solid #1e1f22',
+      color: 'var(--text-secondary)',
+      padding: '0 0',
+      borderTop: '1px solid var(--border-strong)',
       gap: '0',
     }}>
       {/* Left: VCS branch */}
-      <StatusSegment>git: main</StatusSegment>
+      <StatusSegment>
+        <svg width="10" height="10" viewBox="0 0 16 16" style={{ marginRight: '4px' }}>
+          <circle cx="5" cy="4" r="1.5" stroke="currentColor" strokeWidth="1" fill="none"/>
+          <circle cx="5" cy="12" r="1.5" stroke="currentColor" strokeWidth="1" fill="none"/>
+          <path d="M5 5.5v5" stroke="currentColor" strokeWidth="1" fill="none"/>
+        </svg>
+        main
+      </StatusSegment>
       <div style={{ flex: 1 }} />
-
-      {/* Right side segments */}
-      {activeTab && (
-        <>
-          <StatusSegment>LF</StatusSegment>
-          <StatusSegment>UTF-8</StatusSegment>
-          <StatusSegment>Ln {cursorLine}, Col {cursorCol}</StatusSegment>
-          <StatusSegment>VoidScript</StatusSegment>
-        </>
-      )}
 
       {/* Diagnostics indicator */}
       {errorCount > 0 && (
         <StatusSegment>
-          <span style={{ color: '#ef5350' }}>{errorCount} errors</span>
+          <span style={{ color: 'var(--accent-red)' }}>{errorCount} errors</span>
         </StatusSegment>
       )}
       {warningCount > 0 && (
         <StatusSegment>
-          <span style={{ color: '#e2a42b' }}>{warningCount} warn</span>
+          <span style={{ color: 'var(--accent-yellow)' }}>{warningCount} warn</span>
         </StatusSegment>
       )}
       {errorCount === 0 && warningCount === 0 && activeTab && (
         <StatusSegment>
-          <span style={{ color: '#57a64a' }}>OK</span>
+          <span style={{ color: 'var(--accent-green)' }}>OK</span>
         </StatusSegment>
+      )}
+
+      {/* Right side segments */}
+      {activeTab && (
+        <>
+          <StatusSegment>Ln {cursorLine}, Col {cursorCol}</StatusSegment>
+          <StatusSegment>LF</StatusSegment>
+          <StatusSegment>UTF-8</StatusSegment>
+          <StatusSegment>VoidScript</StatusSegment>
+        </>
       )}
     </div>
   );
@@ -59,14 +66,13 @@ function StatusSegment({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
       padding: '0 8px',
-      borderLeft: '1px solid #393b40',
       height: '100%',
       display: 'flex',
       alignItems: 'center',
       cursor: 'pointer',
     }}
-      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#313335'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
     >
       {children}
     </div>

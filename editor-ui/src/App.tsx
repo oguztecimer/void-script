@@ -31,8 +31,8 @@ export function App() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#1e1f22' }}>
-      {/* Header */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-app)' }}>
+      {/* Unified title bar / toolbar */}
       <Header />
 
       {/* Main area: left strip + left panel + center + right panel + right strip */}
@@ -61,15 +61,15 @@ export function App() {
               height: '200px',
               display: 'flex',
               flexDirection: 'column',
-              borderTop: '1px solid #393b40',
+              borderTop: '1px solid var(--border-strong)',
             }}>
-              {/* Bottom panel header with tabs */}
+              {/* Bottom panel header */}
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                backgroundColor: '#2b2d30',
-                borderBottom: '1px solid #393b40',
-                minHeight: '28px',
+                backgroundColor: 'var(--bg-panel)',
+                borderBottom: '1px solid var(--border-default)',
+                minHeight: '30px',
                 padding: '0 4px',
                 justifyContent: 'space-between',
               }}>
@@ -77,8 +77,16 @@ export function App() {
                   <BottomTab label="Run" active />
                 </div>
                 <div style={{ display: 'flex', gap: '2px', padding: '0 4px' }}>
-                  <PanelHeaderBtn label="Clear" onClick={() => useStore.getState().clearConsole()} />
-                  <PanelHeaderBtn label="x" onClick={() => toggleBottomPanel()} fontSize="14px" />
+                  <PanelHeaderBtn
+                    icon={<svg width="12" height="12" viewBox="0 0 16 16"><path d="M2 2h12M4 6h8M6 10h4M8 14" stroke="currentColor" strokeWidth="1.5"/></svg>}
+                    onClick={() => useStore.getState().clearConsole()}
+                    title="Clear"
+                  />
+                  <PanelHeaderBtn
+                    icon={<svg width="12" height="12" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5"/></svg>}
+                    onClick={() => toggleBottomPanel()}
+                    title="Close"
+                  />
                 </div>
               </div>
               <Console />
@@ -109,8 +117,8 @@ function BottomTab({ label, active }: { label: string; active?: boolean }) {
     <div style={{
       padding: '4px 12px',
       fontSize: '12px',
-      color: active ? '#bcbec4' : '#6f737a',
-      borderBottom: active ? '2px solid #3574f0' : '2px solid transparent',
+      color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
+      borderBottom: active ? '2px solid var(--accent-blue)' : '2px solid transparent',
       cursor: 'pointer',
       userSelect: 'none',
     }}>
@@ -119,20 +127,25 @@ function BottomTab({ label, active }: { label: string; active?: boolean }) {
   );
 }
 
-function PanelHeaderBtn({ label, onClick, fontSize }: { label: string; onClick: () => void; fontSize?: string }) {
+function PanelHeaderBtn({ icon, onClick, title }: { icon: React.ReactNode; onClick: () => void; title: string }) {
   return (
     <button
       onClick={onClick}
+      title={title}
       style={{
-        background: 'none', border: 'none', color: '#6f737a',
-        cursor: 'pointer', fontSize: fontSize || '11px',
-        fontFamily: 'inherit', padding: '2px 6px', borderRadius: '4px',
-        display: 'flex', alignItems: 'center',
+        background: 'none',
+        border: 'none',
+        color: 'var(--text-tertiary)',
+        cursor: 'pointer',
+        padding: '2px 6px',
+        borderRadius: '4px',
+        display: 'flex',
+        alignItems: 'center',
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#393b40'; e.currentTarget.style.color = '#bcbec4'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#6f737a'; }}
+      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
     >
-      {label}
+      {icon}
     </button>
   );
 }

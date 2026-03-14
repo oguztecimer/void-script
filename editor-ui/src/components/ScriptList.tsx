@@ -20,38 +20,26 @@ export function ScriptList() {
   return (
     <div style={{
       width: '220px',
-      backgroundColor: '#2b2d30',
+      backgroundColor: 'var(--bg-panel)',
       overflow: 'auto',
       display: 'flex',
       flexDirection: 'column',
-      borderRight: '1px solid #393b40',
+      borderRight: '1px solid var(--border-strong)',
     }}>
       {/* Tool window header */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '6px 12px',
+        padding: '0 12px',
         fontSize: '12px',
         fontWeight: 600,
-        color: '#bcbec4',
-        borderBottom: '1px solid #393b40',
+        color: 'var(--text-primary)',
+        borderBottom: '1px solid var(--border-default)',
         minHeight: '30px',
       }}>
         <span>Scripts</span>
-        <button
-          onClick={() => toggleLeftPanel()}
-          title="Hide"
-          style={{
-            background: 'none', border: 'none', color: '#6f737a',
-            cursor: 'pointer', fontSize: '14px', padding: '2px 4px',
-            borderRadius: '4px', display: 'flex', alignItems: 'center',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#393b40'; e.currentTarget.style.color = '#bcbec4'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#6f737a'; }}
-        >
-          x
-        </button>
+        <ToolWindowBtn onClick={() => toggleLeftPanel()} title="Hide" />
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', padding: '4px 0' }}>
@@ -62,7 +50,7 @@ export function ScriptList() {
               fontSize: '11px',
               textTransform: 'uppercase',
               letterSpacing: '0.5px',
-              color: '#6f737a',
+              color: 'var(--text-tertiary)',
               fontWeight: 600,
             }}>
               {group.label}
@@ -72,31 +60,56 @@ export function ScriptList() {
                 key={script.id}
                 onClick={() => sendToRust({ type: 'script_request', script_id: script.id })}
                 style={{
-                  padding: '4px 12px 4px 20px',
+                  padding: '4px 12px 4px 24px',
                   cursor: 'pointer',
                   fontSize: '13px',
-                  color: '#bcbec4',
+                  color: 'var(--text-primary)',
                   borderRadius: '4px',
                   margin: '0 4px',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#313335'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
               >
-                <span style={{ color: '#6f737a', fontSize: '11px' }}>VS</span>
                 <span>{script.name}</span>
               </div>
             ))}
           </div>
         ))}
         {scriptList.length === 0 && (
-          <div style={{ padding: '16px 12px', color: '#5a5d63', fontSize: '12px', fontStyle: 'italic' }}>
+          <div style={{ padding: '16px 12px', color: 'var(--text-disabled)', fontSize: '12px', fontStyle: 'italic' }}>
             No scripts loaded
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function ToolWindowBtn({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        background: 'none',
+        border: 'none',
+        color: 'var(--text-tertiary)',
+        cursor: 'pointer',
+        fontSize: '12px',
+        padding: '2px 6px',
+        borderRadius: '4px',
+        display: 'flex',
+        alignItems: 'center',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+    >
+      <svg width="12" height="12" viewBox="0 0 16 16">
+        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5"/>
+      </svg>
+    </button>
   );
 }

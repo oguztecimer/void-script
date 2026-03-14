@@ -7,12 +7,24 @@
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body, #root { width: 100%; height: 100%; overflow: hidden; }
-      body {
-        background: #1e1f22;
-        color: #bcbec4;
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-        font-size: 13px;
+      html {
+        /* Boot-time anti-flash: hardcoded hex because CSS custom properties from
+           tokens.css are not available until JS loads. Do NOT replace with a token. */
+        background: #1E1F22;
+        color-scheme: dark;
       }
+      body {
+        background: #1E1F22;
+        color: #DFE1E5;
+        font-family: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+      }
+      /* Window drag regions for frameless title bar */
+      .titlebar-drag { -webkit-app-region: drag; }
+      .titlebar-no-drag { -webkit-app-region: no-drag; }
     </style>
   </head>
   <body>

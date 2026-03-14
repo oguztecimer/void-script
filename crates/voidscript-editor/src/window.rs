@@ -84,6 +84,7 @@ pub fn attach_webview(
                 }
             })
             .with_url("voidscript://localhost/index.html")
+            .with_accept_first_mouse(true)
             .with_ipc_handler(move |request| {
                 let body = request.body();
                 match serde_json::from_str::<JsToRust>(body) {

@@ -13,7 +13,7 @@ This milestone transforms the working VOID//SCRIPT code editor into a pixel-accu
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Self-hosted fonts, CSS token system, and macOS rendering fixes (completed 2026-03-14)
-- [ ] **Phase 2: CSS Architecture** - Primitive extraction, CSS Modules migration, hover pattern cleanup
+- [x] **Phase 2: CSS Architecture** - Primitive extraction, CSS Modules migration, hover pattern cleanup (completed 2026-03-14)
 - [ ] **Phase 3: Title Bar** - Pixel-accurate header with Search Everywhere and Settings gear
 - [ ] **Phase 4: Tab Bar and Editor State** - Rider tab sizing, close-button hover-reveal, EditorState preservation
 - [ ] **Phase 5: Tool Strips and Panels** - 40px tool strip, panel headers, bottom panel tab strip
@@ -49,7 +49,7 @@ Plans:
   2. A `src/primitives/` directory contains at minimum `ToolBtn`, `PanelHeader`, `Separator`, and `StatusSegment` components
   3. All interactive elements transition on hover with a consistent 150ms ease — verifiable by observing any button or tab in browser DevTools
   4. Panel borders, separators, and dividers use the correct 3-level color hierarchy (`#1E1F22`, `#393B40`, `#43454A`) with no deviations
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 02-01-PLAN.md — Create ToolBtn, PanelHeader, Separator, StatusSegment primitives with CSS Modules
@@ -137,7 +137,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete   | 2026-03-14 |
-| 2. CSS Architecture | 1/2 | In Progress | - |
+| 2. CSS Architecture | 1/2 | Complete    | 2026-03-14 |
 | 3. Title Bar | 0/? | Not started | - |
 | 4. Tab Bar and Editor State | 0/? | Not started | - |
 | 5. Tool Strips and Panels | 0/? | Not started | - |

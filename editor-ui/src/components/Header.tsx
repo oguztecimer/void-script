@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import styles from './Header.module.css';
 import { useStore } from '../state/store';
 import { sendToRust } from '../ipc/bridge';
+import { ToolBtn } from '../primitives/ToolBtn';
+import { Separator } from '../primitives/Separator';
 
 export function Header() {
   const activeTabId = useStore((s) => s.activeTabId);
@@ -12,23 +14,14 @@ export function Header() {
   const active = isRunning || isDebugging;
 
   return (
-    <div className="titlebar-drag" style={{
-      display: 'flex',
-      alignItems: 'center',
-      height: '40px',
-      backgroundColor: 'var(--bg-toolbar)',
-      padding: '0 8px',
-      userSelect: 'none',
-      borderBottom: '1px solid var(--border-strong)',
-      fontSize: '13px',
-    }}>
+    <div className={`titlebar-drag ${styles.toolbar}`}>
       {/* macOS-style window controls */}
       <WindowControls />
 
-      <Separator />
+      <Separator variant="line" level="subtle" />
 
       {/* Hamburger menu */}
-      <ToolBtn title="Menu">
+      <ToolBtn size="small" title="Menu" className="titlebar-no-drag">
         <svg width="14" height="14" viewBox="0 0 16 16">
           <line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" strokeWidth="1.5"/>
           <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="1.5"/>
@@ -36,17 +29,17 @@ export function Header() {
         </svg>
       </ToolBtn>
 
-      <Separator />
+      <Separator variant="line" level="subtle" />
 
       {/* Back/Forward navigation */}
-      <ToolBtn title="Back">
+      <ToolBtn size="small" title="Back" className="titlebar-no-drag">
         <svg width="10" height="10" viewBox="0 0 16 16"><path d="M10 2L4 8l6 6" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
       </ToolBtn>
-      <ToolBtn title="Forward">
+      <ToolBtn size="small" title="Forward" className="titlebar-no-drag">
         <svg width="10" height="10" viewBox="0 0 16 16"><path d="M6 2l6 6-6 6" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
       </ToolBtn>
 
-      <Separator />
+      <Separator variant="line" level="subtle" />
 
       {/* Project widget */}
       <HeaderWidget
@@ -55,9 +48,7 @@ export function Header() {
         hasDropdown
       />
 
-      <Separator />
-
-      {/* VCS branch widget */}
+      {/* VCS branch widget — no separator between project and VCS */}
       <HeaderWidget
         icon={<svg width="12" height="12" viewBox="0 0 16 16"><circle cx="5" cy="4" r="2" stroke="currentColor" strokeWidth="1.2" fill="none"/><circle cx="11" cy="4" r="2" stroke="currentColor" strokeWidth="1.2" fill="none"/><circle cx="5" cy="12" r="2" stroke="currentColor" strokeWidth="1.2" fill="none"/><path d="M5 6v4M11 6c0 4-6 4-6 4" stroke="currentColor" strokeWidth="1.2" fill="none"/></svg>}
         label="main"
@@ -65,33 +56,37 @@ export function Header() {
       />
 
       {/* Center spacer - draggable */}
-      <div style={{ flex: 1 }} />
+      <div className={styles.spacer} />
 
-      {/* Right: run config + run/debug */}
-      <div className="titlebar-no-drag" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+      {/* Right: run config + run/debug + search + settings */}
+      <div className={`titlebar-no-drag ${styles.rightGroup}`}>
         {/* Run configuration selector */}
         <RunConfigSelector label={activeTab ? `${activeTab.name}.vs` : 'No configuration'} />
 
-        <Separator />
+        <Separator variant="line" level="subtle" />
 
         {/* Run/Debug/Stop buttons */}
         {!active ? (
           <>
-            <ActionBtn
+            <ToolBtn
+              size="small"
+              variant="filled"
               title="Run"
-              iconColor="var(--icon-run)"
               bgColor="var(--bg-btn-run)"
-              hoverBg="var(--bg-btn-run-hover)"
+              hoverBgColor="var(--bg-btn-run-hover)"
+              iconColor="var(--icon-run)"
               onClick={() => activeTabId && sendToRust({ type: 'run_script', script_id: activeTabId })}
               disabled={!activeTabId}
             >
               <svg width="10" height="10" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
-            </ActionBtn>
-            <ActionBtn
+            </ToolBtn>
+            <ToolBtn
+              size="small"
+              variant="filled"
               title="Debug"
-              iconColor="var(--icon-debug)"
               bgColor="var(--bg-btn-debug)"
-              hoverBg="var(--bg-btn-debug-hover)"
+              hoverBgColor="var(--bg-btn-debug-hover)"
+              iconColor="var(--icon-debug)"
               onClick={() => activeTabId && sendToRust({ type: 'debug_start', script_id: activeTabId })}
               disabled={!activeTabId}
             >
@@ -102,47 +97,57 @@ export function Header() {
                 <line x1="3" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="1"/>
                 <line x1="3" y1="10" x2="13" y2="10" stroke="currentColor" strokeWidth="1"/>
               </svg>
-            </ActionBtn>
+            </ToolBtn>
           </>
         ) : (
           <>
-            <ActionBtn
+            <ToolBtn
+              size="small"
+              variant="filled"
               title="Stop"
-              iconColor="var(--icon-stop)"
               bgColor="var(--bg-btn-stop)"
-              hoverBg="var(--bg-btn-stop-hover)"
+              hoverBgColor="var(--bg-btn-stop-hover)"
+              iconColor="var(--icon-stop)"
               onClick={() => activeTabId && sendToRust({ type: 'stop_script', script_id: activeTabId })}
             >
               <svg width="8" height="8" viewBox="0 0 10 10"><rect width="10" height="10" rx="1.5" fill="currentColor"/></svg>
-            </ActionBtn>
+            </ToolBtn>
             {isDebugging && isPaused && (
               <>
-                <ActionBtn
+                <Separator variant="line" level="subtle" />
+                <ToolBtn
+                  size="small"
+                  variant="filled"
                   title="Resume"
-                  iconColor="var(--icon-run)"
                   bgColor="var(--bg-btn-run)"
-                  hoverBg="var(--bg-btn-run-hover)"
+                  hoverBgColor="var(--bg-btn-run-hover)"
+                  iconColor="var(--icon-run)"
                   onClick={() => activeTabId && sendToRust({ type: 'debug_continue', script_id: activeTabId })}
                 >
                   <svg width="10" height="10" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
-                </ActionBtn>
-                <ToolBtn title="Step Over" onClick={() => activeTabId && sendToRust({ type: 'debug_step_over', script_id: activeTabId })}>
+                </ToolBtn>
+                <ToolBtn size="small" title="Step Over" onClick={() => activeTabId && sendToRust({ type: 'debug_step_over', script_id: activeTabId })}>
                   <svg width="14" height="14" viewBox="0 0 16 16"><path d="M2 12h4V8h4v4h4L8 4z" fill="currentColor" transform="rotate(90 8 8)"/></svg>
                 </ToolBtn>
-                <ToolBtn title="Step Into" onClick={() => activeTabId && sendToRust({ type: 'debug_step_into', script_id: activeTabId })}>
+                <ToolBtn size="small" title="Step Into" onClick={() => activeTabId && sendToRust({ type: 'debug_step_into', script_id: activeTabId })}>
                   <svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 2v8m-3-3l3 3 3-3M5 14h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
                 </ToolBtn>
-                <ToolBtn title="Step Out" onClick={() => activeTabId && sendToRust({ type: 'debug_step_out', script_id: activeTabId })}>
+                <ToolBtn size="small" title="Step Out" onClick={() => activeTabId && sendToRust({ type: 'debug_step_out', script_id: activeTabId })}>
                   <svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 14V6m-3 3l3-3 3 3M5 2h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
                 </ToolBtn>
               </>
             )}
-            <Separator />
-            <span style={{ color: isDebugging ? 'var(--icon-debug)' : 'var(--icon-run)', fontSize: '11px', padding: '0 4px' }}>
-              {isDebugging ? (isPaused ? 'Paused' : 'Debugging...') : 'Running...'}
-            </span>
           </>
         )}
+
+        <Separator variant="line" level="subtle" />
+        <SearchPill />
+        <ToolBtn size="small" title="Settings">
+          <svg width="14" height="14" viewBox="0 0 16 16">
+            <path d="M6.5.5h3l.5 2.1a5.5 5.5 0 0 1 1.3.8l2-.8 1.5 2.6-1.5 1.3a5.5 5.5 0 0 1 0 1.5l1.5 1.3-1.5 2.6-2-.8a5.5 5.5 0 0 1-1.3.8l-.5 2.1h-3l-.5-2.1a5.5 5.5 0 0 1-1.3-.8l-2 .8L1.2 9.3l1.5-1.3a5.5 5.5 0 0 1 0-1.5L1.2 5.2l1.5-2.6 2 .8A5.5 5.5 0 0 1 6 2.6L6.5.5z" stroke="currentColor" strokeWidth="1" fill="none"/>
+            <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1" fill="none"/>
+          </svg>
+        </ToolBtn>
       </div>
     </div>
   );
@@ -152,12 +157,7 @@ export function Header() {
 
 function WindowControls() {
   return (
-    <div className="titlebar-no-drag" style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      padding: '0 4px',
-    }}>
+    <div className={`titlebar-no-drag ${styles.trafficLights}`}>
       <TrafficLight
         color="var(--traffic-close)"
         hoverSymbol="×"
@@ -186,85 +186,19 @@ function TrafficLight({ color, hoverSymbol, onClick, title }: {
   onClick: () => void;
   title: string;
 }) {
-  const [hovered, setHovered] = useState(false);
-
   return (
     <div
       onClick={onClick}
       title={title}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        width: '12px',
-        height: '12px',
-        borderRadius: '50%',
-        backgroundColor: color,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        fontSize: '9px',
-        fontWeight: 700,
-        lineHeight: 1,
-        color: hovered ? 'rgba(0,0,0,0.6)' : 'transparent',
-      }}
+      className={styles.trafficLight}
+      style={{ backgroundColor: color }}
     >
       {hoverSymbol}
     </div>
   );
 }
 
-/* --- Separator --- */
-
-function Separator() {
-  return (
-    <div style={{
-      width: '1px',
-      height: '16px',
-      backgroundColor: 'var(--border-subtle)',
-      margin: '0 6px',
-      flexShrink: 0,
-    }} />
-  );
-}
-
-/* --- Toolbar icon button --- */
-
-function ToolBtn({ title, onClick, disabled, children }: {
-  title: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      className="titlebar-no-drag"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '28px',
-        height: '28px',
-        background: 'none',
-        border: 'none',
-        borderRadius: '6px',
-        color: disabled ? 'var(--text-disabled)' : 'var(--text-secondary)',
-        cursor: disabled ? 'default' : 'pointer',
-        padding: 0,
-        opacity: disabled ? 0.5 : 1,
-      }}
-      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-    >
-      {children}
-    </button>
-  );
-}
-
-/* --- Header widget (project, VCS) --- */
+/* --- Header widget (project, VCS) — in drag zone, hover is JS-driven --- */
 
 function HeaderWidget({ icon, label, muted, hasDropdown }: {
   icon: React.ReactNode;
@@ -274,29 +208,14 @@ function HeaderWidget({ icon, label, muted, hasDropdown }: {
 }) {
   return (
     <button
-      className="titlebar-no-drag"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        height: '26px',
-        padding: '0 8px',
-        background: 'none',
-        border: 'none',
-        borderRadius: '6px',
-        color: muted ? 'var(--text-secondary)' : 'var(--text-primary)',
-        cursor: 'pointer',
-        fontSize: '13px',
-        fontFamily: 'inherit',
-        fontWeight: muted ? 400 : 600,
-      }}
+      className={`titlebar-no-drag ${styles.widget} ${muted ? styles.widgetMuted : ''}`}
       onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
     >
-      <span style={{ display: 'flex', alignItems: 'center', color: muted ? 'var(--text-tertiary)' : 'var(--text-secondary)' }}>{icon}</span>
+      <span className={styles.widgetIcon}>{icon}</span>
       <span>{label}</span>
       {hasDropdown && (
-        <svg width="8" height="8" viewBox="0 0 8 8" style={{ color: 'var(--text-tertiary)' }}>
+        <svg width="8" height="8" viewBox="0 0 8 8" className={styles.widgetChevron}>
           <path d="M1 2.5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" fill="none"/>
         </svg>
       )}
@@ -308,71 +227,33 @@ function HeaderWidget({ icon, label, muted, hasDropdown }: {
 
 function RunConfigSelector({ label }: { label: string }) {
   return (
-    <button
-      className="titlebar-no-drag"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        padding: '0 10px',
-        backgroundColor: 'var(--bg-run-config)',
-        border: 'none',
-        borderRadius: '6px',
-        color: 'var(--text-primary)',
-        height: '26px',
-        cursor: 'pointer',
-        fontSize: '13px',
-        fontFamily: 'inherit',
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--border-subtle)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-run-config)'; }}
-    >
-      <svg width="10" height="10" viewBox="0 0 16 16" style={{ color: 'var(--text-secondary)' }}>
-        <path d="M4 2l10 6-10 6V2z" fill="currentColor"/>
-      </svg>
+    <button className={styles.runConfig}>
+      <span className={styles.runConfigIcon}>
+        <svg width="10" height="10" viewBox="0 0 16 16">
+          <path d="M4 2l10 6-10 6V2z" fill="currentColor"/>
+        </svg>
+      </span>
       <span>{label}</span>
-      <svg width="8" height="8" viewBox="0 0 8 8" style={{ color: 'var(--text-tertiary)' }}>
-        <path d="M1 2.5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" fill="none"/>
-      </svg>
+      <span className={styles.runConfigChevron}>
+        <svg width="8" height="8" viewBox="0 0 8 8">
+          <path d="M1 2.5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+        </svg>
+      </span>
     </button>
   );
 }
 
-/* --- Action button (Run/Debug/Stop with colored background) --- */
+/* --- Search Everywhere pill --- */
 
-function ActionBtn({ title, iconColor, bgColor, hoverBg, onClick, disabled, children }: {
-  title: string;
-  iconColor: string;
-  bgColor: string;
-  hoverBg: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
+function SearchPill() {
   return (
-    <button
-      className="titlebar-no-drag"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '28px',
-        height: '28px',
-        backgroundColor: disabled ? 'transparent' : bgColor,
-        border: 'none',
-        borderRadius: '6px',
-        color: disabled ? 'var(--text-disabled)' : iconColor,
-        cursor: disabled ? 'default' : 'pointer',
-        padding: 0,
-        opacity: disabled ? 0.5 : 1,
-      }}
-      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.backgroundColor = hoverBg; }}
-      onMouseLeave={(e) => { if (!disabled) e.currentTarget.style.backgroundColor = disabled ? 'transparent' : bgColor; }}
-    >
-      {children}
+    <button className={styles.searchPill} title="Search Everywhere (Shift Shift)">
+      <svg width="12" height="12" viewBox="0 0 16 16">
+        <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+        <line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+      <span>Search</span>
+      <span className={styles.searchShortcut}>&#8679;&#8679;</span>
     </button>
   );
 }

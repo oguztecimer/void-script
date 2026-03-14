@@ -1,0 +1,145 @@
+/* Header layout and widget styles */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  height: var(--height-titlebar);
+  background-color: var(--bg-toolbar);
+  padding: 0 8px;
+  user-select: none;
+  border-bottom: 1px solid var(--border-strong);
+  font-size: var(--font-size-ui);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.rightGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trafficLights {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.trafficLight {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: transparent;
+  transition: color var(--transition-hover);
+}
+
+.trafficLight:hover {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+/* Compound header widgets (project, VCS) — in drag zone, hover is JS-driven */
+.widget {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--height-widget-btn);
+  padding: 0 8px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: var(--font-size-ui);
+  font-family: inherit;
+  font-weight: 600;
+  transition: background-color var(--transition-hover);
+}
+
+/* NOTE: No .widget:hover rule — these are in the drag zone so hover is JS-driven */
+
+.widgetMuted {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.widgetIcon {
+  display: flex;
+  align-items: center;
+  color: var(--text-tertiary);
+}
+
+.widgetChevron {
+  color: var(--text-tertiary);
+}
+
+/* Run configuration selector */
+.runConfig {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background-color: var(--bg-run-config);
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  height: var(--height-widget-btn);
+  cursor: pointer;
+  font-size: var(--font-size-ui);
+  font-family: inherit;
+  transition: background-color var(--transition-hover);
+}
+
+.runConfig:hover {
+  background-color: var(--border-subtle);
+}
+
+.runConfigIcon {
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+}
+
+.runConfigChevron {
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+}
+
+/* Search Everywhere pill */
+.searchPill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 220px;
+  height: var(--height-widget-btn);
+  padding: 0 10px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-ui);
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color var(--transition-hover), background-color var(--transition-hover);
+}
+
+.searchPill:hover {
+  border-color: var(--border-subtle);
+  background-color: var(--bg-hover);
+}
+
+.searchShortcut {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}

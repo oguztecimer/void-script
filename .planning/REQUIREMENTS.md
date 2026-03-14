@@ -37,8 +37,8 @@ Requirements for the Rider New UI pixel-accurate restyle. Each maps to roadmap p
 
 - [x] **PNLS-01**: Tool strip width expanded to 40px with 36px buttons and appropriately sized icons
 - [x] **PNLS-02**: Panel header rows with title text + right-aligned action icons on ScriptList, DebugPanel, and Console panels
-- [ ] **PNLS-03**: Bottom panel tab strip with Rider-style chrome (2px active indicator, proper tab sizing)
-- [ ] **PNLS-04**: Resizable panels with drag handles using react-resizable-panels
+- [x] **PNLS-03**: Bottom panel tab strip with Rider-style chrome (2px active indicator, proper tab sizing)
+- [x] **PNLS-04**: Resizable panels with drag handles using react-resizable-panels
 
 ### Status Bar
 
@@ -105,8 +105,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | EDIT-03 | Phase 8 | Pending |
 | PNLS-01 | Phase 5 | Complete |
 | PNLS-02 | Phase 5 | Complete |
-| PNLS-03 | Phase 5 | Pending |
-| PNLS-04 | Phase 7 | Pending |
+| PNLS-03 | Phase 5 | Complete |
+| PNLS-04 | Phase 7 | Complete |
 | STAT-01 | Phase 6 | Pending |
 | STAT-02 | Phase 6 | Pending |
 | PLSH-01 | Phase 2 | Complete |

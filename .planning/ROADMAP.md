@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: CSS Architecture** - Primitive extraction, CSS Modules migration, hover pattern cleanup (completed 2026-03-14)
 - [x] **Phase 3: Title Bar** - Pixel-accurate header with Search Everywhere and Settings gear (completed 2026-03-14)
 - [x] **Phase 4: Tab Bar and Editor State** - Rider tab sizing, close-button hover-reveal, EditorState preservation (completed 2026-03-14)
-- [ ] **Phase 5: Tool Strips and Panels** - 40px tool strip, panel headers, bottom panel tab strip
+- [x] **Phase 5: Tool Strips and Panels** - 40px tool strip, panel headers, bottom panel tab strip (completed 2026-03-14)
 - [ ] **Phase 6: Status Bar** - Navigation path, icon+count diagnostics widget
 - [ ] **Phase 7: Resizable Panels** - react-resizable-panels integration replacing fixed widths
 - [ ] **Phase 8: Gutter Refinements** - Breakpoint overlay, fold icons on hover, CodeMirror theme polish
@@ -91,7 +91,7 @@ Plans:
   2. ScriptList, DebugPanel, and Console panels each have a header row with a title and right-aligned action icons
   3. The bottom panel has a tab strip with a "Console" tab showing a 2px blue active indicator
   4. Users can drag panel resize handles to change the width of the side panels; sizes persist after closing and reopening the editor
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 05-01-PLAN.md — SVG icons + active edge indicator for ToolStrip, panel header improvements
@@ -150,7 +150,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. CSS Architecture | 1/2 | Complete    | 2026-03-14 |
 | 3. Title Bar | 1/1 | Complete   | 2026-03-14 |
 | 4. Tab Bar and Editor State | 1/1 | Complete   | 2026-03-14 |
-| 5. Tool Strips and Panels | 1/2 | In Progress|  |
+| 5. Tool Strips and Panels | 2/2 | Complete   | 2026-03-14 |
 | 6. Status Bar | 0/? | Not started | - |
 | 7. Resizable Panels | 0/? | Not started | - |
 | 8. Gutter Refinements | 0/? | Not started | - |

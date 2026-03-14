@@ -68,7 +68,7 @@ export const useStore = create<EditorState>((set, get) => ({
   leftPanelOpen: true,
   bottomPanelOpen: false,
   rightPanelOpen: false,
-  bottomPanelTab: 'run',
+  bottomPanelTab: 'console',
   isRunning: false,
   isDebugging: false,
   isPaused: false,

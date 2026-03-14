@@ -7,7 +7,7 @@ import { ScriptList } from './components/ScriptList';
 import { Console } from './components/Console';
 import { DebugPanel } from './components/DebugPanel';
 import { StatusBar } from './components/StatusBar';
-import { ToolBtn } from './primitives/ToolBtn';
+import { BottomTabStrip } from './components/BottomTabStrip';
 import { initIpcBridge } from './ipc/bridge';
 import { useStore } from './state/store';
 import styles from './App.module.css';
@@ -45,7 +45,6 @@ export function App() {
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
   const isDebugging = useStore((s) => s.isDebugging);
   const toggleLeftPanel = useStore((s) => s.toggleLeftPanel);
-  const toggleBottomPanel = useStore((s) => s.toggleBottomPanel);
   const toggleRightPanel = useStore((s) => s.toggleRightPanel);
 
   useEffect(() => {
@@ -80,28 +79,7 @@ export function App() {
           {/* Bottom panel with its own tab bar */}
           {bottomPanelOpen && (
             <div className={styles.bottomPanel}>
-              {/* Bottom panel header */}
-              <div className={styles.bottomPanelHeader}>
-                <div className={styles.bottomTabs}>
-                  <BottomTab label="Run" active />
-                </div>
-                <div className={styles.bottomActions}>
-                  <ToolBtn
-                    size="small"
-                    onClick={() => useStore.getState().clearConsole()}
-                    title="Clear"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 16 16"><path d="M2 2h12M4 6h8M6 10h4M8 14" stroke="currentColor" strokeWidth="1.5"/></svg>
-                  </ToolBtn>
-                  <ToolBtn
-                    size="small"
-                    onClick={() => toggleBottomPanel()}
-                    title="Close"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5"/></svg>
-                  </ToolBtn>
-                </div>
-              </div>
+              <BottomTabStrip />
               <Console />
             </div>
           )}
@@ -121,14 +99,6 @@ export function App() {
 
       {/* Status bar */}
       <StatusBar />
-    </div>
-  );
-}
-
-function BottomTab({ label, active }: { label: string; active?: boolean }) {
-  return (
-    <div className={`${styles.bottomTab} ${active ? styles.bottomTabActive : ''}`}>
-      {label}
     </div>
   );
 }

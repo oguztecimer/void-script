@@ -7,8 +7,10 @@ import { ScriptList } from './components/ScriptList';
 import { Console } from './components/Console';
 import { DebugPanel } from './components/DebugPanel';
 import { StatusBar } from './components/StatusBar';
+import { ToolBtn } from './primitives/ToolBtn';
 import { initIpcBridge } from './ipc/bridge';
 import { useStore } from './state/store';
+import styles from './App.module.css';
 
 const LEFT_ITEMS = [
   { id: 'scripts', icon: 'S', label: 'Scripts', shortcut: 'Alt+1' },
@@ -31,12 +33,12 @@ export function App() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-app)' }}>
+    <div className={styles.app}>
       {/* Unified title bar / toolbar */}
       <Header />
 
       {/* Main area: left strip + left panel + center + right panel + right strip */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div className={styles.main}>
         {/* Left tool strip */}
         <ToolStrip
           side="left"
@@ -49,44 +51,35 @@ export function App() {
         {leftPanelOpen && <ScriptList />}
 
         {/* Center: tabs + editor + bottom panel */}
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+        <div className={styles.center}>
           <TabBar />
-          <div style={{ flex: 1, overflow: 'hidden' }}>
+          <div className={styles.editorArea}>
             <Editor />
           </div>
 
           {/* Bottom panel with its own tab bar */}
           {bottomPanelOpen && (
-            <div style={{
-              height: '200px',
-              display: 'flex',
-              flexDirection: 'column',
-              borderTop: '1px solid var(--border-strong)',
-            }}>
+            <div className={styles.bottomPanel}>
               {/* Bottom panel header */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: 'var(--bg-panel)',
-                borderBottom: '1px solid var(--border-default)',
-                minHeight: '30px',
-                padding: '0 4px',
-                justifyContent: 'space-between',
-              }}>
-                <div style={{ display: 'flex', gap: '0' }}>
+              <div className={styles.bottomPanelHeader}>
+                <div className={styles.bottomTabs}>
                   <BottomTab label="Run" active />
                 </div>
-                <div style={{ display: 'flex', gap: '2px', padding: '0 4px' }}>
-                  <PanelHeaderBtn
-                    icon={<svg width="12" height="12" viewBox="0 0 16 16"><path d="M2 2h12M4 6h8M6 10h4M8 14" stroke="currentColor" strokeWidth="1.5"/></svg>}
+                <div className={styles.bottomActions}>
+                  <ToolBtn
+                    size="small"
                     onClick={() => useStore.getState().clearConsole()}
                     title="Clear"
-                  />
-                  <PanelHeaderBtn
-                    icon={<svg width="12" height="12" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5"/></svg>}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16"><path d="M2 2h12M4 6h8M6 10h4M8 14" stroke="currentColor" strokeWidth="1.5"/></svg>
+                  </ToolBtn>
+                  <ToolBtn
+                    size="small"
                     onClick={() => toggleBottomPanel()}
                     title="Close"
-                  />
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5"/></svg>
+                  </ToolBtn>
                 </div>
               </div>
               <Console />
@@ -114,38 +107,8 @@ export function App() {
 
 function BottomTab({ label, active }: { label: string; active?: boolean }) {
   return (
-    <div style={{
-      padding: '4px 12px',
-      fontSize: '12px',
-      color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
-      borderBottom: active ? '2px solid var(--accent-blue)' : '2px solid transparent',
-      cursor: 'pointer',
-      userSelect: 'none',
-    }}>
+    <div className={`${styles.bottomTab} ${active ? styles.bottomTabActive : ''}`}>
       {label}
     </div>
-  );
-}
-
-function PanelHeaderBtn({ icon, onClick, title }: { icon: React.ReactNode; onClick: () => void; title: string }) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      style={{
-        background: 'none',
-        border: 'none',
-        color: 'var(--text-tertiary)',
-        cursor: 'pointer',
-        padding: '2px 6px',
-        borderRadius: '4px',
-        display: 'flex',
-        alignItems: 'center',
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-    >
-      {icon}
-    </button>
   );
 }

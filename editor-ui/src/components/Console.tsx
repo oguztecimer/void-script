@@ -1,5 +1,12 @@
 import { useRef, useEffect } from 'react';
 import { useStore } from '../state/store';
+import styles from './Console.module.css';
+
+const levelClass: Record<string, string> = {
+  error: styles.error,
+  warn: styles.warn,
+  info: styles.info,
+};
 
 export function Console() {
   const consoleOutput = useStore((s) => s.consoleOutput);
@@ -10,26 +17,14 @@ export function Console() {
   }, [consoleOutput.length]);
 
   return (
-    <div style={{
-      flex: 1,
-      overflow: 'auto',
-      padding: '6px 12px',
-      fontSize: '12px',
-      lineHeight: '1.6',
-      fontFamily: 'var(--font-mono)',
-      backgroundColor: 'var(--bg-editor)',
-    }}>
+    <div className={styles.console}>
       {consoleOutput.map((entry, i) => (
-        <div key={i} style={{
-          color: entry.level === 'error' ? 'var(--accent-red)' : entry.level === 'warn' ? 'var(--accent-yellow)' : 'var(--text-primary)',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-all',
-        }}>
+        <div key={i} className={`${styles.entry} ${levelClass[entry.level] || styles.info}`}>
           {entry.text}
         </div>
       ))}
       {consoleOutput.length === 0 && (
-        <div style={{ color: 'var(--text-disabled)', fontStyle: 'italic', padding: '8px 0' }}>
+        <div className={styles.emptyState}>
           Run a script to see output here
         </div>
       )}

@@ -1,0 +1,32 @@
+.console {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: var(--font-mono);
+  background-color: var(--bg-editor);
+}
+
+.entry {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.error {
+  color: var(--accent-red);
+}
+
+.warn {
+  color: var(--accent-yellow);
+}
+
+.info {
+  color: var(--text-primary);
+}
+
+.emptyState {
+  color: var(--text-disabled);
+  font-style: italic;
+  padding: 8px 0;
+}

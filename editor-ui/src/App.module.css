@@ -1,0 +1,66 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-app);
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.center {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.editorArea {
+  flex: 1;
+  overflow: hidden;
+}
+
+.bottomPanel {
+  height: 200px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-strong);
+}
+
+.bottomPanelHeader {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-panel);
+  border-bottom: 1px solid var(--border-default);
+  min-height: 30px;
+  padding: 0 4px;
+  justify-content: space-between;
+}
+
+.bottomTabs {
+  display: flex;
+  gap: 0;
+}
+
+.bottomActions {
+  display: flex;
+  gap: 2px;
+  padding: 0 4px;
+}
+
+.bottomTab {
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-tertiary);
+}
+
+.bottomTabActive {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-blue);
+}

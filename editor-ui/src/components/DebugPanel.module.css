@@ -1,0 +1,64 @@
+.panel {
+  width: 250px;
+  background-color: var(--bg-panel);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-strong);
+}
+
+.section {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.frame {
+  padding: 3px 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.frameActive {
+  composes: frame;
+  color: var(--text-primary);
+  background-color: var(--bg-selection);
+}
+
+.frameInactive {
+  composes: frame;
+  color: var(--text-tertiary);
+}
+
+.variables {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.variable {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.variableName {
+  color: var(--text-primary);
+}
+
+.variableValue {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+  margin-left: 8px;
+}
+
+.emptyState {
+  padding: 8px 12px;
+  color: var(--text-disabled);
+  font-size: 12px;
+  font-style: italic;
+}

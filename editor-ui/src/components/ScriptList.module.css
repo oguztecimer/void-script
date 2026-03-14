@@ -1,0 +1,47 @@
+.panel {
+  width: 220px;
+  background-color: var(--bg-panel);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-strong);
+}
+
+.list {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.groupLabel {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.scriptItem {
+  padding: 4px 12px 4px 24px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-radius: 4px;
+  margin: 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color var(--transition-hover);
+}
+
+.scriptItem:hover {
+  background-color: var(--bg-hover);
+}
+
+.emptyState {
+  padding: 16px 12px;
+  color: var(--text-disabled);
+  font-size: 12px;
+  font-style: italic;
+}

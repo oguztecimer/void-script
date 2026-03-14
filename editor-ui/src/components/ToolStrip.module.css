@@ -1,0 +1,17 @@
+.strip {
+  display: flex;
+  flex-direction: column;
+  width: var(--width-toolstrip);
+  background-color: var(--bg-panel);
+  align-items: center;
+  padding-top: 6px;
+  gap: 2px;
+}
+
+.left {
+  border-right: 1px solid var(--border-strong);
+}
+
+.right {
+  border-left: 1px solid var(--border-strong);
+}

@@ -1,0 +1,14 @@
+.bar {
+  display: flex;
+  align-items: center;
+  height: var(--height-statusbar);
+  background-color: var(--bg-panel);
+  font-size: var(--font-size-status);
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-strong);
+  gap: 0;
+}
+
+.spacer {
+  flex: 1;
+}

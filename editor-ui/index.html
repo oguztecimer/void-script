@@ -8,8 +8,6 @@
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body, #root { width: 100%; height: 100%; overflow: hidden; }
       html {
-        /* Boot-time anti-flash: hardcoded hex because CSS custom properties from
-           tokens.css are not available until JS loads. Do NOT replace with a token. */
         background: #1E1F22;
         color-scheme: dark;
       }
@@ -22,9 +20,35 @@
         -moz-osx-font-smoothing: grayscale;
         text-rendering: optimizeLegibility;
       }
-      /* Window drag regions for frameless title bar */
       .titlebar-drag { -webkit-app-region: drag; }
       .titlebar-no-drag { -webkit-app-region: no-drag; }
+
+      /* Design tokens — inlined for wry custom protocol compatibility */
+      :root {
+        --bg-app: #1E1F22; --bg-editor: #1E1F22; --bg-panel: #2B2D30;
+        --bg-toolbar: #2B2D30; --bg-input: #1E1F22; --bg-selection: #2E436E;
+        --bg-hover: #393B40; --bg-active: #2E436E; --bg-tab-active: #2B2D30;
+        --bg-tab-inactive: #1E1F22; --bg-tooltip: #393B40; --bg-run-config: #393B40;
+        --bg-btn-run: #2A3B2D; --bg-btn-run-hover: #334733;
+        --bg-btn-debug: #2E3A4E; --bg-btn-debug-hover: #3A4A5E;
+        --bg-btn-stop: #4E2A2A; --bg-btn-stop-hover: #5E3434;
+        --text-primary: #DFE1E5; --text-secondary: #9DA0A8;
+        --text-tertiary: #6F737A; --text-disabled: #5A5D63; --text-link: #3574F0;
+        --icon-run: #57965C; --icon-debug: #6B9BFA; --icon-stop: #DB5C5C;
+        --traffic-close: #FF5F56; --traffic-minimize: #FFBD2E; --traffic-maximize: #27C93F;
+        --border-default: #393B40; --border-subtle: #43454A; --border-strong: #1E1F22;
+        --accent-blue: #3574F0; --accent-green: #57965C; --accent-red: #DB5C5C;
+        --accent-yellow: #E08855; --accent-breakpoint: #f85149;
+        --syntax-keyword: #00e5ff; --syntax-function: #ffb347; --syntax-string: #98c379;
+        --syntax-number: #d19a66; --syntax-comment: #7a7e85; --syntax-operator: #56b6c2;
+        --syntax-constant: #c678dd; --syntax-bracket: #8b949e; --syntax-variable: #bcbec4;
+        --height-titlebar: 40px; --height-tabbar: 38px; --height-statusbar: 24px;
+        --width-toolstrip: 40px; --size-toolstrip-btn: 36px; --height-widget-btn: 26px;
+        --font-ui: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace;
+        --font-size-ui: 13px; --font-size-editor: 14px; --font-size-status: 11px;
+        --line-height-editor: 1.6; --transition-hover: 150ms ease;
+      }
     </style>
   </head>
   <body>

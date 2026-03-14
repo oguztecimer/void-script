@@ -37,6 +37,7 @@ impl Plugin for EditorPlugin {
             .add_event::<DebugStepIntoEvent>()
             .add_event::<DebugStepOutEvent>()
             .add_event::<ToggleBreakpointEvent>()
+            .add_event::<WindowControlEvent>()
             .insert_resource(execution::ScriptExecutionManager::default())
             .add_systems(
                 Update,
@@ -45,10 +46,16 @@ impl Plugin for EditorPlugin {
                     create_editor_window,
                     attach_webview,
                     handle_close_editor,
+                    handle_window_controls,
                     handle_editor_ready,
                     handle_script_save,
                     handle_script_request,
                     handle_script_list_request,
+                ),
+            )
+            .add_systems(
+                Update,
+                (
                     execution::handle_run_script,
                     execution::handle_debug_start,
                     execution::handle_stop_script,

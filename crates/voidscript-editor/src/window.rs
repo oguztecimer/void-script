@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use wry::WebView;
 use crate::embedded_assets;
-use crate::ipc::{IpcChannelSender, JsToRust, RustToJs};
+use crate::ipc::{IpcChannelSender, JsToRust, RustToJs, WindowControlEvent};
 
 /// Marker component for editor windows (not the main game window).
 #[derive(Component)]
@@ -43,6 +43,7 @@ pub fn create_editor_window(
             Window {
                 title: "VOID//SCRIPT Editor".to_string(),
                 resolution: bevy::window::WindowResolution::new(1200.0, 800.0),
+                decorations: false,
                 ..default()
             },
             EditorWindow,
@@ -73,6 +74,7 @@ pub fn attach_webview(
                 match embedded_assets::get_asset(&path) {
                     Some((body, mime)) => http::Response::builder()
                         .header("Content-Type", mime)
+                        .header("Access-Control-Allow-Origin", "*")
                         .body(Cow::Owned(body))
                         .unwrap(),
                     None => http::Response::builder()
@@ -114,6 +116,35 @@ pub fn handle_close_editor(
         for entity in editor_windows.iter() {
             webview_manager.webviews.remove(&entity);
             commands.entity(entity).despawn();
+        }
+    }
+}
+
+pub fn handle_window_controls(
+    mut events: EventReader<WindowControlEvent>,
+    editor_windows: Query<Entity, With<EditorWindow>>,
+    winit_windows: NonSend<WinitWindows>,
+    mut webview_manager: NonSendMut<WebViewManager>,
+    mut commands: Commands,
+) {
+    for event in events.read() {
+        for entity in editor_windows.iter() {
+            match event {
+                WindowControlEvent::Minimize => {
+                    if let Some(window) = winit_windows.get_window(entity) {
+                        window.set_minimized(true);
+                    }
+                }
+                WindowControlEvent::Maximize => {
+                    if let Some(window) = winit_windows.get_window(entity) {
+                        window.set_maximized(!window.is_maximized());
+                    }
+                }
+                WindowControlEvent::Close => {
+                    webview_manager.webviews.remove(&entity);
+                    commands.entity(entity).despawn();
+                }
+            }
         }
     }
 }

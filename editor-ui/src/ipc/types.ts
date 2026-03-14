@@ -24,7 +24,10 @@ export type JsToRustMessage =
   | { type: 'debug_step_over'; script_id: string }
   | { type: 'debug_step_into'; script_id: string }
   | { type: 'debug_step_out'; script_id: string }
-  | { type: 'toggle_breakpoint'; script_id: string; line: number };
+  | { type: 'toggle_breakpoint'; script_id: string; line: number }
+  | { type: 'window_minimize' }
+  | { type: 'window_maximize' }
+  | { type: 'window_close' };
 
 export interface Diagnostic {
   line: number;

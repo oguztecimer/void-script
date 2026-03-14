@@ -6,6 +6,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // Disable crossorigin attribute — wry custom protocol doesn't need CORS mode
+    crossOriginLoading: false,
   },
   server: {
     port: 5173,

@@ -115,6 +115,12 @@ pub enum JsToRust {
     DebugStepOut { script_id: String },
     #[serde(rename = "toggle_breakpoint")]
     ToggleBreakpoint { script_id: String, line: u32 },
+    #[serde(rename = "window_minimize")]
+    WindowMinimize,
+    #[serde(rename = "window_maximize")]
+    WindowMaximize,
+    #[serde(rename = "window_close")]
+    WindowClose,
 }
 
 // Channel resource for sending IPC messages from wry thread to Bevy
@@ -187,6 +193,13 @@ pub struct ToggleBreakpointEvent {
     pub line: u32,
 }
 
+#[derive(Event)]
+pub enum WindowControlEvent {
+    Minimize,
+    Maximize,
+    Close,
+}
+
 pub fn poll_ipc_messages(
     receiver: Res<IpcChannelReceiver>,
     mut ready_events: EventWriter<EditorReadyEvent>,
@@ -202,6 +215,7 @@ pub fn poll_ipc_messages(
     mut debug_step_into_events: EventWriter<DebugStepIntoEvent>,
     mut debug_step_out_events: EventWriter<DebugStepOutEvent>,
     mut toggle_bp_events: EventWriter<ToggleBreakpointEvent>,
+    mut window_control_events: EventWriter<WindowControlEvent>,
 ) {
     while let Ok(msg) = receiver.0.try_recv() {
         match msg {
@@ -243,6 +257,15 @@ pub fn poll_ipc_messages(
             }
             JsToRust::ToggleBreakpoint { script_id, line } => {
                 toggle_bp_events.send(ToggleBreakpointEvent { script_id, line });
+            }
+            JsToRust::WindowMinimize => {
+                window_control_events.send(WindowControlEvent::Minimize);
+            }
+            JsToRust::WindowMaximize => {
+                window_control_events.send(WindowControlEvent::Maximize);
+            }
+            JsToRust::WindowClose => {
+                window_control_events.send(WindowControlEvent::Close);
             }
         }
     }

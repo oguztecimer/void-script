@@ -1,0 +1,216 @@
+/**
+ * VOID//SCRIPT Editor — Design Token System
+ *
+ * This file is the single source of truth for all design values.
+ * All subsequent phases reference tokens from this file instead of hardcoded hex.
+ *
+ * Values marked /* verify against Rider */ are best-effort matches that should
+ * be confirmed against an actual JetBrains Rider New UI instance.
+ *
+ * NOTE: The html { background } in index.html intentionally stays as a hardcoded
+ * hex value (#1E1F22) — it is a boot-time anti-flash guard that must fire before
+ * this CSS file is parsed by the JS bundle.
+ */
+
+:root {
+
+  /* ─── Background Colors ─────────────────────────────────────────────────── */
+
+  /** Outermost app background — editor surface, body, App root */
+  --bg-app: #1E1F22;
+
+  /** CodeMirror editor background */
+  --bg-editor: #1E1F22;
+
+  /** Side panels (ScriptList, DebugPanel), gutter, bottom panel header */
+  --bg-panel: #2B2D30;
+
+  /** Title bar / header background */ /* verify against Rider */
+  --bg-toolbar: #2B2D30;
+
+  /** Input fields background */
+  --bg-input: #1E1F22;
+
+  /** Editor text selection, debug line highlight, active autocomplete item */
+  --bg-selection: #2E436E;
+
+  /** Hover state on interactive elements (buttons, tabs, status segments) */
+  --bg-hover: #393B40;
+
+  /** Active/pressed state background */
+  --bg-active: #2E436E;
+
+  /** Active tab background — same as editor for seamless visual merge */
+  --bg-tab-active: #2B2D30;
+
+  /** Inactive tab background */
+  --bg-tab-inactive: #1E1F22;
+
+  /** Tooltip and autocomplete popup background */
+  --bg-tooltip: #393B40;
+
+  /** Run config selector background (resting state) */
+  --bg-run-config: #393B40;
+
+  /* ─── Action Button Backgrounds (colored tinted backgrounds) ────────────── */
+
+  /** Run button background */ /* verify against Rider */
+  --bg-btn-run: #2A3B2D;
+
+  /** Run button hover background */ /* verify against Rider */
+  --bg-btn-run-hover: #334733;
+
+  /** Debug button background */ /* verify against Rider */
+  --bg-btn-debug: #2E3A4E;
+
+  /** Debug button hover background */ /* verify against Rider */
+  --bg-btn-debug-hover: #3A4A5E;
+
+  /** Stop button background */ /* verify against Rider */
+  --bg-btn-stop: #4E2A2A;
+
+  /** Stop button hover background */ /* verify against Rider */
+  --bg-btn-stop-hover: #5E3434;
+
+  /* ─── Text Colors ───────────────────────────────────────────────────────── */
+
+  /** Main body text, primary foreground */
+  --text-primary: #DFE1E5;
+
+  /** Less prominent text — active gutter line number, variable values, muted widgets */
+  --text-secondary: #9DA0A8;
+
+  /** Muted text — inactive gutter line numbers, group headers, icon labels */
+  --text-tertiary: #6F737A;
+
+  /** Disabled elements */
+  --text-disabled: #5A5D63;
+
+  /** Blue links and highlights — active tab underline, search match outline */ /* verify against Rider */
+  --text-link: #3574F0;
+
+  /* ─── Icon / Action Colors ──────────────────────────────────────────────── */
+
+  /** Run action icon (green) */ /* verify against Rider */
+  --icon-run: #57965C;
+
+  /** Debug action icon (blue) */ /* verify against Rider */
+  --icon-debug: #6B9BFA;
+
+  /** Stop action icon (red) */ /* verify against Rider */
+  --icon-stop: #DB5C5C;
+
+  /* ─── macOS Traffic Light Colors ────────────────────────────────────────── */
+
+  /** Close button (red) */
+  --traffic-close: #FF5F56;
+
+  /** Minimize button (yellow) */
+  --traffic-minimize: #FFBD2E;
+
+  /** Maximize button (green) */
+  --traffic-maximize: #27C93F;
+
+  /* ─── Border / Separator Colors ─────────────────────────────────────────── */
+
+  /** Standard borders, separators, gutter right border */
+  --border-default: #393B40;
+
+  /** Subtle dividers — tooltip borders, inner separators, activeLineGutter border */
+  --border-subtle: #43454A;
+
+  /** Outer boundaries — panel edges, statusbar top, titlebar bottom */
+  --border-strong: #1E1F22;
+
+  /* ─── Accent Colors ──────────────────────────────────────────────────────── */
+
+  /** Primary blue — active indicators, tab underline, ToolStrip active button, search match outline */
+  --accent-blue: #3574F0;
+
+  /** Success / OK green — run icon, status bar OK indicator */ /* verify against Rider */
+  --accent-green: #57965C;
+
+  /** Error / stop red — stop button icon, error diagnostics */ /* verify against Rider */
+  --accent-red: #DB5C5C;
+
+  /** Warning orange — warning diagnostics in Console and StatusBar */ /* verify against Rider */
+  --accent-yellow: #E08855;
+
+  /** Breakpoint dot red — gutter breakpoint marker */
+  --accent-breakpoint: #f85149;
+
+  /* ─── Syntax Highlighting Colors ─────────────────────────────────────────── */
+
+  /** Keywords (cyan) */
+  --syntax-keyword: #00e5ff;
+
+  /** Function names (amber) */
+  --syntax-function: #ffb347;
+
+  /** String literals (green) */
+  --syntax-string: #98c379;
+
+  /** Numbers and booleans (orange) */
+  --syntax-number: #d19a66;
+
+  /** Comments (gray italic) */
+  --syntax-comment: #7a7e85;
+
+  /** Operators (teal) */
+  --syntax-operator: #56b6c2;
+
+  /** Constants (purple) */
+  --syntax-constant: #c678dd;
+
+  /** Brackets and punctuation (gray) */
+  --syntax-bracket: #8b949e;
+
+  /** Variable names (foreground) */
+  --syntax-variable: #bcbec4;
+
+  /* ─── Structural Dimensions ──────────────────────────────────────────────── */
+
+  /** Unified title bar / toolbar height */
+  --height-titlebar: 40px;
+
+  /** Tab bar height */
+  --height-tabbar: 38px;
+
+  /** Status bar height */
+  --height-statusbar: 24px;
+
+  /** Tool strip (left/right icon column) width */
+  --width-toolstrip: 40px;
+
+  /** Tool strip button size */
+  --size-toolstrip-btn: 36px;
+
+  /** Header widget button height (project selector, VCS widget) */
+  --height-widget-btn: 26px;
+
+  /* ─── Typography ─────────────────────────────────────────────────────────── */
+
+  /** UI font stack — Inter Variable preferred, system fonts as fallback */
+  --font-ui: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /** Monospace font stack — JetBrains Mono Variable preferred */
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace;
+
+  /** General UI text size */
+  --font-size-ui: 13px;
+
+  /** Editor content font size */
+  --font-size-editor: 14px;
+
+  /** Status bar and compact labels */
+  --font-size-status: 11px;
+
+  /** Editor line height */
+  --line-height-editor: 1.6;
+
+  /* ─── Transitions ────────────────────────────────────────────────────────── */
+
+  /** Hover state transition — consistent across all interactive elements */
+  --transition-hover: 150ms ease;
+
+}

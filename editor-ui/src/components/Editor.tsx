@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, gutter, GutterMarker, Decoration, type DecorationSet } from '@codemirror/view';
-import { EditorState, StateField, StateEffect, RangeSet } from '@codemirror/state';
+import { EditorState, StateField, StateEffect, RangeSet, type Extension } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { bracketMatching, indentOnInput, foldGutter } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
@@ -11,6 +11,16 @@ import { voidScriptTheme, voidScriptHighlightStyle } from '../codemirror/voidscr
 import { voidScriptCompletion } from '../codemirror/voidscript-completion';
 import { useStore } from '../state/store';
 import { sendToRust } from '../ipc/bridge';
+
+// --- EditorState cache ---
+// Module-level map so it survives re-renders. Keyed by scriptId.
+// Stores the last EditorState and scroll snapshot for each inactive tab.
+interface CachedTabState {
+  state: EditorState;
+  // scrollSnapshot() returns StateEffect<ScrollTarget> — dispatched after view creation
+  scrollSnapshot: ReturnType<EditorView['scrollSnapshot']> | null;
+}
+const editorStates = new Map<string, CachedTabState>();
 
 // --- Breakpoint gutter ---
 
@@ -100,6 +110,49 @@ const debugLineField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+function buildExtensions(
+  scriptId: string,
+  voidScriptLinter: Extension,
+  saveTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
+  handleUpdate: (id: string) => Extension,
+): Extension[] {
+  return [
+    breakpointState,
+    createBreakpointGutter(scriptId),
+    debugLineField,
+    lineNumbers(),
+    highlightActiveLine(),
+    drawSelection(),
+    history(),
+    indentOnInput(),
+    bracketMatching(),
+    closeBrackets(),
+    foldGutter(),
+    autocompletion({ override: [voidScriptCompletion] }),
+    voidScriptLanguage,
+    voidScriptTheme,
+    voidScriptHighlightStyle,
+    voidScriptLinter,
+    keymap.of([
+      {
+        key: 'Mod-s',
+        run: (view) => {
+          const content = view.state.doc.toString();
+          if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+          sendToRust({ type: 'script_save', script_id: scriptId, content });
+          useStore.getState().updateContent(scriptId, content);
+          return true;
+        },
+      },
+      ...defaultKeymap,
+      ...historyKeymap,
+      ...closeBracketsKeymap,
+      ...completionKeymap,
+    ]),
+    handleUpdate(scriptId),
+  ];
+}
+
 export function Editor() {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -109,6 +162,9 @@ export function Editor() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const debugLine = useStore((s) => s.debugLine);
   const isDebugging = useStore((s) => s.isDebugging);
+
+  // Track the previous active tab ID so we save its state before destroying
+  const prevTabIdRef = useRef<string | null>(null);
 
   const handleUpdate = useCallback((scriptId: string) => {
     return EditorView.updateListener.of((update) => {
@@ -133,8 +189,15 @@ export function Editor() {
   useEffect(() => {
     if (!containerRef.current || !activeTab) return;
 
-    // Destroy previous editor
+    // Save the current view's state before destroying it
     if (viewRef.current) {
+      const prevId = prevTabIdRef.current;
+      if (prevId) {
+        editorStates.set(prevId, {
+          state: viewRef.current.state,
+          scrollSnapshot: viewRef.current.scrollSnapshot(),
+        });
+      }
       viewRef.current.destroy();
       viewRef.current = null;
     }
@@ -149,49 +212,48 @@ export function Editor() {
       }));
     });
 
-    const state = EditorState.create({
-      doc: activeTab.content,
-      extensions: [
-        breakpointState,
-        createBreakpointGutter(activeTab.scriptId),
-        debugLineField,
-        lineNumbers(),
-        highlightActiveLine(),
-        drawSelection(),
-        history(),
-        indentOnInput(),
-        bracketMatching(),
-        closeBrackets(),
-        foldGutter(),
-        autocompletion({ override: [voidScriptCompletion] }),
-        voidScriptLanguage,
-        voidScriptTheme,
-        voidScriptHighlightStyle,
-        voidScriptLinter,
-        keymap.of([
-          {
-            key: 'Mod-s',
-            run: (view) => {
-              const content = view.state.doc.toString();
-              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-              sendToRust({ type: 'script_save', script_id: activeTab.scriptId, content });
-              useStore.getState().updateContent(activeTab.scriptId, content);
-              return true;
-            },
-          },
-          ...defaultKeymap,
-          ...historyKeymap,
-          ...closeBracketsKeymap,
-          ...completionKeymap,
-        ]),
-        handleUpdate(activeTab.scriptId),
-      ],
-    });
+    // Check if we have a cached state for this tab
+    const cached = editorStates.get(activeTab.scriptId);
+    let editorState: EditorState;
+
+    if (cached) {
+      // Check if content was changed externally (e.g. via IPC) while this tab was inactive
+      const cachedContent = cached.state.doc.toString();
+      if (cachedContent !== activeTab.content) {
+        // Content changed externally — create fresh state to avoid stale doc
+        editorState = EditorState.create({
+          doc: activeTab.content,
+          extensions: buildExtensions(activeTab.scriptId, voidScriptLinter, saveTimerRef, handleUpdate),
+        });
+      } else {
+        // Restore cached state — preserves undo history, selection, and all StateField values.
+        // Apply StateEffect.reconfigure so the linter and handleUpdate closures are refreshed.
+        editorState = cached.state.update({
+          effects: StateEffect.reconfigure.of(
+            buildExtensions(activeTab.scriptId, voidScriptLinter, saveTimerRef, handleUpdate)
+          ),
+        }).state;
+      }
+    } else {
+      // First time opening this tab — create fresh state
+      editorState = EditorState.create({
+        doc: activeTab.content,
+        extensions: buildExtensions(activeTab.scriptId, voidScriptLinter, saveTimerRef, handleUpdate),
+      });
+    }
 
     viewRef.current = new EditorView({
-      state,
+      state: editorState,
       parent: containerRef.current,
     });
+
+    // Restore scroll position after view is mounted
+    if (cached?.scrollSnapshot) {
+      viewRef.current.dispatch({ effects: cached.scrollSnapshot });
+    }
+
+    // Update the previous tab ref to the current one
+    prevTabIdRef.current = activeTab.scriptId;
 
     return () => {
       if (viewRef.current) {
@@ -200,6 +262,16 @@ export function Editor() {
       }
     };
   }, [activeTabId, activeTab?.scriptId, handleUpdate]);
+
+  // Clean up cached states for tabs that have been closed
+  useEffect(() => {
+    const tabIds = new Set(tabs.map((t) => t.scriptId));
+    for (const key of editorStates.keys()) {
+      if (!tabIds.has(key)) {
+        editorStates.delete(key);
+      }
+    }
+  }, [tabs]);
 
   // Sync debug line highlight
   useEffect(() => {

@@ -1,0 +1,30 @@
+.line {
+  flex-shrink: 0;
+}
+
+.line.vertical {
+  width: 1px;
+  margin: 0 6px;
+}
+
+.line.horizontal {
+  height: 1px;
+  width: 100%;
+}
+
+.gap {
+  flex-shrink: 0;
+}
+
+/* Border color hierarchy levels */
+.levelDefault {
+  background-color: var(--border-default);
+}
+
+.levelSubtle {
+  background-color: var(--border-subtle);
+}
+
+.levelStrong {
+  background-color: var(--border-strong);
+}

@@ -1,0 +1,49 @@
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: transparent;
+  transition: background-color var(--transition-hover), color var(--transition-hover);
+}
+
+.btn:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+}
+
+.btn:disabled {
+  color: var(--text-disabled);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.active {
+  background-color: var(--accent-blue);
+  color: white;
+}
+
+.active:hover:not(:disabled) {
+  background-color: var(--accent-blue);
+}
+
+.default {
+  width: var(--size-toolstrip-btn);
+  height: var(--size-toolstrip-btn);
+}
+
+.small {
+  width: var(--height-widget-btn);
+  height: var(--height-widget-btn);
+}
+
+.filled {
+  background-color: var(--_btn-bg);
+}
+
+.filled:hover:not(:disabled) {
+  background-color: var(--_btn-hover-bg);
+}

@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Phase 3 Plan 1 complete - awaiting Task 3 visual verification checkpoint
-last_updated: "2026-03-14T11:00:17.373Z"
+stopped_at: Phase 3 Plan 1 complete — all TBAR requirements met, drag fix applied
+last_updated: "2026-03-14T11:30:17.712Z"
 last_activity: 2026-03-14 — Phase 2 Plan 2 complete (7 components migrated to CSS Modules)
 progress:
   total_phases: 9
@@ -55,6 +55,7 @@ Progress: [██████████] 100%
 | Phase 02-css-architecture P01 | 2 min | 2 tasks | 9 files |
 | Phase 02-css-architecture P02 | 4min | 2 tasks | 14 files |
 | Phase 03-title-bar P01 | 15min | 2 tasks | 2 files |
+| Phase 03-title-bar P01 | 30min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,7 @@ Recent decisions affecting current work:
 - [Phase 03-title-bar]: TrafficLight uses CSS :hover (no useState) — in titlebar-no-drag container
 - [Phase 03-title-bar]: HeaderWidget retains JS hover for drag-zone safety; RunConfigSelector switches to CSS :hover (inside no-drag rightGroup)
 - [Phase 03-title-bar]: No separator between project widget and VCS branch widget — matches Rider exact layout
+- [Phase 03-title-bar]: wry with_accept_first_mouse(true) required for frameless window drag — default false absorbs first mouseDown to focus window, preventing -webkit-app-region: drag on first click
 
 ### Pending Todos
 
@@ -93,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T11:00:07.053Z
-Stopped at: Phase 3 Plan 1 complete - awaiting Task 3 visual verification checkpoint
+Last session: 2026-03-14T11:30:17.710Z
+Stopped at: Phase 3 Plan 1 complete — all TBAR requirements met, drag fix applied
 Resume file: None

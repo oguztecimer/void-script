@@ -91,7 +91,11 @@ Plans:
   2. ScriptList, DebugPanel, and Console panels each have a header row with a title and right-aligned action icons
   3. The bottom panel has a tab strip with a "Console" tab showing a 2px blue active indicator
   4. Users can drag panel resize handles to change the width of the side panels; sizes persist after closing and reopening the editor
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — SVG icons + active edge indicator for ToolStrip, panel header improvements
+- [ ] 05-02-PLAN.md — BottomTabStrip extraction, react-resizable-panels DOM prep
 
 ### Phase 6: Status Bar
 **Goal**: The status bar shows a navigation path and icon-based diagnostics matching Rider's layout
@@ -146,7 +150,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. CSS Architecture | 1/2 | Complete    | 2026-03-14 |
 | 3. Title Bar | 1/1 | Complete   | 2026-03-14 |
 | 4. Tab Bar and Editor State | 1/1 | Complete   | 2026-03-14 |
-| 5. Tool Strips and Panels | 0/? | Not started | - |
+| 5. Tool Strips and Panels | 0/2 | Not started | - |
 | 6. Status Bar | 0/? | Not started | - |
 | 7. Resizable Panels | 0/? | Not started | - |
 | 8. Gutter Refinements | 0/? | Not started | - |

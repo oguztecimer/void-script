@@ -12,7 +12,7 @@ Requirements for the Rider New UI pixel-accurate restyle. Each maps to roadmap p
 - [x] **FOUN-01**: Inter font self-hosted via Fontsource and applied universally to all UI elements
 - [x] **FOUN-02**: JetBrains Mono font self-hosted via Fontsource for code editor and console
 - [x] **FOUN-03**: CSS custom properties token system (tokens.css) replacing all hardcoded hex values across components
-- [ ] **FOUN-04**: CSS Modules migration replacing inline onMouseEnter/onMouseLeave hover patterns with CSS :hover pseudo-classes
+- [x] **FOUN-04**: CSS Modules migration replacing inline onMouseEnter/onMouseLeave hover patterns with CSS :hover pseudo-classes
 - [x] **FOUN-05**: macOS font smoothing fix applied (-webkit-font-smoothing: antialiased, color-scheme: dark)
 
 ### Title Bar
@@ -47,8 +47,8 @@ Requirements for the Rider New UI pixel-accurate restyle. Each maps to roadmap p
 
 ### Polish
 
-- [ ] **PLSH-01**: Consistent 150ms ease hover transitions on all interactive elements
-- [ ] **PLSH-02**: Correct border/separator 3-level color hierarchy (#1E1F22 outer, #393B40 separators, #43454A subtle dividers)
+- [x] **PLSH-01**: Consistent 150ms ease hover transitions on all interactive elements
+- [x] **PLSH-02**: Correct border/separator 3-level color hierarchy (#1E1F22 outer, #393B40 separators, #43454A subtle dividers)
 - [ ] **PLSH-03**: Custom tooltip component with Rider dark styling replacing native browser title attributes
 - [ ] **PLSH-04**: Keyboard shortcut hints displayed in tooltip text (e.g., "Run (Shift+F10)")
 
@@ -92,7 +92,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | FOUN-01 | Phase 1 | Complete |
 | FOUN-02 | Phase 1 | Complete |
 | FOUN-03 | Phase 1 | Complete |
-| FOUN-04 | Phase 2 | Pending |
+| FOUN-04 | Phase 2 | Complete |
 | FOUN-05 | Phase 1 | Complete |
 | TBAR-01 | Phase 3 | Pending |
 | TBAR-02 | Phase 3 | Pending |
@@ -109,8 +109,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | PNLS-04 | Phase 7 | Pending |
 | STAT-01 | Phase 6 | Pending |
 | STAT-02 | Phase 6 | Pending |
-| PLSH-01 | Phase 2 | Pending |
-| PLSH-02 | Phase 2 | Pending |
+| PLSH-01 | Phase 2 | Complete |
+| PLSH-02 | Phase 2 | Complete |
 | PLSH-03 | Phase 9 | Pending |
 | PLSH-04 | Phase 9 | Pending |
 

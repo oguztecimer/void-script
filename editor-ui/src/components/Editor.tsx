@@ -251,6 +251,14 @@ export function Editor() {
       parent: containerRef.current,
     });
 
+    // Sync initial cursor position so BreadcrumbBar sees the correct line immediately.
+    // editorState.selection.main.head is the character offset of the selection head.
+    {
+      const head = editorState.selection.main.head;
+      const line = editorState.doc.lineAt(head);
+      useStore.getState().setCursor(line.number, head - line.from + 1);
+    }
+
     // Restore scroll position after view is mounted
     if (cached?.scrollSnapshot) {
       viewRef.current.dispatch({ effects: cached.scrollSnapshot });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Group,
   Panel,
@@ -53,14 +53,18 @@ export function App() {
   const isDebugging = useStore((s) => s.isDebugging);
   const toggleLeftPanel = useStore((s) => s.toggleLeftPanel);
   const toggleRightPanel = useStore((s) => s.toggleRightPanel);
+  const toggleBottomPanel = useStore((s) => s.toggleBottomPanel);
+  const setBottomPanelOpen = useStore((s) => s.setBottomPanelOpen);
 
   // v4 API: panelRef prop (not ref) on Panel component
   const leftPanelRef = useRef<PanelImperativeHandle | null>(null);
   const rightPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const bottomPanelRef = useRef<PanelImperativeHandle | null>(null);
   const [isResizing, setIsResizing] = useState(false);
 
   // Persist layout across page loads via useDefaultLayout
   const { defaultLayout, onLayoutChanged: saveLayout } = useDefaultLayout({ id: 'void-main-layout' });
+  const { defaultLayout: centerLayout, onLayoutChanged: saveCenterLayout } = useDefaultLayout({ id: 'void-center-layout' });
 
   useEffect(() => {
     initIpcBridge();
@@ -86,6 +90,17 @@ export function App() {
       panel.collapse();
     }
   }, [rightPanelOpen, isDebugging]);
+
+  // Sync bottom panel imperative collapse/expand to Zustand state (mirrors left/right pattern)
+  useEffect(() => {
+    const panel = bottomPanelRef.current;
+    if (!panel) return;
+    if (bottomPanelOpen) {
+      panel.expand();
+    } else {
+      panel.collapse();
+    }
+  }, [bottomPanelOpen]);
 
   return (
     <div className={styles.app}>
@@ -127,30 +142,68 @@ export function App() {
 
           <Separator
             id="left-separator"
-            className={styles.resizeHandle}
+            className={leftPanelOpen ? styles.resizeHandle : styles.resizeHandleHidden}
+            disabled={!leftPanelOpen}
           />
 
           {/* Center panel */}
           <Panel id="center">
             <div className={styles.center}>
               <TabBar />
-              <div className={styles.editorArea}>
-                <Editor />
-              </div>
+              <Group
+                id="void-center-layout"
+                orientation="vertical"
+                defaultLayout={centerLayout}
+                onLayoutChange={() => setIsResizing(true)}
+                onLayoutChanged={(layout) => { setIsResizing(false); saveCenterLayout(layout); }}
+                className={styles.centerGroup}
+              >
+                <Panel id="editor-panel" minSize="50%" maxSize="90%">
+                  <div className={styles.editorArea}>
+                    <Editor />
+                  </div>
+                </Panel>
 
-              {/* Bottom panel with its own tab bar */}
-              {bottomPanelOpen && (
-                <div className={styles.bottomPanel}>
-                  <BottomTabStrip />
-                  <Console />
-                </div>
-              )}
+                <Separator
+                  id="bottom-separator"
+                  className={bottomPanelOpen ? styles.resizeHandleHorizontal : styles.resizeHandleHidden}
+                  disabled={!bottomPanelOpen}
+                />
+
+                {/* Bottom panel — ALWAYS rendered, collapse/expand via imperative API */}
+                <Panel
+                  panelRef={bottomPanelRef}
+                  id="bottom-panel"
+                  defaultSize="25%"
+                  minSize="10%"
+                  maxSize="50%"
+                  collapsible
+                  collapsedSize={0}
+                  className={!isResizing ? styles.panelAnimated : ''}
+                  onResize={(size) => {
+                    // Sync Zustand when panel collapses/expands via drag
+                    // Use < 1 threshold instead of === 0 for floating point safety
+                    const isNowCollapsed = size.asPercentage < 1;
+                    if (isNowCollapsed && bottomPanelOpen) {
+                      setBottomPanelOpen(false);
+                    } else if (!isNowCollapsed && !bottomPanelOpen) {
+                      setBottomPanelOpen(true);
+                    }
+                  }}
+                >
+                  <div className={styles.bottomPanel}>
+                    <BottomTabStrip />
+                    <Console />
+                  </div>
+                </Panel>
+              </Group>
             </div>
           </Panel>
 
           <Separator
             id="right-separator"
-            className={styles.resizeHandle}
+            className={rightPanelOpen && isDebugging ? styles.resizeHandle : styles.resizeHandleHidden}
+            disabled={!rightPanelOpen || !isDebugging}
           />
 
           {/* Right panel — ALWAYS rendered, collapse/expand via imperative API */}

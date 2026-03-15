@@ -14,20 +14,37 @@
 .center {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  height: 100%;
   overflow: hidden;
 }
 
 .editorArea {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
 .bottomPanel {
-  height: 200px;
   display: flex;
   flex-direction: column;
+  height: 100%;
   border-top: 1px solid var(--border-strong);
+}
+
+.centerGroup {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.resizeHandleHorizontal {
+  height: 1px;
+  background: var(--border-strong);
+  cursor: row-resize;
+  flex-shrink: 0;
+  outline: none;
 }
 
 .panelGroup {
@@ -35,12 +52,25 @@
   overflow: hidden;
 }
 
+/* Override react-resizable-panels inner wrapper gap */
+:global([data-panel] > div) {
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
 .resizeHandle {
   width: 1px;
   background: var(--border-strong);
   cursor: col-resize;
   flex-shrink: 0;
-  /* Phase 7: add visible drag indicator, hover highlight */
+  outline: none;
+}
+
+.resizeHandleHidden {
+  width: 0;
+  cursor: default;
+  pointer-events: none;
+  outline: none;
 }
 
 .panelAnimated {

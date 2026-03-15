@@ -44,10 +44,11 @@ impl Plugin for EditorPlugin {
                 Update,
                 (
                     poll_ipc_messages,
-                    create_editor_window,
-                    attach_webview,
+                    open_editor,
                     handle_close_editor,
                     handle_window_controls,
+                    detect_native_close,
+                    cleanup_on_exit,
                     handle_editor_ready,
                     handle_script_save,
                     handle_script_request,

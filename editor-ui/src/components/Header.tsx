@@ -16,10 +16,8 @@ export function Header() {
 
   return (
     <div className={`titlebar-drag ${styles.toolbar}`}>
-      {/* macOS-style window controls */}
-      <WindowControls />
-
-      <Separator variant="line" level="subtle" />
+      {/* Space for native macOS traffic lights */}
+      <div className={styles.trafficLightSpacer} />
 
       {/* Hamburger menu */}
       <ToolBtn size="small" title="Menu" className="titlebar-no-drag">

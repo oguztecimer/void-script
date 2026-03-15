@@ -8,6 +8,9 @@ export const voidScriptTheme = EditorView.theme({
     backgroundColor: 'var(--bg-editor)',
     height: '100%',
   },
+  '.cm-scroller': {
+    overscrollBehavior: 'none',
+  },
   '.cm-content': {
     fontFamily: 'var(--font-mono)',
     fontSize: '14px',
@@ -23,9 +26,10 @@ export const voidScriptTheme = EditorView.theme({
     backgroundColor: 'var(--bg-selection)',
   },
   '.cm-gutters': {
-    backgroundColor: 'var(--bg-panel)',
+    backgroundColor: 'var(--bg-editor) !important',
     color: 'var(--text-tertiary)',
     borderRight: '1px solid var(--border-default)',
+    marginTop: '1px',
   },
   '.cm-activeLineGutter': {
     backgroundColor: 'var(--bg-hover)',
@@ -61,6 +65,65 @@ export const voidScriptTheme = EditorView.theme({
   },
   '.cm-searchMatch.cm-searchMatch-selected': {
     backgroundColor: 'var(--bg-selection)',
+  },
+
+  // ── Fold gutter (EDIT-02) ──────────────────────────────────────────────────
+  '.cm-foldGutter': {
+    width: '14px',
+    minWidth: '14px',
+  },
+  '.cm-foldGutter .cm-gutterElement': {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0',
+  },
+  '.cm-foldGutter .cm-fold-marker': {
+    opacity: '0',
+    color: 'var(--text-tertiary)',
+    fontSize: '10px',
+    lineHeight: '1',
+    cursor: 'pointer',
+    transition: 'opacity var(--transition-hover), color var(--transition-hover)',
+    userSelect: 'none',
+  },
+  '.cm-foldGutter .cm-gutterElement:hover .cm-fold-marker': {
+    opacity: '1',
+  },
+  '.cm-foldGutter .cm-gutterElement:hover .cm-fold-marker:hover': {
+    color: 'var(--text-secondary)',
+  },
+
+  // ── Breakpoint circle (EDIT-03) ────────────────────────────────────────────
+  '.cm-lineNumbers .cm-gutterElement': {
+    position: 'relative',
+    cursor: 'pointer',
+  },
+  '.cm-bp-circle': {
+    width: '12px',
+    height: '12px',
+    borderRadius: '50%',
+    backgroundColor: 'var(--accent-breakpoint)',
+    margin: '0 auto',
+  },
+
+  // ── Breakpoint hover preview (faint circle on hover) ──────────────────────
+  '.cm-lineNumbers .cm-gutterElement::after': {
+    content: '""',
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: '12px',
+    height: '12px',
+    borderRadius: '50%',
+    backgroundColor: 'var(--accent-breakpoint)',
+    opacity: '0',
+    transition: 'opacity var(--transition-hover)',
+    pointerEvents: 'none',
+  },
+  '.cm-lineNumbers .cm-gutterElement:hover::after': {
+    opacity: '0.25',
   },
 }, { dark: true });
 

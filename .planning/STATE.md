@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Phase 7 context gathered
-last_updated: "2026-03-15T11:33:47.423Z"
+stopped_at: Completed 07-resizable-panels 07-01-PLAN.md
+last_updated: "2026-03-15T13:16:50.991Z"
 last_activity: 2026-03-15 — Phase 6 verified and complete (NavPath breadcrumb, diagnostics widget, flex-shrink fix)
 progress:
   total_phases: 9
-  completed_phases: 6
-  total_plans: 10
-  completed_plans: 10
+  completed_phases: 7
+  total_plans: 11
+  completed_plans: 11
   percent: 100
 ---
 
@@ -61,6 +61,7 @@ Progress: [██████████] 100%
 | Phase 05-tool-strips-and-panels P02 | 4 min | 2 tasks | 8 files |
 | Phase 06-status-bar P01 | 1min | 2 tasks | 6 files |
 | Phase 06-status-bar P02 | 2min | 1 tasks | 1 files |
+| Phase 07-resizable-panels P01 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,9 @@ Recent decisions affecting current work:
 - [Phase 06-status-bar]: TYPE_LABELS/TYPE_ORDER extracted to state/scriptTypes.ts — shared by NavPath and ScriptList
 - [Phase 06-status-bar]: Chevron inside preceding segment button as .chevron span keeps --text-secondary on parent hover
 - [Phase 06-status-bar]: flex-shrink: 0 on .bar rule: fixed-height siblings of flex: 1 children must set flex-shrink: 0 to resist compression in column layouts
+- [Phase 07-resizable-panels]: TabBar stays OUTSIDE vertical Group as fixed sibling above resizable content (Pitfall 1 from research)
+- [Phase 07-resizable-panels]: onResize uses < 1 threshold for collapse detection to avoid floating-point snap edge cases
+- [Phase 07-resizable-panels]: useStore.setState direct set for left/right panel onResize sync — avoids needing setLeftPanelOpen/setRightPanelOpen actions
 
 ### Pending Todos
 
@@ -111,6 +115,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T11:33:47.421Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-resizable-panels/07-CONTEXT.md
+Last session: 2026-03-15T13:16:50.989Z
+Stopped at: Completed 07-resizable-panels 07-01-PLAN.md
+Resume file: None

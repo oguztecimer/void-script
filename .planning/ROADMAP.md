@@ -119,7 +119,10 @@ Plans:
   1. Dragging a panel divider resizes adjacent panels smoothly without layout shift
   2. Collapsing a side panel does not unmount or visually flicker the main editor area
   3. Panel sizes are restored to their last values after a page reload
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 07-01-PLAN.md — Nested vertical Group for bottom panel resize, double-click collapse on all separators, drag-sync to Zustand
 
 **Note:** PNLS-04 is listed here as the primary delivery phase. The `react-resizable-panels` integration in Phase 5 prepares the DOM structure; Phase 7 makes resize handles live and persistent.
 
@@ -156,6 +159,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 4. Tab Bar and Editor State | 1/1 | Complete   | 2026-03-14 |
 | 5. Tool Strips and Panels | 2/2 | Complete   | 2026-03-14 |
 | 6. Status Bar | 2/2 | Complete | 2026-03-15 |
-| 7. Resizable Panels | 0/? | Not started | - |
+| 7. Resizable Panels | 0/1 | Not started | - |
 | 8. Gutter Refinements | 0/? | Not started | - |
 | 9. Polish and Tooltips | 0/? | Not started | - |

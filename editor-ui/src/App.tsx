@@ -102,6 +102,22 @@ export function App() {
     }
   }, [bottomPanelOpen]);
 
+  // Double-click handlers — toggle collapse/expand for each separator
+  const handleLeftSeparatorDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    toggleLeftPanel();
+  }, [toggleLeftPanel]);
+
+  const handleRightSeparatorDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    toggleRightPanel();
+  }, [toggleRightPanel]);
+
+  const handleBottomSeparatorDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    toggleBottomPanel();
+  }, [toggleBottomPanel]);
+
   return (
     <div className={styles.app}>
       {/* Unified title bar / toolbar */}
@@ -136,6 +152,15 @@ export function App() {
             collapsible
             collapsedSize={0}
             className={!isResizing ? styles.panelAnimated : ''}
+            onResize={(size) => {
+              // Sync Zustand when left panel collapses/expands via drag
+              const isNowCollapsed = size.asPercentage < 1;
+              if (isNowCollapsed && leftPanelOpen) {
+                useStore.setState({ leftPanelOpen: false });
+              } else if (!isNowCollapsed && !leftPanelOpen) {
+                useStore.setState({ leftPanelOpen: true });
+              }
+            }}
           >
             <ScriptList />
           </Panel>
@@ -144,6 +169,7 @@ export function App() {
             id="left-separator"
             className={leftPanelOpen ? styles.resizeHandle : styles.resizeHandleHidden}
             disabled={!leftPanelOpen}
+            onDoubleClick={handleLeftSeparatorDoubleClick}
           />
 
           {/* Center panel */}
@@ -168,6 +194,7 @@ export function App() {
                   id="bottom-separator"
                   className={bottomPanelOpen ? styles.resizeHandleHorizontal : styles.resizeHandleHidden}
                   disabled={!bottomPanelOpen}
+                  onDoubleClick={handleBottomSeparatorDoubleClick}
                 />
 
                 {/* Bottom panel — ALWAYS rendered, collapse/expand via imperative API */}
@@ -204,6 +231,7 @@ export function App() {
             id="right-separator"
             className={rightPanelOpen && isDebugging ? styles.resizeHandle : styles.resizeHandleHidden}
             disabled={!rightPanelOpen || !isDebugging}
+            onDoubleClick={handleRightSeparatorDoubleClick}
           />
 
           {/* Right panel — ALWAYS rendered, collapse/expand via imperative API */}
@@ -216,6 +244,15 @@ export function App() {
             collapsible
             collapsedSize={0}
             className={!isResizing ? styles.panelAnimated : ''}
+            onResize={(size) => {
+              // Sync Zustand when right panel collapses/expands via drag
+              const isNowCollapsed = size.asPercentage < 1;
+              if (isNowCollapsed && rightPanelOpen) {
+                useStore.setState({ rightPanelOpen: false });
+              } else if (!isNowCollapsed && !rightPanelOpen) {
+                useStore.setState({ rightPanelOpen: true });
+              }
+            }}
           >
             {isDebugging && <DebugPanel />}
           </Panel>

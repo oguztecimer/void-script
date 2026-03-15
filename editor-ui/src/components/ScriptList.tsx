@@ -2,14 +2,8 @@ import { useStore } from '../state/store';
 import { sendToRust } from '../ipc/bridge';
 import { PanelHeader } from '../primitives/PanelHeader';
 import { ToolBtn } from '../primitives/ToolBtn';
+import { TYPE_LABELS, TYPE_ORDER } from '../state/scriptTypes';
 import styles from './ScriptList.module.css';
-
-const TYPE_LABELS: Record<string, string> = {
-  ship_brain: 'Ship Brains',
-  mothership_brain: 'Mothership',
-  production: 'Production',
-};
-const TYPE_ORDER = ['ship_brain', 'mothership_brain', 'production'];
 
 export function ScriptList() {
   const scriptList = useStore((s) => s.scriptList);

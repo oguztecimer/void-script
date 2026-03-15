@@ -1,0 +1,52 @@
+.container {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.segment {
+  background: transparent;
+  border: none;
+  font: inherit;
+  font-size: var(--font-size-status);
+  color: var(--text-secondary);
+  padding: 0 4px;
+  cursor: pointer;
+  transition: color var(--transition-hover);
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.segment:hover {
+  color: var(--text-primary);
+  /* NO background-color change — Rider breadcrumb style */
+}
+
+.segment:hover .chevron {
+  color: var(--text-secondary);
+}
+
+.segmentInert {
+  composes: segment;
+  cursor: default;
+}
+
+.segmentInert:hover {
+  color: var(--text-secondary);
+}
+
+.segmentFile {
+  composes: segmentInert;
+  color: var(--text-primary);
+}
+
+.segmentFile:hover {
+  color: var(--text-primary);
+}
+
+.chevron {
+  color: var(--text-secondary);
+  pointer-events: none;
+  margin: 0 2px;
+}

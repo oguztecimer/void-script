@@ -134,7 +134,10 @@ Plans:
   1. Fold/unfold icons are invisible on gutter rows where the cursor is not hovering; they appear on hover
   2. Breakpoint markers share the line-number gutter column (no separate breakpoint column) — a circle icon overlays the line number when a breakpoint is set
   3. All `.cm-*` style overrides live inside `EditorView.theme()` — no `.cm-*` rules exist in external CSS files
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 08-01-PLAN.md — Breakpoint overlay via lineNumberMarkers facet, fold icon hover with custom markerDOM
 
 ### Phase 9: Polish and Tooltips
 **Goal**: Custom tooltips replace all native browser title attributes; keyboard shortcuts are shown in tooltips; breadcrumb reflects real syntax tree position
@@ -160,5 +163,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. Tool Strips and Panels | 2/2 | Complete   | 2026-03-14 |
 | 6. Status Bar | 2/2 | Complete | 2026-03-15 |
 | 7. Resizable Panels | 1/1 | Complete   | 2026-03-15 |
-| 8. Gutter Refinements | 0/? | Not started | - |
+| 8. Gutter Refinements | 0/1 | In progress | - |
 | 9. Polish and Tooltips | 0/? | Not started | - |

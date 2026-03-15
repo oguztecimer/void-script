@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 09-01-PLAN.md
-last_updated: "2026-03-15T18:02:06.060Z"
+stopped_at: Completed 09-03-PLAN.md
+last_updated: "2026-03-15T18:56:04.965Z"
 last_activity: 2026-03-15 — Phase 6 verified and complete (NavPath breadcrumb, diagnostics widget, flex-shrink fix)
 progress:
   total_phases: 9
   completed_phases: 9
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 16
+  completed_plans: 16
   percent: 100
 ---
 
@@ -65,6 +65,8 @@ Progress: [██████████] 100%
 | Phase 08-gutter-refinements P01 | 3min | 2 tasks | 2 files |
 | Phase 09-polish-and-tooltips P02 | 1min | 2 tasks | 3 files |
 | Phase 09-polish-and-tooltips P01 | 3min | 2 tasks | 5 files |
+| Phase 09-polish-and-tooltips P04 | 2min | 2 tasks | 1 files |
+| Phase 09-polish-and-tooltips P03 | 1 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -113,6 +115,9 @@ Recent decisions affecting current work:
 - [Phase 09-polish-and-tooltips]: Tooltip wrapper uses display:inline-flex (not display:contents) — contents breaks absolute positioning of tooltip div
 - [Phase 09-polish-and-tooltips]: No exit animation on Tooltip — fade-in only, instant hide on mouseleave matches Rider behavior
 - [Phase 09-polish-and-tooltips]: ToolBtn shortcut prop auto-formats tooltip as 'Label (Shortcut)'; ToolStrip.tsx untouched — already concatenates shortcut into title before passing to ToolBtn
+- [Phase 09-polish-and-tooltips]: offsetX correction applied as inline style override (transform: translateX(calc(-50% + Xpx))) only when non-zero; CSS default untouched for centered tooltips
+- [Phase 09-polish-and-tooltips]: Reset cursorLine/cursorCol to 1,1 in switchTab/openTab; Editor.tsx overwrites with real CodeMirror selection value before React renders
+- [Phase 09-polish-and-tooltips]: Block scope in EditorView construction for head/line locals keeps useEffect scope clean
 
 ### Pending Todos
 
@@ -126,6 +131,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T17:59:10.897Z
-Stopped at: Completed 09-01-PLAN.md
+Last session: 2026-03-15T18:56:04.963Z
+Stopped at: Completed 09-03-PLAN.md
 Resume file: None

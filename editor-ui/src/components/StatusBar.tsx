@@ -1,5 +1,7 @@
 import { useStore } from '../state/store';
 import { StatusSegment } from '../primitives/StatusSegment';
+import { NavPath } from './NavPath';
+import { DiagnosticsWidget } from './DiagnosticsWidget';
 import styles from './StatusBar.module.css';
 
 export function StatusBar() {
@@ -13,31 +15,15 @@ export function StatusBar() {
 
   return (
     <div className={styles.bar}>
-      {/* Left: VCS branch */}
-      <StatusSegment
-        icon={
-          <svg width="10" height="10" viewBox="0 0 16 16" style={{ marginRight: '4px' }}>
-            <circle cx="5" cy="4" r="1.5" stroke="currentColor" strokeWidth="1" fill="none"/>
-            <circle cx="5" cy="12" r="1.5" stroke="currentColor" strokeWidth="1" fill="none"/>
-            <path d="M5 5.5v5" stroke="currentColor" strokeWidth="1" fill="none"/>
-          </svg>
-        }
-        label="main"
-      />
+      <NavPath />
       <div className={styles.spacer} />
 
-      {/* Diagnostics indicator */}
-      {errorCount > 0 && (
-        <StatusSegment label={<span style={{ color: 'var(--accent-red)' }}>{errorCount} errors</span>} />
-      )}
-      {warningCount > 0 && (
-        <StatusSegment label={<span style={{ color: 'var(--accent-yellow)' }}>{warningCount} warn</span>} />
-      )}
-      {errorCount === 0 && warningCount === 0 && activeTab && (
-        <StatusSegment label={<span style={{ color: 'var(--accent-green)' }}>OK</span>} />
-      )}
+      <DiagnosticsWidget
+        errorCount={errorCount}
+        warningCount={warningCount}
+        hasActiveTab={!!activeTab}
+      />
 
-      {/* Right side segments */}
       {activeTab && (
         <>
           <StatusSegment label={`Ln ${cursorLine}, Col ${cursorCol}`} />

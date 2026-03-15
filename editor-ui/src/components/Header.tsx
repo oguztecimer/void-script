@@ -3,6 +3,7 @@ import { useStore } from '../state/store';
 import { sendToRust } from '../ipc/bridge';
 import { ToolBtn } from '../primitives/ToolBtn';
 import { Separator } from '../primitives/Separator';
+import { Tooltip } from '../primitives/Tooltip';
 
 export function Header() {
   const activeTabId = useStore((s) => s.activeTabId);
@@ -72,6 +73,7 @@ export function Header() {
               size="small"
               variant="filled"
               title="Run"
+              shortcut="Shift+F10"
               bgColor="var(--bg-btn-run)"
               hoverBgColor="var(--bg-btn-run-hover)"
               iconColor="var(--icon-run)"
@@ -84,6 +86,7 @@ export function Header() {
               size="small"
               variant="filled"
               title="Debug"
+              shortcut="Shift+F9"
               bgColor="var(--bg-btn-debug)"
               hoverBgColor="var(--bg-btn-debug-hover)"
               iconColor="var(--icon-debug)"
@@ -105,6 +108,7 @@ export function Header() {
               size="small"
               variant="filled"
               title="Stop"
+              shortcut="Ctrl+F2"
               bgColor="var(--bg-btn-stop)"
               hoverBgColor="var(--bg-btn-stop-hover)"
               iconColor="var(--icon-stop)"
@@ -119,6 +123,7 @@ export function Header() {
                   size="small"
                   variant="filled"
                   title="Resume"
+                  shortcut="F9"
                   bgColor="var(--bg-btn-run)"
                   hoverBgColor="var(--bg-btn-run-hover)"
                   iconColor="var(--icon-run)"
@@ -126,13 +131,13 @@ export function Header() {
                 >
                   <svg width="10" height="10" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
                 </ToolBtn>
-                <ToolBtn size="small" title="Step Over" onClick={() => activeTabId && sendToRust({ type: 'debug_step_over', script_id: activeTabId })}>
+                <ToolBtn size="small" title="Step Over" shortcut="F8" onClick={() => activeTabId && sendToRust({ type: 'debug_step_over', script_id: activeTabId })}>
                   <svg width="14" height="14" viewBox="0 0 16 16"><path d="M2 12h4V8h4v4h4L8 4z" fill="currentColor" transform="rotate(90 8 8)"/></svg>
                 </ToolBtn>
-                <ToolBtn size="small" title="Step Into" onClick={() => activeTabId && sendToRust({ type: 'debug_step_into', script_id: activeTabId })}>
+                <ToolBtn size="small" title="Step Into" shortcut="F7" onClick={() => activeTabId && sendToRust({ type: 'debug_step_into', script_id: activeTabId })}>
                   <svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 2v8m-3-3l3 3 3-3M5 14h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
                 </ToolBtn>
-                <ToolBtn size="small" title="Step Out" onClick={() => activeTabId && sendToRust({ type: 'debug_step_out', script_id: activeTabId })}>
+                <ToolBtn size="small" title="Step Out" shortcut="Shift+F8" onClick={() => activeTabId && sendToRust({ type: 'debug_step_out', script_id: activeTabId })}>
                   <svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 14V6m-3 3l3-3 3 3M5 2h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
                 </ToolBtn>
               </>
@@ -187,14 +192,15 @@ function TrafficLight({ color, hoverSymbol, onClick, title }: {
   title: string;
 }) {
   return (
-    <div
-      onClick={onClick}
-      title={title}
-      className={styles.trafficLight}
-      style={{ backgroundColor: color }}
-    >
-      {hoverSymbol}
-    </div>
+    <Tooltip content={title}>
+      <div
+        onClick={onClick}
+        className={styles.trafficLight}
+        style={{ backgroundColor: color }}
+      >
+        {hoverSymbol}
+      </div>
+    </Tooltip>
   );
 }
 
@@ -247,13 +253,15 @@ function RunConfigSelector({ label }: { label: string }) {
 
 function SearchPill() {
   return (
-    <button className={styles.searchPill} title="Search Everywhere (Shift Shift)">
-      <svg width="12" height="12" viewBox="0 0 16 16">
-        <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-        <line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-      </svg>
-      <span>Search</span>
-      <span className={styles.searchShortcut}>&#8679;&#8679;</span>
-    </button>
+    <Tooltip content="Search Everywhere (Shift Shift)">
+      <button className={styles.searchPill}>
+        <svg width="12" height="12" viewBox="0 0 16 16">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+          <line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+        <span>Search</span>
+        <span className={styles.searchShortcut}>&#8679;&#8679;</span>
+      </button>
+    </Tooltip>
   );
 }

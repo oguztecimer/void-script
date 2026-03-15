@@ -1,6 +1,7 @@
 import { useStore } from '../state/store';
 import { PanelHeader } from '../primitives/PanelHeader';
 import { ToolBtn } from '../primitives/ToolBtn';
+import { Tooltip } from '../primitives/Tooltip';
 import styles from './DebugPanel.module.css';
 
 export function DebugPanel() {
@@ -43,9 +44,11 @@ export function DebugPanel() {
         {debugVariables.map((v, i) => (
           <div key={i} className={styles.variable}>
             <span className={styles.variableName}>{v.name}</span>
-            <span className={styles.variableValue} title={v.value}>
-              {v.value}
-            </span>
+            <Tooltip content={v.value}>
+              <span className={styles.variableValue}>
+                {v.value}
+              </span>
+            </Tooltip>
           </div>
         ))}
       </div>

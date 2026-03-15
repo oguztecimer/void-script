@@ -81,11 +81,13 @@ export const useStore = create<EditorState>((set, get) => ({
     set((state) => {
       const existing = state.tabs.find((t) => t.scriptId === scriptId);
       if (existing) {
-        return { activeTabId: scriptId };
+        return { activeTabId: scriptId, cursorLine: 1, cursorCol: 1 };
       }
       return {
         tabs: [...state.tabs, { scriptId, name, content, scriptType, isModified: false, diagnostics: [] }],
         activeTabId: scriptId,
+        cursorLine: 1,
+        cursorCol: 1,
       };
     }),
 
@@ -102,7 +104,7 @@ export const useStore = create<EditorState>((set, get) => ({
       return { tabs: newTabs, activeTabId: newActiveId };
     }),
 
-  switchTab: (scriptId) => set({ activeTabId: scriptId }),
+  switchTab: (scriptId) => set({ activeTabId: scriptId, cursorLine: 1, cursorCol: 1 }),
 
   updateContent: (scriptId, content) =>
     set((state) => ({

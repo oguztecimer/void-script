@@ -1,0 +1,32 @@
+.wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #3C3F41;
+  color: #BBBBBB;
+  border: 1px solid #555555;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--font-ui);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1000;
+  animation: fadeIn 100ms ease;
+}
+
+.flipped {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

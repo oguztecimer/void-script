@@ -1,7 +1,9 @@
 import styles from './ToolBtn.module.css';
+import { Tooltip } from './Tooltip';
 
 interface ToolBtnProps {
   title: string;
+  shortcut?: string;
   onClick?: () => void;
   disabled?: boolean;
   active?: boolean;
@@ -16,6 +18,7 @@ interface ToolBtnProps {
 
 export function ToolBtn({
   title,
+  shortcut,
   onClick,
   disabled,
   active,
@@ -48,15 +51,18 @@ export function ToolBtn({
     inlineStyle.color = iconColor;
   }
 
+  const tooltipContent = shortcut ? `${title} (${shortcut})` : title;
+
   return (
-    <button
-      className={classes}
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      style={Object.keys(inlineStyle).length > 0 ? inlineStyle : undefined}
-    >
-      {children}
-    </button>
+    <Tooltip content={tooltipContent} disabled={disabled}>
+      <button
+        className={classes}
+        onClick={onClick}
+        disabled={disabled}
+        style={Object.keys(inlineStyle).length > 0 ? inlineStyle : undefined}
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }

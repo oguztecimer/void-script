@@ -21,6 +21,7 @@ impl Plugin for EditorPlugin {
             .insert_non_send_resource(IpcChannelSender(sender))
             .insert_non_send_resource(WebViewManager::default())
             .insert_resource(EditorWindowState::default())
+            .insert_resource(MaximizedState::default())
             .insert_resource(ScriptStore::new(scripts_dir))
             .add_event::<OpenEditorEvent>()
             .add_event::<CloseEditorEvent>()

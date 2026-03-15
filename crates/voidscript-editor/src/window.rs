@@ -27,6 +27,14 @@ impl WebViewManager {
     }
 }
 
+/// Tracks whether the editor window is currently maximized.
+/// Bevy's Window component has no public is_maximized() getter,
+/// so we track it ourselves to support maximize toggle.
+#[derive(Resource, Default)]
+pub struct MaximizedState {
+    pub maximized: bool,
+}
+
 #[derive(Event)]
 pub struct OpenEditorEvent;
 
@@ -123,27 +131,26 @@ pub fn handle_close_editor(
 
 pub fn handle_window_controls(
     mut events: EventReader<WindowControlEvent>,
-    editor_windows: Query<Entity, With<EditorWindow>>,
-    winit_windows: NonSend<WinitWindows>,
+    mut editor_windows: Query<(Entity, &mut Window), With<EditorWindow>>,
     mut webview_manager: NonSendMut<WebViewManager>,
     mut commands: Commands,
+    mut app_exit_events: EventWriter<AppExit>,
+    mut maximized_state: ResMut<MaximizedState>,
 ) {
     for event in events.read() {
-        for entity in editor_windows.iter() {
+        for (entity, mut window) in editor_windows.iter_mut() {
             match event {
                 WindowControlEvent::Minimize => {
-                    if let Some(window) = winit_windows.get_window(entity) {
-                        window.set_minimized(true);
-                    }
+                    window.set_minimized(true);
                 }
                 WindowControlEvent::Maximize => {
-                    if let Some(window) = winit_windows.get_window(entity) {
-                        window.set_maximized(!window.is_maximized());
-                    }
+                    maximized_state.maximized = !maximized_state.maximized;
+                    window.set_maximized(maximized_state.maximized);
                 }
                 WindowControlEvent::Close => {
                     webview_manager.webviews.remove(&entity);
                     commands.entity(entity).despawn();
+                    app_exit_events.send(AppExit::Success);
                 }
             }
         }

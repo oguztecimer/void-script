@@ -105,7 +105,10 @@ Plans:
   1. The status bar left region shows a static navigation path in the form "project > folder > file"
   2. Diagnostics are shown as icon + count pairs: a red error circle with error count and a yellow warning triangle with warning count — not plain text
   3. The status bar is 24px tall and uses 11px Inter text
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 06-01-PLAN.md — NavPath breadcrumb, DiagnosticsWidget icons, remove VCS branch
 
 ### Phase 7: Resizable Panels
 **Goal**: All panels support drag-resize via react-resizable-panels; no hard-coded widths remain in the layout shell
@@ -151,7 +154,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 3. Title Bar | 1/1 | Complete   | 2026-03-14 |
 | 4. Tab Bar and Editor State | 1/1 | Complete   | 2026-03-14 |
 | 5. Tool Strips and Panels | 2/2 | Complete   | 2026-03-14 |
-| 6. Status Bar | 0/? | Not started | - |
+| 6. Status Bar | 0/1 | Not started | - |
 | 7. Resizable Panels | 0/? | Not started | - |
 | 8. Gutter Refinements | 0/? | Not started | - |
 | 9. Polish and Tooltips | 0/? | Not started | - |

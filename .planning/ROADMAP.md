@@ -147,11 +147,13 @@ Plans:
   1. Hovering any interactive element shows a custom-styled Rider-dark tooltip — no native browser title attribute tooltips remain
   2. Run, Debug, and Stop button tooltips include keyboard shortcut hints (e.g., "Run (Shift+F10)")
   3. The breadcrumb bar below the tab strip updates to reflect the current cursor position in the VoidScript syntax tree as the user moves the caret
-**Plans:** 2/2 plans complete
+**Plans:** 4 plans (2 complete, 2 gap closure)
 
 Plans:
 - [ ] 09-01-PLAN.md — Tooltip primitive, ToolBtn integration, title attribute migration with shortcut hints
 - [ ] 09-02-PLAN.md — BreadcrumbBar component with def-block heuristic, App layout insertion
+- [ ] 09-03-PLAN.md — Gap closure: breadcrumb cursor sync (cursorLine reset on tab open/switch, initial setCursor after EditorView creation)
+- [ ] 09-04-PLAN.md — Gap closure: tooltip horizontal viewport clamping (offsetX correction for left/right edge clipping)
 
 ## Progress
 
@@ -168,4 +170,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Status Bar | 2/2 | Complete | 2026-03-15 |
 | 7. Resizable Panels | 1/1 | Complete   | 2026-03-15 |
 | 8. Gutter Refinements | 1/1 | Complete   | 2026-03-15 |
-| 9. Polish and Tooltips | 2/2 | Complete   | 2026-03-15 |
+| 9. Polish and Tooltips | 2/4 | In Progress | - |

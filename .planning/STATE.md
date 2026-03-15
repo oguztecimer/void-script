@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 09-02-PLAN.md (BreadcrumbBar)
-last_updated: "2026-03-15T17:57:56.277Z"
+stopped_at: Completed 09-01-PLAN.md
+last_updated: "2026-03-15T17:59:10.899Z"
 last_activity: 2026-03-15 — Phase 6 verified and complete (NavPath breadcrumb, diagnostics widget, flex-shrink fix)
 progress:
   total_phases: 9
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
   percent: 100
 ---
 
@@ -64,6 +64,7 @@ Progress: [██████████] 100%
 | Phase 07-resizable-panels P01 | 3min | 2 tasks | 2 files |
 | Phase 08-gutter-refinements P01 | 3min | 2 tasks | 2 files |
 | Phase 09-polish-and-tooltips P02 | 1min | 2 tasks | 3 files |
+| Phase 09-polish-and-tooltips P01 | 3min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,9 @@ Recent decisions affecting current work:
 - [Phase 09-polish-and-tooltips]: BreadcrumbBar selectors return primitives (string, not Tab object) so Zustand only triggers re-render when string value changes
 - [Phase 09-polish-and-tooltips]: useMemo on findEnclosingFunction prevents O(n) backward scan on every unrelated store update
 - [Phase 09-polish-and-tooltips]: Display-only breadcrumb — no click handlers; click-to-navigate deferred per CONTEXT.md
+- [Phase 09-polish-and-tooltips]: Tooltip wrapper uses display:inline-flex (not display:contents) — contents breaks absolute positioning of tooltip div
+- [Phase 09-polish-and-tooltips]: No exit animation on Tooltip — fade-in only, instant hide on mouseleave matches Rider behavior
+- [Phase 09-polish-and-tooltips]: ToolBtn shortcut prop auto-formats tooltip as 'Label (Shortcut)'; ToolStrip.tsx untouched — already concatenates shortcut into title before passing to ToolBtn
 
 ### Pending Todos
 
@@ -122,6 +126,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T17:57:56.275Z
-Stopped at: Completed 09-02-PLAN.md (BreadcrumbBar)
+Last session: 2026-03-15T17:59:10.897Z
+Stopped at: Completed 09-01-PLAN.md
 Resume file: None

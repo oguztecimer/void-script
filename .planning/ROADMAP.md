@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Status Bar** - Navigation path, icon+count diagnostics widget (completed 2026-03-15)
 - [x] **Phase 7: Resizable Panels** - react-resizable-panels integration replacing fixed widths (completed 2026-03-15)
 - [x] **Phase 8: Gutter Refinements** - Breakpoint overlay, fold icons on hover, CodeMirror theme polish (completed 2026-03-15)
-- [ ] **Phase 9: Polish and Tooltips** - Custom tooltips, keyboard shortcut hints, breadcrumb live integration
+- [x] **Phase 9: Polish and Tooltips** - Custom tooltips, keyboard shortcut hints, breadcrumb live integration (completed 2026-03-15)
 
 ## Phase Details
 
@@ -147,7 +147,7 @@ Plans:
   1. Hovering any interactive element shows a custom-styled Rider-dark tooltip — no native browser title attribute tooltips remain
   2. Run, Debug, and Stop button tooltips include keyboard shortcut hints (e.g., "Run (Shift+F10)")
   3. The breadcrumb bar below the tab strip updates to reflect the current cursor position in the VoidScript syntax tree as the user moves the caret
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 09-01-PLAN.md — Tooltip primitive, ToolBtn integration, title attribute migration with shortcut hints
@@ -168,4 +168,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Status Bar | 2/2 | Complete | 2026-03-15 |
 | 7. Resizable Panels | 1/1 | Complete   | 2026-03-15 |
 | 8. Gutter Refinements | 1/1 | Complete   | 2026-03-15 |
-| 9. Polish and Tooltips | 1/2 | In Progress|  |
+| 9. Polish and Tooltips | 2/2 | Complete   | 2026-03-15 |

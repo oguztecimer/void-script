@@ -49,8 +49,8 @@ Requirements for the Rider New UI pixel-accurate restyle. Each maps to roadmap p
 
 - [x] **PLSH-01**: Consistent 150ms ease hover transitions on all interactive elements
 - [x] **PLSH-02**: Correct border/separator 3-level color hierarchy (#1E1F22 outer, #393B40 separators, #43454A subtle dividers)
-- [ ] **PLSH-03**: Custom tooltip component with Rider dark styling replacing native browser title attributes
-- [ ] **PLSH-04**: Keyboard shortcut hints displayed in tooltip text (e.g., "Run (Shift+F10)")
+- [x] **PLSH-03**: Custom tooltip component with Rider dark styling replacing native browser title attributes
+- [x] **PLSH-04**: Keyboard shortcut hints displayed in tooltip text (e.g., "Run (Shift+F10)")
 
 ## v2 Requirements
 
@@ -111,8 +111,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | STAT-02 | Phase 6 | Complete |
 | PLSH-01 | Phase 2 | Complete |
 | PLSH-02 | Phase 2 | Complete |
-| PLSH-03 | Phase 9 | Pending |
-| PLSH-04 | Phase 9 | Pending |
+| PLSH-03 | Phase 9 | Complete |
+| PLSH-04 | Phase 9 | Complete |
 
 **Coverage:**
 - v1 requirements: 24 total

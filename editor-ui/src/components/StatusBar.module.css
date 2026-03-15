@@ -2,6 +2,7 @@
   display: flex;
   align-items: center;
   height: var(--height-statusbar);
+  flex-shrink: 0;
   background-color: var(--bg-panel);
   font-size: var(--font-size-status);
   color: var(--text-secondary);

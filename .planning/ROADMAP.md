@@ -147,7 +147,7 @@ Plans:
   1. Hovering any interactive element shows a custom-styled Rider-dark tooltip — no native browser title attribute tooltips remain
   2. Run, Debug, and Stop button tooltips include keyboard shortcut hints (e.g., "Run (Shift+F10)")
   3. The breadcrumb bar below the tab strip updates to reflect the current cursor position in the VoidScript syntax tree as the user moves the caret
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 09-01-PLAN.md — Tooltip primitive, ToolBtn integration, title attribute migration with shortcut hints
@@ -168,4 +168,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Status Bar | 2/2 | Complete | 2026-03-15 |
 | 7. Resizable Panels | 1/1 | Complete   | 2026-03-15 |
 | 8. Gutter Refinements | 1/1 | Complete   | 2026-03-15 |
-| 9. Polish and Tooltips | 0/2 | Planned | - |
+| 9. Polish and Tooltips | 1/2 | In Progress|  |

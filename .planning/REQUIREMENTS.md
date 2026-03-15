@@ -29,7 +29,7 @@ Requirements for the Rider New UI pixel-accurate restyle. Each maps to roadmap p
 
 ### Editor
 
-- [ ] **EDIT-01**: Breadcrumb navigation bar below tab bar showing cursor position in syntax tree
+- [x] **EDIT-01**: Breadcrumb navigation bar below tab bar showing cursor position in syntax tree
 - [x] **EDIT-02**: Fold gutter icons visible on hover only (hidden by default)
 - [x] **EDIT-03**: Breakpoint markers overlay line numbers in a single combined gutter (remove separate breakpoint column)
 
@@ -100,7 +100,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | TBAR-04 | Phase 3 | Complete |
 | TABS-01 | Phase 4 | Complete |
 | TABS-02 | Phase 4 | Complete |
-| EDIT-01 | Phase 9 | Pending |
+| EDIT-01 | Phase 9 | Complete |
 | EDIT-02 | Phase 8 | Complete |
 | EDIT-03 | Phase 8 | Complete |
 | PNLS-01 | Phase 5 | Complete |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Phase 9 context gathered
-last_updated: "2026-03-15T17:29:21.842Z"
+stopped_at: Completed 09-02-PLAN.md (BreadcrumbBar)
+last_updated: "2026-03-15T17:57:56.277Z"
 last_activity: 2026-03-15 — Phase 6 verified and complete (NavPath breadcrumb, diagnostics widget, flex-shrink fix)
 progress:
   total_phases: 9
   completed_phases: 8
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 14
+  completed_plans: 13
   percent: 100
 ---
 
@@ -63,6 +63,7 @@ Progress: [██████████] 100%
 | Phase 06-status-bar P02 | 2min | 1 tasks | 1 files |
 | Phase 07-resizable-panels P01 | 3min | 2 tasks | 2 files |
 | Phase 08-gutter-refinements P01 | 3min | 2 tasks | 2 files |
+| Phase 09-polish-and-tooltips P02 | 1min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,9 @@ Recent decisions affecting current work:
 - [Phase 07-resizable-panels]: useStore.setState direct set for left/right panel onResize sync — avoids needing setLeftPanelOpen/setRightPanelOpen actions
 - [Phase 08-gutter-refinements]: lineNumberMarkers.computeN() used instead of ViewPlugin — facet.of() requires static RangeSet, computeN derives it from breakpointState reactively
 - [Phase 08-gutter-refinements]: BreakpointOverlayMarker.toDOM() defined so lineNumberGutter.lineMarker suppresses NumberMarker automatically (others.some(m => m.toDOM) check in CM6 source)
+- [Phase 09-polish-and-tooltips]: BreadcrumbBar selectors return primitives (string, not Tab object) so Zustand only triggers re-render when string value changes
+- [Phase 09-polish-and-tooltips]: useMemo on findEnclosingFunction prevents O(n) backward scan on every unrelated store update
+- [Phase 09-polish-and-tooltips]: Display-only breadcrumb — no click handlers; click-to-navigate deferred per CONTEXT.md
 
 ### Pending Todos
 
@@ -118,6 +122,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T17:29:21.840Z
-Stopped at: Phase 9 context gathered
-Resume file: .planning/phases/09-polish-and-tooltips/09-CONTEXT.md
+Last session: 2026-03-15T17:57:56.275Z
+Stopped at: Completed 09-02-PLAN.md (BreadcrumbBar)
+Resume file: None

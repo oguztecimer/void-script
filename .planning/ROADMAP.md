@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Title Bar** - Pixel-accurate header with Search Everywhere and Settings gear (completed 2026-03-14)
 - [x] **Phase 4: Tab Bar and Editor State** - Rider tab sizing, close-button hover-reveal, EditorState preservation (completed 2026-03-14)
 - [x] **Phase 5: Tool Strips and Panels** - 40px tool strip, panel headers, bottom panel tab strip (completed 2026-03-14)
-- [ ] **Phase 6: Status Bar** - Navigation path, icon+count diagnostics widget
+- [x] **Phase 6: Status Bar** - Navigation path, icon+count diagnostics widget (completed 2026-03-15)
 - [ ] **Phase 7: Resizable Panels** - react-resizable-panels integration replacing fixed widths
 - [ ] **Phase 8: Gutter Refinements** - Breakpoint overlay, fold icons on hover, CodeMirror theme polish
 - [ ] **Phase 9: Polish and Tooltips** - Custom tooltips, keyboard shortcut hints, breadcrumb live integration
@@ -105,7 +105,7 @@ Plans:
   1. The status bar left region shows a static navigation path in the form "project > folder > file"
   2. Diagnostics are shown as icon + count pairs: a red error circle with error count and a yellow warning triangle with warning count — not plain text
   3. The status bar is 24px tall and uses 11px Inter text
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 06-01-PLAN.md — NavPath breadcrumb, DiagnosticsWidget icons, remove VCS branch
@@ -154,7 +154,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 3. Title Bar | 1/1 | Complete   | 2026-03-14 |
 | 4. Tab Bar and Editor State | 1/1 | Complete   | 2026-03-14 |
 | 5. Tool Strips and Panels | 2/2 | Complete   | 2026-03-14 |
-| 6. Status Bar | 0/1 | Not started | - |
+| 6. Status Bar | 1/1 | Complete   | 2026-03-15 |
 | 7. Resizable Panels | 0/? | Not started | - |
 | 8. Gutter Refinements | 0/? | Not started | - |
 | 9. Polish and Tooltips | 0/? | Not started | - |

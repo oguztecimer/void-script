@@ -42,8 +42,8 @@ Requirements for the Rider New UI pixel-accurate restyle. Each maps to roadmap p
 
 ### Status Bar
 
-- [ ] **STAT-01**: Navigation breadcrumb path segments in status bar left region (project > folder > file)
-- [ ] **STAT-02**: Diagnostics widget with icon + count pattern replacing plain text (error icon + red count, warning icon + yellow count)
+- [x] **STAT-01**: Navigation breadcrumb path segments in status bar left region (project > folder > file)
+- [x] **STAT-02**: Diagnostics widget with icon + count pattern replacing plain text (error icon + red count, warning icon + yellow count)
 
 ### Polish
 
@@ -107,8 +107,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | PNLS-02 | Phase 5 | Complete |
 | PNLS-03 | Phase 5 | Complete |
 | PNLS-04 | Phase 7 | Complete |
-| STAT-01 | Phase 6 | Pending |
-| STAT-02 | Phase 6 | Pending |
+| STAT-01 | Phase 6 | Complete |
+| STAT-02 | Phase 6 | Complete |
 | PLSH-01 | Phase 2 | Complete |
 | PLSH-02 | Phase 2 | Complete |
 | PLSH-03 | Phase 9 | Pending |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Phase 6 context gathered
-last_updated: "2026-03-15T10:13:49.871Z"
+stopped_at: Completed 06-status-bar-01-PLAN.md
+last_updated: "2026-03-15T10:33:35.850Z"
 last_activity: 2026-03-14 — Phase 2 Plan 2 complete (7 components migrated to CSS Modules)
 progress:
   total_phases: 9
-  completed_phases: 5
-  total_plans: 8
-  completed_plans: 8
+  completed_phases: 6
+  total_plans: 9
+  completed_plans: 9
   percent: 100
 ---
 
@@ -59,6 +59,7 @@ Progress: [██████████] 100%
 | Phase 04-tab-bar-and-editor-state P01 | 3min | 2 tasks | 2 files |
 | Phase 05-tool-strips-and-panels P01 | 1 min | 2 tasks | 6 files |
 | Phase 05-tool-strips-and-panels P02 | 4 min | 2 tasks | 8 files |
+| Phase 06-status-bar P01 | 1min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,9 @@ Recent decisions affecting current work:
 - [Phase 05-tool-strips-and-panels]: create_script added to JsToRustMessage union immediately as harmless type stub setting up IPC contract for future backend implementation
 - [Phase 05-tool-strips-and-panels]: react-resizable-panels v4 API adaptation: Group/Separator/panelRef/useDefaultLayout instead of v2 PanelGroup/PanelResizeHandle/ref/autoSaveId
 - [Phase 05-tool-strips-and-panels]: Drag detection via Group onLayoutChange/onLayoutChanged callbacks — v4 Separator has no onDragging prop
+- [Phase 06-status-bar]: NavPath project segment is <button> (toggleLeftPanel); folder/file are <span> to avoid implying non-existent functionality
+- [Phase 06-status-bar]: TYPE_LABELS/TYPE_ORDER extracted to state/scriptTypes.ts — shared by NavPath and ScriptList
+- [Phase 06-status-bar]: Chevron inside preceding segment button as .chevron span keeps --text-secondary on parent hover
 
 ### Pending Todos
 
@@ -105,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T10:13:49.869Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-status-bar/06-CONTEXT.md
+Last session: 2026-03-15T10:33:35.848Z
+Stopped at: Completed 06-status-bar-01-PLAN.md
+Resume file: None

@@ -28,7 +28,8 @@ export type JsToRustMessage =
   | { type: 'create_script' }
   | { type: 'window_minimize' }
   | { type: 'window_maximize' }
-  | { type: 'window_close' };
+  | { type: 'window_close' }
+  | { type: 'window_drag'; delta_x: number; delta_y: number };
 
 export interface Diagnostic {
   line: number;

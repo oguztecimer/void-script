@@ -12,6 +12,18 @@
  * this CSS file is parsed by the JS bundle.
  */
 
+html, body {
+  overscroll-behavior: none;
+}
+
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
 :root {
 
   /* ─── Background Colors ─────────────────────────────────────────────────── */

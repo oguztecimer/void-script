@@ -5,6 +5,30 @@ import { ToolBtn } from '../primitives/ToolBtn';
 import { Separator } from '../primitives/Separator';
 import { Tooltip } from '../primitives/Tooltip';
 
+function handleDragStart(e: React.MouseEvent) {
+  // Only drag if not clicking an interactive element
+  if ((e.target as HTMLElement).closest('.titlebar-no-drag')) return;
+
+  let lastX = e.screenX;
+  let lastY = e.screenY;
+
+  const onMove = (ev: MouseEvent) => {
+    const dx = ev.screenX - lastX;
+    const dy = ev.screenY - lastY;
+    lastX = ev.screenX;
+    lastY = ev.screenY;
+    sendToRust({ type: 'window_drag', delta_x: dx, delta_y: dy });
+  };
+
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
 export function Header() {
   const activeTabId = useStore((s) => s.activeTabId);
   const tabs = useStore((s) => s.tabs);
@@ -15,7 +39,7 @@ export function Header() {
   const active = isRunning || isDebugging;
 
   return (
-    <div className={`titlebar-drag ${styles.toolbar}`}>
+    <div className={styles.toolbar} onMouseDown={handleDragStart}>
       {/* Space for native macOS traffic lights */}
       <div className={styles.trafficLightSpacer} />
 

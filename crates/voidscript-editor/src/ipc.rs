@@ -121,6 +121,8 @@ pub enum JsToRust {
     WindowMaximize,
     #[serde(rename = "window_close")]
     WindowClose,
+    #[serde(rename = "window_drag")]
+    WindowDrag { delta_x: f64, delta_y: f64 },
 }
 
 // Channel resource for sending IPC messages from wry thread to Bevy
@@ -266,6 +268,9 @@ pub fn poll_ipc_messages(
             }
             JsToRust::WindowClose => {
                 window_control_events.send(WindowControlEvent::Close);
+            }
+            JsToRust::WindowDrag { .. } => {
+                // Handled directly in the IPC handler for low latency
             }
         }
     }

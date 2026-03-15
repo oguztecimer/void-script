@@ -126,6 +126,7 @@ pub fn open_editor(
             };
 
             let tx = ipc_sender.0.clone();
+            let ns_window_for_ipc = ns_window.clone();
 
             #[cfg(target_os = "macos")]
             use wry::WebViewBuilderExtDarwin;
@@ -151,6 +152,15 @@ pub fn open_editor(
                 .with_ipc_handler(move |request| {
                     let body = request.body();
                     match serde_json::from_str::<JsToRust>(body) {
+                        Ok(JsToRust::WindowDrag { delta_x, delta_y }) => {
+                            // Handle drag directly in IPC handler for low latency
+                            let frame = ns_window_for_ipc.frame();
+                            let origin = NSPoint::new(
+                                frame.origin.x + delta_x,
+                                frame.origin.y - delta_y,
+                            );
+                            ns_window_for_ipc.setFrameOrigin(origin);
+                        }
                         Ok(parsed) => {
                             let _ = tx.send(parsed);
                         }

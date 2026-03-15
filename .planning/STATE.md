@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 06-status-bar-01-PLAN.md
-last_updated: "2026-03-15T10:36:12.183Z"
+stopped_at: Completed 06-status-bar-02-PLAN.md
+last_updated: "2026-03-15T10:54:07.311Z"
 last_activity: 2026-03-14 — Phase 2 Plan 2 complete (7 components migrated to CSS Modules)
 progress:
   total_phases: 9
   completed_phases: 6
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 10
+  completed_plans: 10
   percent: 100
 ---
 
@@ -60,6 +60,7 @@ Progress: [██████████] 100%
 | Phase 05-tool-strips-and-panels P01 | 1 min | 2 tasks | 6 files |
 | Phase 05-tool-strips-and-panels P02 | 4 min | 2 tasks | 8 files |
 | Phase 06-status-bar P01 | 1min | 2 tasks | 6 files |
+| Phase 06-status-bar P02 | 2min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,7 @@ Recent decisions affecting current work:
 - [Phase 06-status-bar]: NavPath project segment is <button> (toggleLeftPanel); folder/file are <span> to avoid implying non-existent functionality
 - [Phase 06-status-bar]: TYPE_LABELS/TYPE_ORDER extracted to state/scriptTypes.ts — shared by NavPath and ScriptList
 - [Phase 06-status-bar]: Chevron inside preceding segment button as .chevron span keeps --text-secondary on parent hover
+- [Phase 06-status-bar]: flex-shrink: 0 on .bar rule: fixed-height siblings of flex: 1 children must set flex-shrink: 0 to resist compression in column layouts
 
 ### Pending Todos
 
@@ -109,6 +111,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-15T10:33:35.848Z
-Stopped at: Completed 06-status-bar-01-PLAN.md
+Last session: 2026-03-15T10:54:07.309Z
+Stopped at: Completed 06-status-bar-02-PLAN.md
 Resume file: None

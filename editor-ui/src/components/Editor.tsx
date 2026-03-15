@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, gutter, GutterMarker, Decoration, type DecorationSet } from '@codemirror/view';
+import { EditorView, keymap, lineNumbers, lineNumberMarkers, highlightActiveLine, drawSelection, GutterMarker, Decoration, type BlockInfo, type DecorationSet } from '@codemirror/view';
 import { EditorState, StateField, StateEffect, RangeSet, type Extension } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { bracketMatching, indentOnInput, foldGutter } from '@codemirror/language';
@@ -22,21 +22,20 @@ interface CachedTabState {
 }
 const editorStates = new Map<string, CachedTabState>();
 
-// --- Breakpoint gutter ---
+// --- Breakpoint overlay ---
 
-class BreakpointMarker extends GutterMarker {
-  toDOM() {
+class BreakpointOverlayMarker extends GutterMarker {
+  eq(other: GutterMarker): boolean {
+    return other instanceof BreakpointOverlayMarker;
+  }
+  toDOM(): HTMLElement {
     const el = document.createElement('div');
-    el.style.color = 'var(--accent-breakpoint)';
-    el.style.fontSize = '14px';
-    el.style.lineHeight = '1';
-    el.style.cursor = 'pointer';
-    el.textContent = '\u25CF';
+    el.className = 'cm-bp-circle';
     return el;
   }
 }
 
-const breakpointMarker = new BreakpointMarker();
+const breakpointMarker = new BreakpointOverlayMarker();
 
 const toggleBreakpointEffect = StateEffect.define<{ pos: number; on: boolean }>();
 
@@ -59,29 +58,14 @@ const breakpointState = StateField.define<RangeSet<GutterMarker>>({
   },
 });
 
-function createBreakpointGutter(scriptId: string) {
-  return gutter({
-    class: 'cm-breakpoint-gutter',
-    markers: (v) => v.state.field(breakpointState),
-    initialSpacer: () => breakpointMarker,
-    domEventHandlers: {
-      mousedown(view, line) {
-        const lineNo = view.state.doc.lineAt(line.from).number;
-        const store = useStore.getState();
-        const bps = store.breakpoints[scriptId] || [];
-        const isSet = bps.includes(lineNo);
-
-        view.dispatch({
-          effects: toggleBreakpointEffect.of({ pos: line.from, on: !isSet }),
-        });
-
-        store.toggleBreakpoint(scriptId, lineNo);
-        sendToRust({ type: 'toggle_breakpoint', script_id: scriptId, line: lineNo });
-        return true;
-      },
-    },
-  });
-}
+// Feed breakpointState markers into the line-number gutter via lineNumberMarkers facet.
+// BreakpointOverlayMarker.toDOM() causes lineNumberGutter.lineMarker to return null for
+// those rows (suppressing the line number), per @codemirror/view source line 11602.
+// computeN derives a RangeSet<GutterMarker> from breakpointState each time it changes.
+const breakpointLineNumberMarkers = lineNumberMarkers.computeN(
+  [breakpointState],
+  (state) => [state.field(breakpointState)]
+);
 
 // --- Debug line highlighting ---
 
@@ -116,18 +100,38 @@ function buildExtensions(
   saveTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
   handleUpdate: (id: string) => Extension,
 ): Extension[] {
+  const handleBreakpointClick = (view: EditorView, line: BlockInfo): boolean => {
+    const lineNo = view.state.doc.lineAt(line.from).number;
+    const store = useStore.getState();
+    const bps = store.breakpoints[scriptId] || [];
+    const isSet = bps.includes(lineNo);
+    view.dispatch({
+      effects: toggleBreakpointEffect.of({ pos: line.from, on: !isSet }),
+    });
+    store.toggleBreakpoint(scriptId, lineNo);
+    sendToRust({ type: 'toggle_breakpoint', script_id: scriptId, line: lineNo });
+    return true;
+  };
+
   return [
     breakpointState,
-    createBreakpointGutter(scriptId),
+    breakpointLineNumberMarkers,
     debugLineField,
-    lineNumbers(),
+    lineNumbers({ domEventHandlers: { mousedown: handleBreakpointClick } }),
     highlightActiveLine(),
     drawSelection(),
     history(),
     indentOnInput(),
     bracketMatching(),
     closeBrackets(),
-    foldGutter(),
+    foldGutter({
+      markerDOM(open: boolean): HTMLElement {
+        const span = document.createElement('span');
+        span.className = 'cm-fold-marker';
+        span.textContent = open ? '\u25BC' : '\u25B6';
+        return span;
+      },
+    }),
     autocompletion({ override: [voidScriptCompletion] }),
     voidScriptLanguage,
     voidScriptTheme,

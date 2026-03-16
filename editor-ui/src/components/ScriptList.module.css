@@ -1,7 +1,7 @@
 .panel {
   /* width: 220px; — REMOVED: now controlled by react-resizable-panels Panel */
   background-color: var(--bg-panel);
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   height: 100%;

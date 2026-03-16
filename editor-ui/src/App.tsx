@@ -9,7 +9,6 @@ import {
 import { Header } from './components/Header';
 import { ToolStrip, type ToolStripItem } from './components/ToolStrip';
 import { TabBar } from './components/TabBar';
-import { BreadcrumbBar } from './components/BreadcrumbBar';
 import { Editor } from './components/Editor';
 import { ScriptList } from './components/ScriptList';
 import { Console } from './components/Console';
@@ -241,7 +240,6 @@ export function App() {
               >
                 <Panel id="editor-panel" minSize="50%" maxSize="90%">
                   <div className={styles.editorArea}>
-                    <BreadcrumbBar />
                     <Editor />
                   </div>
                 </Panel>

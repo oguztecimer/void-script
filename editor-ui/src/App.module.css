@@ -30,6 +30,17 @@
   background-color: var(--bg-editor);
 }
 
+.editorArea::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url('/skull.png') no-repeat center center;
+  background-size: 360px;
+  opacity: 0.025;
+  pointer-events: none;
+  z-index: -2;
+}
+
 .editorArea::before {
   content: '';
   position: absolute;
@@ -39,6 +50,13 @@
   opacity: 0.02;
   pointer-events: none;
   z-index: -1;
+  filter: sepia(1);
+  animation: signRotate 60s linear infinite;
+}
+
+@keyframes signRotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 .bottomPanel {

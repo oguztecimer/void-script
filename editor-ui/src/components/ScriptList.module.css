@@ -12,10 +12,10 @@
 .panel::before {
   content: '';
   position: absolute;
-  bottom: -25px;
+  bottom: -10px;
   left: 50%;
   transform: translateX(-50%);
-  width: 270px;
+  width: 220px;
   aspect-ratio: 0.55;
   background: url('/grimoire-watermark.png') no-repeat center bottom;
   background-size: contain;

@@ -40,6 +40,16 @@ impl WebViewManager {
         let _ = webview.evaluate_script(&js);
     }
 
+    pub fn show(&self) {
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(ns_window) = &self.ns_window {
+                ns_window.setAlphaValue(1.0);
+                ns_window.makeKeyAndOrderFront(None);
+            }
+        }
+    }
+
     pub fn is_open(&self) -> bool {
         self.webview.is_some()
     }
@@ -163,6 +173,15 @@ pub fn open_editor(
         ns_window.center();
         ns_window.setMovableByWindowBackground(true);
 
+        // Set background to match editor dark theme (#1E1F22) to prevent white flash.
+        let bg = objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(
+            0x1E as f64 / 255.0,
+            0x1F as f64 / 255.0,
+            0x22 as f64 / 255.0,
+            1.0,
+        );
+        ns_window.setBackgroundColor(Some(&bg));
+
         // Get content view handle for wry
         let content_view = ns_window.contentView().expect("window has content view");
         let view_ptr = Retained::as_ptr(&content_view) as *mut std::ffi::c_void;
@@ -178,6 +197,7 @@ pub fn open_editor(
 
         let builder = wry::WebViewBuilder::new()
             .with_traffic_light_inset(wry::dpi::LogicalPosition::new(12.0, 22.0))
+            .with_background_color((0x1E, 0x1F, 0x22, 0xFF))
             .with_custom_protocol("deadcode".into(), |_webview_id, request| {
                 let path = request.uri().path().to_string();
                 match embedded_assets::get_asset(&path) {
@@ -214,11 +234,12 @@ pub fn open_editor(
 
         match builder.build(&handle) {
             Ok(webview) => {
-                // Show window after webview is ready
+                // Show window at alpha 0 so webview loads, but user sees no flash.
+                // Alpha is restored to 1 when EditorReady IPC fires.
+                ns_window.setAlphaValue(0.0);
                 ns_window.makeKeyAndOrderFront(None);
                 webview_manager.webview = Some(webview);
                 webview_manager.ns_window = Some(ns_window);
-                eprintln!("Editor window created with native NSWindow + WebView");
             }
             Err(e) => {
                 eprintln!("Failed to create webview: {e}");

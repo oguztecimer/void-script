@@ -802,6 +802,7 @@ impl App {
         while let Ok(msg) = self.ipc_receiver.try_recv() {
             match msg {
                 JsToRust::EditorReady => {
+                    self.webview_manager.show();
                     if let Some(store) = &self.script_store {
                         let infos = store.get_script_infos();
                         let msg = RustToJs::ScriptList { scripts: infos };

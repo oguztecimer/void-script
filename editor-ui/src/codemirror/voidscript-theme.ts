@@ -37,6 +37,9 @@ export const voidScriptTheme = EditorView.theme({
     color: 'var(--text-tertiary)',
     borderRight: 'none',
     marginTop: '1px',
+    paddingTop: '2px',
+    paddingLeft: '5px',
+    paddingRight: '10px',
     zIndex: 201,
   },
   '.cm-activeLineGutter': {
@@ -108,11 +111,14 @@ export const voidScriptTheme = EditorView.theme({
     cursor: 'pointer',
   },
   '.cm-bp-circle': {
-    width: '12px',
-    height: '12px',
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(calc(-50% + 1px), calc(-50% - 2px))',
+    width: '16px',
+    height: '16px',
     borderRadius: '50%',
     backgroundColor: 'var(--accent-breakpoint)',
-    margin: '0 auto',
   },
 
   // ── Breakpoint hover preview (faint circle on hover) ──────────────────────
@@ -121,9 +127,9 @@ export const voidScriptTheme = EditorView.theme({
     position: 'absolute',
     top: '50%',
     left: '50%',
-    transform: 'translate(-50%, -50%)',
-    width: '12px',
-    height: '12px',
+    transform: 'translate(calc(-50% + 1px), calc(-50% - 2px))',
+    width: '16px',
+    height: '16px',
     borderRadius: '50%',
     backgroundColor: 'var(--accent-breakpoint)',
     opacity: '0',
@@ -132,6 +138,9 @@ export const voidScriptTheme = EditorView.theme({
   },
   '.cm-lineNumbers .cm-gutterElement:hover::after': {
     opacity: '0.25',
+  },
+  '.cm-lineNumbers .cm-gutterElement:hover': {
+    color: 'transparent',
   },
 }, { dark: true });
 

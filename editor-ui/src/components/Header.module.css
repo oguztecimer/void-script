@@ -9,6 +9,23 @@
   user-select: none;
   border-bottom: 1px solid var(--border-strong);
   font-size: var(--font-size-ui);
+  position: relative;
+  isolation: isolate;
+}
+
+.toolbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url('/skulls-pattern.png');
+  background-repeat: repeat;
+  background-size: 300px;
+  opacity: 0.015;
+  pointer-events: none;
+  z-index: -1;
+  filter: sepia(1) hue-rotate(230deg) saturate(3);
+  mask-image: linear-gradient(to right, black 0%, black 40%, transparent 80%);
+  -webkit-mask-image: linear-gradient(to right, black 0%, black 40%, transparent 80%);
 }
 
 .brandName {

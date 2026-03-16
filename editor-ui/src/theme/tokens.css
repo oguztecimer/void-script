@@ -229,7 +229,7 @@ html, body {
   --font-size-ui: 13px;
 
   /** Editor content font size */
-  --font-size-editor: 14px;
+  --font-size-editor: 11px;
 
   /** Status bar and compact labels */
   --font-size-status: 11px;

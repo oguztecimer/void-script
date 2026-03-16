@@ -25,6 +25,20 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+  isolation: isolate;
+  background-color: var(--bg-editor);
+}
+
+.editorArea::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url('/sign-watermark.png') no-repeat center center;
+  background-size: 360px;
+  opacity: 0.02;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .bottomPanel {

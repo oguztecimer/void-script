@@ -29,9 +29,10 @@ const LEFT_ITEMS: ToolStripItem[] = [
   {
     id: 'scripts',
     icon: (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path d="M4 2h8v12H4V2z" stroke="currentColor" strokeWidth="1.2"/>
-        <path d="M6 5h4M6 7.5h4M6 10h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+      <svg width="24" height="24" viewBox="0 0 16 16" fill="none">
+        <path d="M4 2.5C4 2.5 4 2 4.5 2H11.5C12 2 12 2.5 12 2.5V13C12 13 12 13.5 11.5 13.5H5C4.2 13.5 3.5 13 3.5 12.2V4C3.5 3 4 2.5 4 2.5Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+        <path d="M3.5 12.2C3.5 11.5 4.2 11 5 11H12" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+        <path d="M6.5 5H9.5M6.5 7.5H9" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
       </svg>
     ),
     label: 'Grimoire',
@@ -230,7 +231,6 @@ export function App() {
           <Panel id="center">
             <div className={styles.center}>
               <TabBar />
-              <BreadcrumbBar />
               <Group
                 id="void-center-layout"
                 orientation="vertical"
@@ -241,6 +241,7 @@ export function App() {
               >
                 <Panel id="editor-panel" minSize="50%" maxSize="90%">
                   <div className={styles.editorArea}>
+                    <BreadcrumbBar />
                     <Editor />
                   </div>
                 </Panel>

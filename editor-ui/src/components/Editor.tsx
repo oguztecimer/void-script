@@ -148,6 +148,99 @@ function buildExtensions(
           return true;
         },
       },
+      {
+        key: 'Tab',
+        run: (view) => {
+          const { state } = view;
+          const sel = state.selection.main;
+          if (sel.empty) {
+            const spaces = 4 - ((sel.head - state.doc.lineAt(sel.head).from) % 4) || 4;
+            view.dispatch(
+              state.update({
+                changes: { from: sel.head, to: sel.head, insert: ' '.repeat(spaces) },
+                selection: { anchor: sel.head + spaces },
+              })
+            );
+          } else {
+            const fromLine = state.doc.lineAt(sel.from).number;
+            const toLine = state.doc.lineAt(sel.to).number;
+            const changes: { from: number; insert: string }[] = [];
+            for (let i = fromLine; i <= toLine; i++) {
+              changes.push({ from: state.doc.line(i).from, insert: '    ' });
+            }
+            view.dispatch(state.update({
+              changes,
+              selection: {
+                anchor: state.doc.line(fromLine).from,
+                head: state.doc.line(toLine).to + (toLine - fromLine + 1) * 4,
+              },
+            }));
+          }
+          return true;
+        },
+      },
+      {
+        key: 'Shift-Tab',
+        run: (view) => {
+          const { state } = view;
+          const sel = state.selection.main;
+          const fromLine = state.doc.lineAt(sel.empty ? sel.head : sel.from).number;
+          const toLine = state.doc.lineAt(sel.empty ? sel.head : sel.to).number;
+          const changes: { from: number; to: number }[] = [];
+          for (let i = fromLine; i <= toLine; i++) {
+            const line = state.doc.line(i);
+            const match = line.text.match(/^( {1,4})/);
+            if (match) {
+              changes.push({ from: line.from, to: line.from + match[1].length });
+            }
+          }
+          if (changes.length === 0) return true;
+          view.dispatch(state.update({ changes }));
+          return true;
+        },
+      },
+      {
+        key: 'Backspace',
+        run: (view) => {
+          const { state } = view;
+          const { head, empty } = state.selection.main;
+          if (!empty) return false; // let default handle selections
+          const line = state.doc.lineAt(head);
+          const col = head - line.from;
+          if (col === 0) return false; // beginning of line, default behavior
+          const textBefore = line.text.slice(0, col);
+          if (textBefore.trim().length > 0) return false; // non-space chars before cursor
+          const deleteCount = col % 4 === 0 ? 4 : col % 4;
+          if (deleteCount > col) return false;
+          view.dispatch(
+            state.update({
+              changes: { from: head - deleteCount, to: head },
+              selection: { anchor: head - deleteCount },
+            })
+          );
+          return true;
+        },
+      },
+      {
+        key: 'Enter',
+        run: (view) => {
+          const { state } = view;
+          const { head } = state.selection.main;
+          const line = state.doc.lineAt(head);
+          const lineText = line.text;
+          const indent = lineText.match(/^(\s*)/)![1];
+          const textBeforeCursor = lineText.slice(0, head - line.from);
+          const trimmed = textBeforeCursor.trimEnd();
+          const extra = trimmed.endsWith(':') ? '    ' : '';
+          view.dispatch(
+            state.update({
+              changes: { from: head, to: head, insert: '\n' + indent + extra },
+              selection: { anchor: head + 1 + indent.length + extra.length },
+            })
+          );
+          return true;
+        },
+      },
       ...defaultKeymap,
       ...historyKeymap,
       ...closeBracketsKeymap,

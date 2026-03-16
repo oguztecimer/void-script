@@ -24,6 +24,8 @@ export const voidScriptTheme = EditorView.theme({
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
     backgroundColor: 'var(--bg-selection)',
+    position: 'relative',
+    zIndex: 1,
   },
   '.cm-gutters': {
     backgroundColor: 'var(--bg-editor) !important',

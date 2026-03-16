@@ -4,7 +4,6 @@
   overflow: auto;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border-strong);
   height: 100%;
 }
 

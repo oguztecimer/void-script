@@ -16,6 +16,10 @@ html, body {
   overscroll-behavior: none;
 }
 
+* {
+  overscroll-behavior: none;
+}
+
 .titlebar-drag {
   -webkit-app-region: drag;
 }

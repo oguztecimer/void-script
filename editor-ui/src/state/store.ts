@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { Diagnostic, ScriptInfo, VariableInfo } from '../ipc/types';
 
 interface ConsoleEntry {
@@ -58,7 +59,7 @@ interface EditorState {
   getBreakpoints: (scriptId: string) => number[];
 }
 
-export const useStore = create<EditorState>((set, get) => ({
+export const useStore = create<EditorState>()(persist((set, get) => ({
   tabs: [],
   activeTabId: null,
   scriptList: [],
@@ -162,4 +163,12 @@ export const useStore = create<EditorState>((set, get) => ({
     }),
 
   getBreakpoints: (scriptId) => get().breakpoints[scriptId] || [],
+}), {
+  name: 'void-editor-panels',
+  partialize: (state) => ({
+    leftPanelOpen: state.leftPanelOpen,
+    bottomPanelOpen: state.bottomPanelOpen,
+    rightPanelOpen: state.rightPanelOpen,
+    bottomPanelTab: state.bottomPanelTab,
+  }),
 }));

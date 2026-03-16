@@ -152,14 +152,13 @@ pub fn open_editor(
                 .with_ipc_handler(move |request| {
                     let body = request.body();
                     match serde_json::from_str::<JsToRust>(body) {
-                        Ok(JsToRust::WindowDrag { delta_x, delta_y }) => {
-                            // Handle drag directly in IPC handler for low latency
-                            let frame = ns_window_for_ipc.frame();
-                            let origin = NSPoint::new(
-                                frame.origin.x + delta_x,
-                                frame.origin.y - delta_y,
-                            );
-                            ns_window_for_ipc.setFrameOrigin(origin);
+                        Ok(JsToRust::WindowDragStart) => {
+                            // Start native window drag — macOS handles the rest
+                            let mtm = MainThreadMarker::new().unwrap();
+                            let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+                            if let Some(event) = app.currentEvent() {
+                                ns_window_for_ipc.performWindowDragWithEvent(&event);
+                            }
                         }
                         Ok(parsed) => {
                             let _ = tx.send(parsed);

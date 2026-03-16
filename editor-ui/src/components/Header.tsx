@@ -8,25 +8,7 @@ import { Tooltip } from '../primitives/Tooltip';
 function handleDragStart(e: React.MouseEvent) {
   // Only drag if not clicking an interactive element
   if ((e.target as HTMLElement).closest('.titlebar-no-drag')) return;
-
-  let lastX = e.screenX;
-  let lastY = e.screenY;
-
-  const onMove = (ev: MouseEvent) => {
-    const dx = ev.screenX - lastX;
-    const dy = ev.screenY - lastY;
-    lastX = ev.screenX;
-    lastY = ev.screenY;
-    sendToRust({ type: 'window_drag', delta_x: dx, delta_y: dy });
-  };
-
-  const onUp = () => {
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-  };
-
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
+  sendToRust({ type: 'window_drag_start' });
 }
 
 export function Header() {

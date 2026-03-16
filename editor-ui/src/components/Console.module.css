@@ -29,4 +29,6 @@
   color: var(--text-disabled);
   font-style: italic;
   padding: 8px 0;
+  white-space: nowrap;
+  overflow: hidden;
 }

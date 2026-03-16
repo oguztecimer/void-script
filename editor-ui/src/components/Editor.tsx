@@ -484,6 +484,8 @@ export function Editor() {
         color: 'var(--text-tertiary)',
         fontSize: '16px',
         fontStyle: 'italic',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
       }}>
         Select a script to begin editing
       </div>

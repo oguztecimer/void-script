@@ -94,6 +94,8 @@ export const voidScriptTheme = EditorView.theme({
     color: 'var(--text-tertiary)',
     fontSize: '10px',
     lineHeight: '1',
+    position: 'relative',
+    top: '-3px',
     cursor: 'pointer',
     transition: 'opacity var(--transition-hover), color var(--transition-hover)',
     userSelect: 'none',

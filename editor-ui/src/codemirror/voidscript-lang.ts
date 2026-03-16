@@ -1,4 +1,4 @@
-import { StreamLanguage } from '@codemirror/language';
+import { StreamLanguage, foldService } from '@codemirror/language';
 
 const keywords = new Set([
   'while', 'if', 'else', 'elif', 'for', 'in', 'def', 'return',
@@ -21,6 +21,29 @@ const builtinFunctions = new Set([
   'set_target', 'get_target', 'has_target',
   'get_type', 'get_name', 'get_owner',
 ]);
+
+// Indentation-based folding for Python-like syntax
+export const voidScriptFolding = foldService.of((state, lineStart, lineEnd) => {
+  const line = state.doc.lineAt(lineStart);
+  const lineText = line.text;
+  const trimmed = lineText.trimEnd();
+  if (!trimmed.endsWith(':')) return null;
+
+  const baseIndent = lineText.match(/^(\s*)/)![1].length;
+  let lastFoldLine = line.number;
+
+  for (let i = line.number + 1; i <= state.doc.lines; i++) {
+    const next = state.doc.line(i);
+    const nextText = next.text;
+    if (nextText.trim().length === 0) continue; // skip blank lines
+    const nextIndent = nextText.match(/^(\s*)/)![1].length;
+    if (nextIndent <= baseIndent) break;
+    lastFoldLine = i;
+  }
+
+  if (lastFoldLine === line.number) return null;
+  return { from: lineEnd, to: state.doc.line(lastFoldLine).to };
+});
 
 export const voidScriptLanguage = StreamLanguage.define({
   token(stream) {

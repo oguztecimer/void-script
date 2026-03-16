@@ -2,11 +2,11 @@ import { useEffect, useRef, useCallback } from 'react';
 import { EditorView, keymap, lineNumbers, lineNumberMarkers, highlightActiveLine, drawSelection, GutterMarker, Decoration, type BlockInfo, type DecorationSet } from '@codemirror/view';
 import { EditorState, StateField, StateEffect, RangeSet, type Extension } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { bracketMatching, indentOnInput, foldGutter } from '@codemirror/language';
+import { bracketMatching, indentOnInput, foldGutter, foldedRanges, foldEffect, unfoldEffect } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
 import { linter, type Diagnostic as CmDiagnostic } from '@codemirror/lint';
-import { voidScriptLanguage } from '../codemirror/voidscript-lang';
+import { voidScriptLanguage, voidScriptFolding } from '../codemirror/voidscript-lang';
 import { voidScriptTheme, voidScriptHighlightStyle } from '../codemirror/voidscript-theme';
 import { voidScriptCompletion } from '../codemirror/voidscript-completion';
 import { useStore } from '../state/store';
@@ -137,6 +137,7 @@ function buildExtensions(
     }),
     autocompletion({ override: [voidScriptCompletion] }),
     voidScriptLanguage,
+    voidScriptFolding,
     voidScriptTheme,
     voidScriptHighlightStyle,
     voidScriptLinter,
@@ -278,6 +279,18 @@ export function Editor() {
         const line = update.state.doc.lineAt(pos);
         useStore.getState().setCursor(line.number, pos - line.from + 1);
       }
+      // Persist fold state on every fold/unfold
+      if (update.transactions.some(tr => tr.effects.some(e => e.is(foldEffect) || e.is(unfoldEffect)))) {
+        const folds: number[] = [];
+        const ranges = foldedRanges(update.state);
+        const cursor = ranges.iter();
+        while (cursor.value) {
+          folds.push(update.state.doc.lineAt(cursor.from).number);
+          cursor.next();
+        }
+        const tab = useStore.getState().tabs.find(t => t.scriptId === scriptId);
+        if (tab) useStore.getState().setFoldedLines(tab.name, folds);
+      }
     });
   }, []);
 
@@ -288,6 +301,19 @@ export function Editor() {
     if (viewRef.current) {
       const prevId = prevTabIdRef.current;
       if (prevId) {
+        // Persist fold state by name
+        const prevTab = useStore.getState().tabs.find(t => t.scriptId === prevId);
+        if (prevTab) {
+          const folds: number[] = [];
+          const ranges = foldedRanges(viewRef.current.state);
+          const cursor = ranges.iter();
+          while (cursor.value) {
+            folds.push(viewRef.current.state.doc.lineAt(cursor.from).number);
+            cursor.next();
+          }
+          useStore.getState().setFoldedLines(prevTab.name, folds);
+        }
+
         editorStates.set(prevId, {
           state: viewRef.current.state,
           scrollSnapshot: viewRef.current.scrollSnapshot(),
@@ -342,6 +368,37 @@ export function Editor() {
       parent: containerRef.current,
     });
 
+    // Restore persisted fold state
+    {
+      const savedFolds = useStore.getState().foldedLines[activeTab.name];
+      if (savedFolds?.length) {
+        const doc = viewRef.current.state.doc;
+        const effects: ReturnType<typeof foldEffect.of>[] = [];
+        for (const lineNo of savedFolds) {
+          if (lineNo <= doc.lines) {
+            const line = doc.line(lineNo);
+            const trimmed = line.text.trimEnd();
+            if (!trimmed.endsWith(':')) continue;
+            const baseIndent = line.text.match(/^(\s*)/)![1].length;
+            let lastFoldLine = lineNo;
+            for (let i = lineNo + 1; i <= doc.lines; i++) {
+              const next = doc.line(i);
+              if (next.text.trim().length === 0) continue;
+              const nextIndent = next.text.match(/^(\s*)/)![1].length;
+              if (nextIndent <= baseIndent) break;
+              lastFoldLine = i;
+            }
+            if (lastFoldLine > lineNo) {
+              effects.push(foldEffect.of({ from: line.to, to: doc.line(lastFoldLine).to }));
+            }
+          }
+        }
+        if (effects.length) {
+          viewRef.current.dispatch({ effects });
+        }
+      }
+    }
+
     // Sync initial cursor position so BreadcrumbBar sees the correct line immediately.
     // editorState.selection.main.head is the character offset of the selection head.
     {
@@ -374,6 +431,19 @@ export function Editor() {
       if (viewRef.current) {
         const id = prevTabIdRef.current;
         if (id) {
+          // Persist fold state by name
+          const tab = useStore.getState().tabs.find(t => t.scriptId === id);
+          if (tab) {
+            const folds: number[] = [];
+            const ranges = foldedRanges(viewRef.current.state);
+            const cursor = ranges.iter();
+            while (cursor.value) {
+              folds.push(viewRef.current.state.doc.lineAt(cursor.from).number);
+              cursor.next();
+            }
+            useStore.getState().setFoldedLines(tab.name, folds);
+          }
+
           editorStates.set(id, {
             state: viewRef.current.state,
             scrollSnapshot: viewRef.current.scrollSnapshot(),

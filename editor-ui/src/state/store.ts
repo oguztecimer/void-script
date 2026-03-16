@@ -35,6 +35,7 @@ interface EditorState {
   debugVariables: VariableInfo[];
   debugCallStack: string[];
   breakpoints: Record<string, number[]>;
+  foldedLines: Record<string, number[]>;
 
   openTab: (scriptId: string, name: string, content: string, scriptType: string) => void;
   closeTab: (scriptId: string) => void;
@@ -59,6 +60,7 @@ interface EditorState {
   setDebugCallStack: (stack: string[]) => void;
   toggleBreakpoint: (scriptId: string, line: number) => void;
   getBreakpoints: (scriptId: string) => number[];
+  setFoldedLines: (scriptId: string, lines: number[]) => void;
 }
 
 export const useStore = create<EditorState>()(persist((set, get) => ({
@@ -79,6 +81,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   debugVariables: [],
   debugCallStack: [],
   breakpoints: {},
+  foldedLines: {},
 
   openTab: (scriptId, name, content, scriptType) =>
     set((state) => {
@@ -172,6 +175,11 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
     }),
 
   getBreakpoints: (scriptId) => get().breakpoints[scriptId] || [],
+
+  setFoldedLines: (key, lines) =>
+    set((state) => ({
+      foldedLines: { ...state.foldedLines, [key]: lines },
+    })),
 }), {
   name: 'void-editor-panels',
   partialize: (state) => ({
@@ -179,5 +187,6 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
     bottomPanelOpen: state.bottomPanelOpen,
     rightPanelOpen: state.rightPanelOpen,
     bottomPanelTab: state.bottomPanelTab,
+    foldedLines: state.foldedLines,
   }),
 }));

@@ -158,7 +158,6 @@ impl App {
         let editor_window = get_window_geometry(&self.webview_manager)
             .map(|(x, y, w, h)| save::WindowGeometry { x, y, width: w, height: h })
             .or_else(|| self.settings.editor_window.clone());
-        eprintln!("[deadcode] Saving settings: editor_window={:?}", editor_window);
         Settings { editor_window }
     }
 }
@@ -286,7 +285,7 @@ impl ApplicationHandler<UserEvent> for App {
             behavior_engine.stats_mut().happiness =
                 (save_data.happiness - 0.0042 * elapsed_secs).max(10.0);
             self.settings = save_data.settings;
-            eprintln!("[deadcode] Loaded settings: editor_window={:?}", self.settings.editor_window);
+
         }
 
         behavior_engine.wake_up(&mut animation_player);
@@ -573,7 +572,6 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             UserEvent::MenuEvent(ref e) if e.id().0 == tray::editor_id() => {
-                eprintln!("[deadcode] Tray toggle: is_open={} is_visible={}", self.webview_manager.is_open(), self.webview_manager.is_visible());
                 if self.webview_manager.is_visible() {
                     // Capture geometry before closing
                     if let Some((x, y, w, h)) = get_window_geometry(&self.webview_manager) {
@@ -583,7 +581,6 @@ impl ApplicationHandler<UserEvent> for App {
                 } else {
                     // Not visible (either closed or hidden) — clean up stale state and reopen
                     if self.webview_manager.is_open() {
-                        eprintln!("[deadcode] Cleaning up stale webview before reopen");
                         self.webview_manager.close();
                     }
                     open_editor(&mut self.webview_manager, &self.ipc_sender, self.settings.editor_window.as_ref().map(|g| (g.x, g.y, g.width, g.height)));
@@ -850,7 +847,19 @@ impl ApplicationHandler<UserEvent> for App {
         self.execution_manager.poll_script_events(&self.webview_manager);
 
         // --- Detect editor native close ---
-        self.webview_manager.detect_native_close();
+        if let Some((x, y, w, h)) = self.webview_manager.detect_native_close() {
+            self.settings.editor_window = Some(save::WindowGeometry { x, y, width: w, height: h });
+
+            if let Some(engine) = &self.behavior_engine {
+                save::save(&SaveData {
+                    hunger: engine.stats().hunger,
+                    cleanliness: engine.stats().cleanliness,
+                    happiness: engine.stats().happiness,
+                    last_active_unix: save::now_unix(),
+                    settings: self.current_settings(),
+                });
+            }
+        }
 
         // --- Dynamic FPS ---
         let interval = if let Some(player) = &self.animation_player {
@@ -965,7 +974,6 @@ impl App {
                     );
                 }
                 JsToRust::WindowClose => {
-                    eprintln!("[deadcode] WindowClose IPC received, is_open={} is_visible={}", self.webview_manager.is_open(), self.webview_manager.is_visible());
                     // Capture geometry before the window is destroyed
                     if let Some((x, y, w, h)) = get_window_geometry(&self.webview_manager) {
                         self.settings.editor_window = Some(save::WindowGeometry { x, y, width: w, height: h });
@@ -974,7 +982,6 @@ impl App {
                         WindowControlEvent::Close,
                         &mut self.maximized_state.maximized,
                     );
-                    eprintln!("[deadcode] After close: is_open={} is_visible={}", self.webview_manager.is_open(), self.webview_manager.is_visible());
                 }
                 JsToRust::WindowDragStart => {
                     // Handled directly in the IPC handler for native drag

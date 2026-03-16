@@ -173,18 +173,27 @@ impl WebViewManager {
     }
 
     /// Detects when the native close button was clicked (bypassing our IPC)
-    /// and cleans up editor resources.
-    pub fn detect_native_close(&mut self) {
+    /// and cleans up editor resources. Returns the window geometry if a close
+    /// was detected (so the caller can persist it).
+    pub fn detect_native_close(&mut self) -> Option<(i32, i32, i32, i32)> {
         if !self.shown_once {
-            return;
+            return None;
         }
         #[cfg(target_os = "macos")]
         {
             if let Some(ns_window) = &self.ns_window {
                 if !ns_window.isVisible() && !ns_window.isMiniaturized() {
+                    let frame = ns_window.frame();
+                    let geometry = (
+                        frame.origin.x as i32,
+                        frame.origin.y as i32,
+                        frame.size.width as i32,
+                        frame.size.height as i32,
+                    );
                     self.webview = None;
                     self.ns_window = None;
                     self.shown_once = false;
+                    return Some(geometry);
                 }
             }
         }
@@ -202,6 +211,7 @@ impl WebViewManager {
                 }
             }
         }
+        None
     }
 
     pub fn cleanup(&mut self) {

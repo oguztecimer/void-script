@@ -264,6 +264,15 @@ export function Editor() {
       viewRef.current.dispatch({ effects: cached.scrollSnapshot });
     }
 
+    // Set CSS variable for gutter width so the full-height border line positions correctly
+    requestAnimationFrame(() => {
+      const gutters = containerRef.current?.querySelector('.cm-gutters') as HTMLElement;
+      const editorEl = containerRef.current?.querySelector('.cm-editor') as HTMLElement;
+      if (gutters && editorEl) {
+        editorEl.style.setProperty('--cm-gutter-width', `${gutters.offsetWidth}px`);
+      }
+    });
+
     // Update the previous tab ref to the current one
     prevTabIdRef.current = activeTab.scriptId;
 
@@ -310,5 +319,5 @@ export function Editor() {
     );
   }
 
-  return <div ref={containerRef} style={{ flex: 1, overflow: 'hidden' }} />;
+  return <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }} />;
 }

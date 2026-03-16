@@ -28,8 +28,9 @@ export const voidScriptTheme = EditorView.theme({
   '.cm-gutters': {
     backgroundColor: 'var(--bg-editor) !important',
     color: 'var(--text-tertiary)',
-    borderRight: '1px solid var(--border-default)',
+    borderRight: 'none',
     marginTop: '1px',
+    zIndex: 201,
   },
   '.cm-activeLineGutter': {
     backgroundColor: 'var(--bg-hover)',

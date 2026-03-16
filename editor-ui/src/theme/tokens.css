@@ -20,6 +20,19 @@ html, body {
   overscroll-behavior: none;
 }
 
+/* Full-height gutter border line — extends beyond content via ::after on .cm-editor */
+.cm-editor::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  height: 100vh;
+  left: var(--cm-gutter-width, 44px);
+  width: 1px;
+  background: var(--border-default);
+  pointer-events: none;
+  z-index: 201;
+}
+
 .titlebar-drag {
   -webkit-app-region: drag;
 }

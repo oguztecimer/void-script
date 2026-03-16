@@ -34,7 +34,7 @@ const LEFT_ITEMS: ToolStripItem[] = [
         <path d="M6 5h4M6 7.5h4M6 10h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
       </svg>
     ),
-    label: 'Scripts',
+    label: 'Grimoire',
     shortcut: 'Alt+1',
   },
 ];

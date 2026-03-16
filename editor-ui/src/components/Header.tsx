@@ -36,14 +36,6 @@ export function Header() {
         </svg>
       </ToolBtn>
 
-      <span className={styles.brandName}>
-        <span className={styles.brandPunc}>[</span>
-        <span className={styles.brandDead}>DEAD</span>
-        <span className={styles.brandPunc}>//</span>
-        <span className={styles.brandCode}>CODE</span>
-        <span className={styles.brandPunc}>]</span>
-      </span>
-
       {/* Center spacer - draggable */}
       <div className={styles.spacer} />
 

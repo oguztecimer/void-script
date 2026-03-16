@@ -15,20 +15,13 @@
   font-weight: 600;
   font-size: 13px;
   letter-spacing: 1px;
-  margin-left: 53px;
+  margin-left: 33px;
   flex-shrink: 0;
+  color: var(--text-primary);
 }
 
-.brandDead {
-  color: #db5c5c;
-}
-
-.brandCode {
-  color: #c8c8c0;
-}
-
-.brandPunc {
-  color: #e0a030;
+.brandAccent {
+  color: #D94452;
 }
 
 .spacer {

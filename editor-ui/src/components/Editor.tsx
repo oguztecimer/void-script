@@ -487,7 +487,7 @@ export function Editor() {
         whiteSpace: 'nowrap',
         overflow: 'hidden',
       }}>
-        Select a script to begin editing
+        Select a page to begin editing
       </div>
     );
   }

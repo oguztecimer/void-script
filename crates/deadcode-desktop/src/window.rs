@@ -151,24 +151,23 @@ pub fn enumerate_monitors(event_loop: &ActiveEventLoop) -> Vec<StripInfo> {
 
 /// Get the logical Y coordinate of the bottom of the usable work area
 /// (i.e., the screen height minus the OS taskbar).
-fn get_work_area_bottom(_monitor_width: u32, monitor_height: u32, _scale_factor: f64) -> i32 {
+fn get_work_area_bottom(_monitor_width: u32, monitor_height: u32, scale_factor: f64) -> i32 {
     #[cfg(target_os = "macos")]
     {
+        let _ = scale_factor;
         get_work_area_bottom_macos().unwrap_or(monitor_height as i32)
     }
 
     #[cfg(target_os = "windows")]
     {
-        // Windows work area is obtained via GetMonitorInfo on the primary monitor.
-        // At this point we don't have an HWND yet (window not created), so we use
-        // MonitorFromPoint on the primary monitor (0,0 with MONITOR_DEFAULTTOPRIMARY).
-        get_work_area_bottom_windows().unwrap_or(monitor_height as i32)
+        // rcWork.bottom is in physical pixels; convert to logical.
+        get_work_area_bottom_windows(scale_factor).unwrap_or(monitor_height as i32)
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         // Linux/X11: approximate by subtracting a typical taskbar height (40px).
-        let _ = (monitor_width, _scale_factor);
+        let _ = (_monitor_width, scale_factor);
         monitor_height as i32 - 40
     }
 }
@@ -205,7 +204,7 @@ fn get_work_area_bottom_macos() -> Option<i32> {
 
 /// Windows: use GetMonitorInfo to get rcWork (work area excluding taskbar).
 #[cfg(target_os = "windows")]
-fn get_work_area_bottom_windows() -> Option<i32> {
+fn get_work_area_bottom_windows(scale_factor: f64) -> Option<i32> {
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
     };
@@ -217,8 +216,9 @@ fn get_work_area_bottom_windows() -> Option<i32> {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
         };
-        if GetMonitorInfoW(monitor, &mut info).is_ok() {
-            Some(info.rcWork.bottom)
+        if GetMonitorInfoW(monitor, &mut info).as_bool() {
+            // rcWork.bottom is in physical pixels; convert to logical.
+            Some((info.rcWork.bottom as f64 / scale_factor) as i32)
         } else {
             None
         }

@@ -1,5 +1,15 @@
 use std::process::Command;
 
+fn npm() -> Command {
+    if cfg!(windows) {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", "npm"]);
+        cmd
+    } else {
+        Command::new("npm")
+    }
+}
+
 fn main() {
     let editor_ui_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../editor-ui");
@@ -11,7 +21,7 @@ fn main() {
 
     // Install deps if node_modules missing
     if !editor_ui_dir.join("node_modules").exists() {
-        let status = Command::new("npm")
+        let status = npm()
             .arg("install")
             .current_dir(&editor_ui_dir)
             .status()
@@ -20,7 +30,7 @@ fn main() {
     }
 
     // Build frontend
-    let status = Command::new("npm")
+    let status = npm()
         .args(["run", "build"])
         .current_dir(&editor_ui_dir)
         .status()

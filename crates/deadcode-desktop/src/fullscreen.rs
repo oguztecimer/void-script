@@ -43,9 +43,8 @@ fn is_any_fullscreen_impl() -> bool {
     // SHQueryUserNotificationState reports whether any exclusive fullscreen or
     // presentation-mode application is active. This covers both DirectX exclusive
     // fullscreen games and Windows presentation mode.
-    let mut state = windows::Win32::UI::Shell::QUERY_USER_NOTIFICATION_STATE(0);
-    match unsafe { SHQueryUserNotificationState(&mut state) } {
-        Ok(_) => state == QUNS_RUNNING_D3D_FULL_SCREEN || state == QUNS_PRESENTATION_MODE,
+    match unsafe { SHQueryUserNotificationState() } {
+        Ok(state) => state == QUNS_RUNNING_D3D_FULL_SCREEN || state == QUNS_PRESENTATION_MODE,
         // Fail-open: if the query fails, don't hide the pet.
         Err(_) => false,
     }

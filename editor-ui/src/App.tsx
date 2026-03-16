@@ -16,6 +16,7 @@ import { Console } from './components/Console';
 import { DebugPanel } from './components/DebugPanel';
 import { StatusBar } from './components/StatusBar';
 import { BottomTabStrip } from './components/BottomTabStrip';
+import { WindowResizeBorder } from './components/WindowResizeBorder';
 import { initIpcBridge } from './ipc/bridge';
 import { useStore } from './state/store';
 import styles from './App.module.css';
@@ -121,6 +122,9 @@ export function App() {
 
   return (
     <div className={styles.app}>
+      {/* Window resize borders (Windows only — on macOS the native frame handles resize) */}
+      <WindowResizeBorder />
+
       {/* Unified title bar / toolbar */}
       <Header />
 

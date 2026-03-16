@@ -202,6 +202,15 @@ impl ApplicationHandler<UserEvent> for App {
             })
             .collect();
 
+        // On Windows, invisible windows don't receive RedrawRequested events,
+        // so we must make the active window visible before entering the event loop.
+        // The window is transparent and frameless, so there's no white flash.
+        #[cfg(target_os = "windows")]
+        {
+            slots[0].window.set_visible(true);
+            self.first_frame = false;
+        }
+
         let _ = slots[0].window.set_cursor_hittest(false);
 
         let mut animation_player = AnimationPlayer::new();
@@ -887,6 +896,9 @@ impl App {
                 }
                 JsToRust::WindowDragStart => {
                     // Handled directly in the IPC handler for native drag
+                }
+                JsToRust::WindowResizeStart { .. } => {
+                    // Handled directly in the IPC handler for native resize
                 }
             }
         }

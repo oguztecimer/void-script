@@ -27,6 +27,9 @@ pub struct WebViewManager {
     pub ns_window: Option<Retained<NSWindow>>,
     #[cfg(target_os = "windows")]
     pub hwnd: Option<isize>,
+    /// Whether the editor window has been shown at least once.
+    /// Used to avoid detect_native_close destroying the window before it loads.
+    shown_once: bool,
 }
 
 impl Default for WebViewManager {
@@ -37,6 +40,7 @@ impl Default for WebViewManager {
             ns_window: None,
             #[cfg(target_os = "windows")]
             hwnd: None,
+            shown_once: false,
         }
     }
 }
@@ -49,7 +53,8 @@ impl WebViewManager {
         let _ = webview.evaluate_script(&js);
     }
 
-    pub fn show(&self) {
+    pub fn show(&mut self) {
+        self.shown_once = true;
         #[cfg(target_os = "macos")]
         {
             if let Some(ns_window) = &self.ns_window {
@@ -77,6 +82,7 @@ impl WebViewManager {
 
     pub fn close(&mut self) {
         self.webview = None;
+        self.shown_once = false;
         #[cfg(target_os = "macos")]
         {
             if let Some(ns_window) = self.ns_window.take() {
@@ -141,12 +147,16 @@ impl WebViewManager {
     /// Detects when the native close button was clicked (bypassing our IPC)
     /// and cleans up editor resources.
     pub fn detect_native_close(&mut self) {
+        if !self.shown_once {
+            return;
+        }
         #[cfg(target_os = "macos")]
         {
             if let Some(ns_window) = &self.ns_window {
                 if !ns_window.isVisible() && !ns_window.isMiniaturized() {
                     self.webview = None;
                     self.ns_window = None;
+                    self.shown_once = false;
                 }
             }
         }
@@ -159,6 +169,7 @@ impl WebViewManager {
                     if !IsWindowVisible(HWND(hwnd as *mut _)).as_bool() {
                         self.webview = None;
                         self.hwnd = None;
+                        self.shown_once = false;
                     }
                 }
             }
@@ -167,6 +178,7 @@ impl WebViewManager {
 
     pub fn cleanup(&mut self) {
         self.webview = None;
+        self.shown_once = false;
         #[cfg(target_os = "macos")]
         {
             self.ns_window = None;
@@ -228,6 +240,7 @@ impl HasWindowHandle for HwndHandle {
 #[cfg(target_os = "windows")]
 fn build_webview_common(
     ipc_sender: &Sender<JsToRust>,
+    hwnd_val: isize,
 ) -> wry::WebViewBuilder<'static> {
     let tx = ipc_sender.clone();
 
@@ -251,6 +264,38 @@ fn build_webview_common(
         .with_ipc_handler(move |request| {
             let body = request.body();
             match serde_json::from_str::<JsToRust>(body) {
+                Ok(JsToRust::WindowDragStart) => {
+                    // Initiate native window drag on Windows.
+                    use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+                    use windows::Win32::UI::WindowsAndMessaging::*;
+                    use windows::Win32::Foundation::{HWND, WPARAM, LPARAM};
+                    unsafe {
+                        let h = HWND(hwnd_val as *mut _);
+                        let _ = ReleaseCapture();
+                        SendMessageW(h, WM_NCLBUTTONDOWN, WPARAM(HTCAPTION as usize), LPARAM(0));
+                    }
+                }
+                Ok(JsToRust::WindowResizeStart { direction }) => {
+                    use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+                    use windows::Win32::UI::WindowsAndMessaging::*;
+                    use windows::Win32::Foundation::{HWND, WPARAM, LPARAM};
+                    let hit = match direction.as_str() {
+                        "n"  => HTTOP,
+                        "s"  => HTBOTTOM,
+                        "w"  => HTLEFT,
+                        "e"  => HTRIGHT,
+                        "nw" => HTTOPLEFT,
+                        "ne" => HTTOPRIGHT,
+                        "sw" => HTBOTTOMLEFT,
+                        "se" => HTBOTTOMRIGHT,
+                        _ => return,
+                    };
+                    unsafe {
+                        let h = HWND(hwnd_val as *mut _);
+                        let _ = ReleaseCapture();
+                        SendMessageW(h, WM_NCLBUTTONDOWN, WPARAM(hit as usize), LPARAM(0));
+                    }
+                }
                 Ok(parsed) => {
                     let _ = tx.send(parsed);
                 }
@@ -395,7 +440,7 @@ fn open_editor_windows(
     ipc_sender: &Sender<JsToRust>,
 ) {
     use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::Win32::Foundation::{HWND, HINSTANCE};
+    use windows::Win32::Graphics::Gdi::CreateSolidBrush;
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::core::w;
 
@@ -404,10 +449,11 @@ fn open_editor_windows(
 
         // Register window class
         let class_name = w!("DeadcodeEditor");
+        let hinstance_handle: windows::Win32::Foundation::HINSTANCE = hinstance.into();
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
             lpfnWndProc: Some(wndproc),
-            hInstance: hinstance.into(),
+            hInstance: hinstance_handle,
             lpszClassName: class_name,
             hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
             hbrBackground: CreateSolidBrush(windows::Win32::Foundation::COLORREF(0x00221F1E)),
@@ -423,24 +469,41 @@ fn open_editor_windows(
         let x = (screen_w - win_w) / 2;
         let y = (screen_h - win_h) / 2;
 
+        // WS_POPUP + WS_THICKFRAME: borderless but resizable.
+        // WM_NCCALCSIZE returns 0 to remove the visible frame.
+        // Child windows are inset by BORDER_WIDTH so the parent handles edge mouse events.
+        let style = WS_POPUP | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             class_name,
             w!("DEADCODE Editor"),
-            WS_OVERLAPPEDWINDOW,
+            style,
             x, y, win_w, win_h,
             None,
             None,
-            Some(hinstance.into()),
+            hinstance_handle,
             None,
         ).unwrap();
+
+        // Request rounded corners on Windows 11.
+        use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE};
+        let preference = 2u32; // DWMWCP_ROUND
+        let _ = unsafe {
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &preference as *const u32 as *const _,
+                std::mem::size_of::<u32>() as u32,
+            )
+        };
 
         let hwnd_val = hwnd.0 as isize;
         let handle = HwndHandle {
             hwnd: NonZeroIsize::new(hwnd_val).unwrap(),
         };
 
-        let builder = build_webview_common(ipc_sender);
+        let builder = build_webview_common(ipc_sender, hwnd_val);
 
         match builder.build(&handle) {
             Ok(webview) => {
@@ -464,13 +527,17 @@ unsafe extern "system" fn wndproc(
     lparam: windows::Win32::Foundation::LPARAM,
 ) -> windows::Win32::Foundation::LRESULT {
     use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::Win32::Foundation::LRESULT;
+    use windows::Win32::Foundation::{LRESULT, RECT};
 
     match msg {
+        WM_NCCALCSIZE => {
+            // Return 0 to remove the non-client area (no visible titlebar/border).
+            LRESULT(0)
+        }
         WM_DESTROY => {
             // Don't PostQuitMessage — the winit event loop manages app lifetime.
             LRESULT(0)
         }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
     }
 }

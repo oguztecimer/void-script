@@ -121,6 +121,8 @@ pub enum JsToRust {
     WindowClose,
     #[serde(rename = "window_drag_start")]
     WindowDragStart,
+    #[serde(rename = "window_resize_start")]
+    WindowResizeStart { direction: String },
 }
 
 pub enum WindowControlEvent {

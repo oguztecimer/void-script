@@ -4,7 +4,7 @@
   display: flex;
   align-items: center;
   height: var(--height-titlebar);
-  background: linear-gradient(90deg, var(--bg-toolbar) 0px, rgba(155, 109, 204, 0.04) 30px, rgba(155, 109, 204, 0.09) 80px, rgba(155, 109, 204, 0.12) 130px, rgba(155, 109, 204, 0.09) 220px, rgba(155, 109, 204, 0.05) 380px, rgba(155, 109, 204, 0.02) 540px, var(--bg-toolbar) 700px);
+  background: linear-gradient(90deg, var(--bg-toolbar) 0px, rgba(220, 210, 190, 0.04) 30px, rgba(220, 210, 190, 0.09) 80px, rgba(220, 210, 190, 0.12) 130px, rgba(220, 210, 190, 0.09) 220px, rgba(220, 210, 190, 0.05) 380px, rgba(220, 210, 190, 0.02) 540px, var(--bg-toolbar) 700px);
   padding: 0 4px;
   user-select: none;
   border-bottom: 1px solid var(--border-strong);

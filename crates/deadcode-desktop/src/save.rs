@@ -3,10 +3,21 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Persisted editor window geometry (position + size).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct WindowGeometry {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
 /// User-configurable settings persisted with the save file.
-/// Currently empty — fields will be added as settings UI is implemented.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct Settings {}
+pub struct Settings {
+    #[serde(default)]
+    pub editor_window: Option<WindowGeometry>,
+}
 
 /// Pet state persisted between sessions.
 ///

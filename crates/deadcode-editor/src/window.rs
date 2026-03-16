@@ -4,6 +4,9 @@ use wry::WebView;
 use crate::embedded_assets;
 use crate::ipc::{JsToRust, RustToJs, WindowControlEvent};
 
+pub const MIN_WINDOW_WIDTH: i32 = 400;
+pub const MIN_WINDOW_HEIGHT: i32 = 400;
+
 #[cfg(target_os = "macos")]
 use objc2::{rc::Retained, MainThreadOnly};
 #[cfg(target_os = "macos")]
@@ -80,6 +83,29 @@ impl WebViewManager {
         self.webview.is_some()
     }
 
+    /// Returns true if the editor window exists AND is visible on screen.
+    pub fn is_visible(&self) -> bool {
+        if self.webview.is_none() {
+            return false;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(hwnd) = self.hwnd {
+                use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+                use windows::Win32::Foundation::HWND;
+                return unsafe { IsWindowVisible(HWND(hwnd as *mut _)).as_bool() };
+            }
+            return false;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(ns_window) = &self.ns_window {
+                return ns_window.isVisible();
+            }
+            return false;
+        }
+    }
+
     pub fn close(&mut self) {
         self.webview = None;
         self.shown_once = false;
@@ -115,6 +141,7 @@ impl WebViewManager {
                 }
                 WindowControlEvent::Close => {
                     self.webview = None;
+                    self.shown_once = false;
                     if let Some(w) = self.ns_window.take() {
                         w.orderOut(None);
                     }
@@ -137,6 +164,7 @@ impl WebViewManager {
                 },
                 WindowControlEvent::Close => {
                     self.webview = None;
+                    self.shown_once = false;
                     unsafe { ShowWindow(h, SW_HIDE); }
                     self.hwnd = None;
                 },
@@ -296,6 +324,9 @@ fn build_webview_common(
                         SendMessageW(h, WM_NCLBUTTONDOWN, WPARAM(hit as usize), LPARAM(0));
                     }
                 }
+                Ok(parsed @ JsToRust::WindowClose) => {
+                    let _ = tx.send(parsed);
+                }
                 Ok(parsed) => {
                     let _ = tx.send(parsed);
                 }
@@ -308,19 +339,45 @@ fn build_webview_common(
 // open_editor: platform dispatch
 // ---------------------------------------------------------------------------
 
+/// Open the editor window with optional saved geometry `(x, y, width, height)`.
 pub fn open_editor(
     webview_manager: &mut WebViewManager,
     ipc_sender: &Sender<JsToRust>,
+    saved_geometry: Option<(i32, i32, i32, i32)>,
 ) {
     if webview_manager.webview.is_some() {
         return;
     }
 
     #[cfg(target_os = "macos")]
-    open_editor_macos(webview_manager, ipc_sender);
+    open_editor_macos(webview_manager, ipc_sender, saved_geometry);
 
     #[cfg(target_os = "windows")]
-    open_editor_windows(webview_manager, ipc_sender);
+    open_editor_windows(webview_manager, ipc_sender, saved_geometry);
+}
+
+/// Query the current window geometry `(x, y, width, height)` from the native window.
+pub fn get_window_geometry(webview_manager: &WebViewManager) -> Option<(i32, i32, i32, i32)> {
+    #[cfg(target_os = "windows")]
+    {
+        let hwnd = webview_manager.hwnd?;
+        use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+        use windows::Win32::Foundation::{HWND, RECT};
+        let mut rect = RECT::default();
+        unsafe { GetWindowRect(HWND(hwnd as *mut _), &mut rect).ok()? };
+        Some((rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let ns_window = webview_manager.ns_window.as_ref()?;
+        let frame = ns_window.frame();
+        Some((
+            frame.origin.x as i32,
+            frame.origin.y as i32,
+            frame.size.width as i32,
+            frame.size.height as i32,
+        ))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,13 +388,33 @@ pub fn open_editor(
 fn open_editor_macos(
     webview_manager: &mut WebViewManager,
     ipc_sender: &Sender<JsToRust>,
+    saved_geometry: Option<(i32, i32, i32, i32)>,
 ) {
     let mtm = MainThreadMarker::new().expect("must be on main thread");
 
-    let frame = NSRect::new(
-        NSPoint::new(100.0, 100.0),
-        NSSize::new(1200.0, 800.0),
-    );
+    let frame = if let Some((x, y, w, h)) = saved_geometry {
+        NSRect::new(
+            NSPoint::new(x as f64, y as f64),
+            NSSize::new(
+                w.max(MIN_WINDOW_WIDTH) as f64,
+                h.max(MIN_WINDOW_HEIGHT) as f64,
+            ),
+        )
+    } else {
+        // Default to 70% of screen size, centered
+        let screen_frame = objc2_app_kit::NSScreen::mainScreen(mtm)
+            .map(|s| s.frame())
+            .unwrap_or(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1920.0, 1080.0)));
+        let w = screen_frame.size.width * 0.7;
+        let h = screen_frame.size.height * 0.7;
+        NSRect::new(
+            NSPoint::new(
+                screen_frame.origin.x + (screen_frame.size.width - w) / 2.0,
+                screen_frame.origin.y + (screen_frame.size.height - h) / 2.0,
+            ),
+            NSSize::new(w, h),
+        )
+    };
     let style = NSWindowStyleMask::Titled
         | NSWindowStyleMask::Closable
         | NSWindowStyleMask::Miniaturizable
@@ -356,10 +433,15 @@ fn open_editor_macos(
 
     unsafe { ns_window.setReleasedWhenClosed(false) };
 
+    // Enforce minimum window size
+    ns_window.setMinSize(NSSize::new(MIN_WINDOW_WIDTH as f64, MIN_WINDOW_HEIGHT as f64));
+
     ns_window.setTitle(&NSString::from_str("DEADCODE Editor"));
     ns_window.setTitlebarAppearsTransparent(true);
     ns_window.setTitleVisibility(objc2_app_kit::NSWindowTitleVisibility::Hidden);
-    ns_window.center();
+    if saved_geometry.is_none() {
+        ns_window.center();
+    }
     ns_window.setMovableByWindowBackground(true);
 
     let bg = objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(
@@ -438,6 +520,7 @@ fn open_editor_macos(
 fn open_editor_windows(
     webview_manager: &mut WebViewManager,
     ipc_sender: &Sender<JsToRust>,
+    saved_geometry: Option<(i32, i32, i32, i32)>,
 ) {
     use windows::Win32::UI::WindowsAndMessaging::*;
     use windows::Win32::Graphics::Gdi::CreateSolidBrush;
@@ -461,13 +544,16 @@ fn open_editor_windows(
         };
         RegisterClassExW(&wc);
 
-        // Center the window on screen
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
-        let screen_h = GetSystemMetrics(SM_CYSCREEN);
-        let win_w = 1200;
-        let win_h = 800;
-        let x = (screen_w - win_w) / 2;
-        let y = (screen_h - win_h) / 2;
+        // Use saved geometry or center on screen with default size
+        let (x, y, win_w, win_h) = if let Some((gx, gy, gw, gh)) = saved_geometry {
+            (gx, gy, gw.max(MIN_WINDOW_WIDTH), gh.max(MIN_WINDOW_HEIGHT))
+        } else {
+            let screen_w = GetSystemMetrics(SM_CXSCREEN);
+            let screen_h = GetSystemMetrics(SM_CYSCREEN);
+            let w = (screen_w as f64 * 0.7) as i32;
+            let h = (screen_h as f64 * 0.7) as i32;
+            ((screen_w - w) / 2, (screen_h - h) / 2, w, h)
+        };
 
         // WS_POPUP + WS_THICKFRAME: borderless but resizable.
         // WM_NCCALCSIZE returns 0 to remove the visible frame.
@@ -503,16 +589,19 @@ fn open_editor_windows(
             hwnd: NonZeroIsize::new(hwnd_val).unwrap(),
         };
 
+        eprintln!("[deadcode] Created HWND: {:?}", hwnd);
+
         let builder = build_webview_common(ipc_sender, hwnd_val);
 
         match builder.build(&handle) {
             Ok(webview) => {
+                eprintln!("[deadcode] WebView created successfully");
                 // Don't show yet — wait for EditorReady.
                 webview_manager.webview = Some(webview);
                 webview_manager.hwnd = Some(hwnd_val);
             }
             Err(e) => {
-                eprintln!("Failed to create webview: {e}");
+                eprintln!("[deadcode] Failed to create webview: {e}");
                 let _ = DestroyWindow(hwnd);
             }
         }
@@ -527,11 +616,24 @@ unsafe extern "system" fn wndproc(
     lparam: windows::Win32::Foundation::LPARAM,
 ) -> windows::Win32::Foundation::LRESULT {
     use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::Win32::Foundation::{LRESULT, RECT};
+    use windows::Win32::Foundation::LRESULT;
 
     match msg {
         WM_NCCALCSIZE => {
             // Return 0 to remove the non-client area (no visible titlebar/border).
+            LRESULT(0)
+        }
+        WM_GETMINMAXINFO => {
+            let info = unsafe { &mut *(lparam.0 as *mut MINMAXINFO) };
+            info.ptMinTrackSize.x = MIN_WINDOW_WIDTH;
+            info.ptMinTrackSize.y = MIN_WINDOW_HEIGHT;
+            LRESULT(0)
+        }
+        WM_CLOSE => {
+            // Hide instead of destroy so the editor HWND stays alive as the
+            // app's "main window", preventing strip windows from appearing
+            // in the taskbar. The IPC channel will handle full cleanup.
+            unsafe { ShowWindow(hwnd, SW_HIDE); }
             LRESULT(0)
         }
         WM_DESTROY => {

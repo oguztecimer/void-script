@@ -21,7 +21,7 @@ use deadcode_desktop::tray;
 use deadcode_desktop::window::{StripInfo, enumerate_monitors};
 
 use deadcode_editor::ipc::{JsToRust, RustToJs, WindowControlEvent};
-use deadcode_editor::window::{WebViewManager, MaximizedState, open_editor};
+use deadcode_editor::window::{WebViewManager, MaximizedState, open_editor, get_window_geometry};
 use deadcode_editor::scripts::ScriptStore;
 use deadcode_editor::tabs::EditorWindowState;
 use deadcode_editor::execution::ScriptExecutionManager;
@@ -93,6 +93,7 @@ pub struct App {
     editor_state: EditorWindowState,
     execution_manager: ScriptExecutionManager,
     maximized_state: MaximizedState,
+    settings: Settings,
 }
 
 impl App {
@@ -134,6 +135,7 @@ impl App {
             editor_state: EditorWindowState::default(),
             execution_manager: ScriptExecutionManager::default(),
             maximized_state: MaximizedState::default(),
+            settings: Settings::default(),
         }
     }
 }
@@ -149,6 +151,15 @@ impl App {
 
     fn active_info(&self) -> Option<StripInfo> {
         self.monitor_slots.get(self.active_monitor).map(|s| s.info)
+    }
+
+    /// Build current settings with up-to-date editor window geometry.
+    fn current_settings(&self) -> Settings {
+        let editor_window = get_window_geometry(&self.webview_manager)
+            .map(|(x, y, w, h)| save::WindowGeometry { x, y, width: w, height: h })
+            .or_else(|| self.settings.editor_window.clone());
+        eprintln!("[deadcode] Saving settings: editor_window={:?}", editor_window);
+        Settings { editor_window }
     }
 }
 
@@ -205,10 +216,59 @@ impl ApplicationHandler<UserEvent> for App {
         // On Windows, invisible windows don't receive RedrawRequested events,
         // so we must make the active window visible before entering the event loop.
         // The window is transparent and frameless, so there's no white flash.
+        // Also mark strip windows as tool windows so they don't minimize with the editor.
         #[cfg(target_os = "windows")]
         {
+            use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            use windows::Win32::UI::WindowsAndMessaging::*;
+            use windows::Win32::Foundation::HWND;
+
+            for slot in &slots {
+                if let Ok(handle) = slot.window.window_handle() {
+                    if let RawWindowHandle::Win32(h) = handle.as_raw() {
+                        let hwnd = HWND(h.hwnd.get() as *mut _);
+                        unsafe {
+                            // Remove app-window style, add tool-window style so the strip
+                            // won't appear in the taskbar and won't minimize with the editor.
+                            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                            let new_style = (ex_style & !(WS_EX_APPWINDOW.0 as i32))
+                                | WS_EX_TOOLWINDOW.0 as i32;
+                            SetWindowLongW(hwnd, GWL_EXSTYLE, new_style);
+                            // Force Windows to apply the style change immediately.
+                            let _ = SetWindowPos(
+                                hwnd,
+                                None,
+                                0, 0, 0, 0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                            );
+                        }
+                    }
+                }
+            }
+
             slots[0].window.set_visible(true);
             self.first_frame = false;
+
+            // Re-apply tool-window style after set_visible since it resets the style.
+            for slot in &slots {
+                if let Ok(handle) = slot.window.window_handle() {
+                    if let RawWindowHandle::Win32(h) = handle.as_raw() {
+                        let hwnd = HWND(h.hwnd.get() as *mut _);
+                        unsafe {
+                            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                            let new_style = (ex_style & !(WS_EX_APPWINDOW.0 as i32))
+                                | WS_EX_TOOLWINDOW.0 as i32;
+                            SetWindowLongW(hwnd, GWL_EXSTYLE, new_style);
+                            let _ = SetWindowPos(
+                                hwnd,
+                                None,
+                                0, 0, 0, 0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         let _ = slots[0].window.set_cursor_hittest(false);
@@ -225,6 +285,8 @@ impl ApplicationHandler<UserEvent> for App {
                 (save_data.cleanliness - 0.0055 * elapsed_secs).max(10.0);
             behavior_engine.stats_mut().happiness =
                 (save_data.happiness - 0.0042 * elapsed_secs).max(10.0);
+            self.settings = save_data.settings;
+            eprintln!("[deadcode] Loaded settings: editor_window={:?}", self.settings.editor_window);
         }
 
         behavior_engine.wake_up(&mut animation_player);
@@ -252,8 +314,8 @@ impl ApplicationHandler<UserEvent> for App {
             .join("scripts");
         self.script_store = Some(ScriptStore::new(scripts_dir));
 
-        // Open editor window immediately
-        open_editor(&mut self.webview_manager, &self.ipc_sender);
+        // Open editor window immediately, restoring saved geometry if available
+        open_editor(&mut self.webview_manager, &self.ipc_sender, self.settings.editor_window.as_ref().map(|g| (g.x, g.y, g.width, g.height)));
     }
 
     fn window_event(
@@ -384,13 +446,17 @@ impl ApplicationHandler<UserEvent> for App {
             }
 
             WindowEvent::CloseRequested => {
+                // Capture geometry before cleanup destroys the window
+                if let Some((x, y, w, h)) = get_window_geometry(&self.webview_manager) {
+                    self.settings.editor_window = Some(save::WindowGeometry { x, y, width: w, height: h });
+                }
                 if let Some(engine) = &self.behavior_engine {
                     save::save(&SaveData {
                         hunger: engine.stats().hunger,
                         cleanliness: engine.stats().cleanliness,
                         happiness: engine.stats().happiness,
                         last_active_unix: save::now_unix(),
-                        settings: Settings::default(),
+                        settings: self.current_settings(),
                     });
                 }
                 self.webview_manager.cleanup();
@@ -477,7 +543,7 @@ impl ApplicationHandler<UserEvent> for App {
                         cleanliness: engine.stats().cleanliness,
                         happiness: engine.stats().happiness,
                         last_active_unix: save::now_unix(),
-                        settings: Settings::default(),
+                        settings: self.current_settings(),
                     });
                 }
                 self.webview_manager.cleanup();
@@ -507,10 +573,20 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             UserEvent::MenuEvent(ref e) if e.id().0 == tray::editor_id() => {
-                if self.webview_manager.is_open() {
+                eprintln!("[deadcode] Tray toggle: is_open={} is_visible={}", self.webview_manager.is_open(), self.webview_manager.is_visible());
+                if self.webview_manager.is_visible() {
+                    // Capture geometry before closing
+                    if let Some((x, y, w, h)) = get_window_geometry(&self.webview_manager) {
+                        self.settings.editor_window = Some(save::WindowGeometry { x, y, width: w, height: h });
+                    }
                     self.webview_manager.close();
                 } else {
-                    open_editor(&mut self.webview_manager, &self.ipc_sender);
+                    // Not visible (either closed or hidden) — clean up stale state and reopen
+                    if self.webview_manager.is_open() {
+                        eprintln!("[deadcode] Cleaning up stale webview before reopen");
+                        self.webview_manager.close();
+                    }
+                    open_editor(&mut self.webview_manager, &self.ipc_sender, self.settings.editor_window.as_ref().map(|g| (g.x, g.y, g.width, g.height)));
                 }
             }
             UserEvent::MenuEvent(ref e) if e.id().0 == tray::play_id() => {
@@ -669,7 +745,7 @@ impl ApplicationHandler<UserEvent> for App {
                     cleanliness: engine.stats().cleanliness,
                     happiness: engine.stats().happiness,
                     last_active_unix: save::now_unix(),
-                    settings: Settings::default(),
+                    settings: self.current_settings(),
                 });
             }
         }
@@ -889,10 +965,16 @@ impl App {
                     );
                 }
                 JsToRust::WindowClose => {
+                    eprintln!("[deadcode] WindowClose IPC received, is_open={} is_visible={}", self.webview_manager.is_open(), self.webview_manager.is_visible());
+                    // Capture geometry before the window is destroyed
+                    if let Some((x, y, w, h)) = get_window_geometry(&self.webview_manager) {
+                        self.settings.editor_window = Some(save::WindowGeometry { x, y, width: w, height: h });
+                    }
                     self.webview_manager.handle_window_control(
                         WindowControlEvent::Close,
                         &mut self.maximized_state.maximized,
                     );
+                    eprintln!("[deadcode] After close: is_open={} is_visible={}", self.webview_manager.is_open(), self.webview_manager.is_visible());
                 }
                 JsToRust::WindowDragStart => {
                     // Handled directly in the IPC handler for native drag

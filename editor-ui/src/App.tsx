@@ -256,7 +256,7 @@ export function App() {
                 <Panel
                   panelRef={bottomPanelRef}
                   id="bottom-panel"
-                  defaultSize="25%"
+                  defaultSize="35%"
                   minSize="10%"
                   maxSize="50%"
                   collapsible

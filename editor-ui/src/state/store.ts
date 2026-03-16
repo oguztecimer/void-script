@@ -71,7 +71,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   cursorCol: 1,
   consoleOutput: [],
   leftPanelOpen: true,
-  bottomPanelOpen: false,
+  bottomPanelOpen: true,
   rightPanelOpen: false,
   bottomPanelTab: 'console',
   isRunning: false,

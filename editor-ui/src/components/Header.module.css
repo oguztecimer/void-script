@@ -4,11 +4,31 @@
   display: flex;
   align-items: center;
   height: var(--height-titlebar);
-  background-color: var(--bg-toolbar);
-  padding: 0 8px;
+  background: linear-gradient(90deg, var(--bg-toolbar) 0px, rgba(245, 210, 120, 0.08) 30px, rgba(245, 210, 120, 0.18) 80px, rgba(245, 210, 120, 0.25) 130px, rgba(245, 210, 120, 0.18) 220px, rgba(245, 210, 120, 0.1) 380px, rgba(245, 210, 120, 0.04) 540px, var(--bg-toolbar) 700px);
+  padding: 0 4px;
   user-select: none;
   border-bottom: 1px solid var(--border-strong);
   font-size: var(--font-size-ui);
+}
+
+.brandName {
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 1px;
+  margin-left: 53px;
+  flex-shrink: 0;
+}
+
+.brandDead {
+  color: #db5c5c;
+}
+
+.brandCode {
+  color: #c8c8c0;
+}
+
+.brandPunc {
+  color: #e0a030;
 }
 
 .spacer {
@@ -19,6 +39,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 /* Space reserved for native macOS traffic light buttons */
@@ -41,7 +62,7 @@
   cursor: pointer;
   font-size: var(--font-size-ui);
   font-family: inherit;
-  font-weight: 600;
+  font-weight: 400;
   transition: background-color var(--transition-hover);
 }
 
@@ -55,7 +76,7 @@
 .widgetIcon {
   display: flex;
   align-items: center;
-  color: var(--text-tertiary);
+  color: var(--text-primary);
 }
 
 .widgetChevron {
@@ -77,6 +98,8 @@
   font-size: var(--font-size-ui);
   font-family: inherit;
   transition: background-color var(--transition-hover);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .runConfig:hover {
@@ -122,4 +145,34 @@
   margin-left: auto;
   color: var(--text-tertiary);
   font-size: 11px;
+}
+
+/* Windows window controls (minimize / maximize / close) */
+.winControls {
+  display: flex;
+  align-items: center;
+  margin-left: 8px;
+  height: 100%;
+}
+
+.winBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.winBtn:hover {
+  background-color: var(--bg-hover);
+}
+
+.winBtnClose:hover {
+  background-color: #e81123;
+  color: #fff;
 }

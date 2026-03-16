@@ -5,6 +5,8 @@ import { ToolBtn } from '../primitives/ToolBtn';
 import { Separator } from '../primitives/Separator';
 import { Tooltip } from '../primitives/Tooltip';
 
+const isWindows = navigator.platform.startsWith('Win');
+
 function handleDragStart(e: React.MouseEvent) {
   // Only drag if not clicking an interactive element
   if ((e.target as HTMLElement).closest('.titlebar-no-drag')) return;
@@ -22,43 +24,25 @@ export function Header() {
 
   return (
     <div className={styles.toolbar} onMouseDown={handleDragStart}>
-      {/* Space for native macOS traffic lights */}
-      <div className={styles.trafficLightSpacer} />
+      {/* Space for native macOS traffic lights (hidden on Windows) */}
+      {!isWindows && <div className={styles.trafficLightSpacer} />}
 
       {/* Hamburger menu */}
       <ToolBtn size="small" title="Menu" className="titlebar-no-drag">
-        <svg width="14" height="14" viewBox="0 0 16 16">
-          <line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" strokeWidth="1.5"/>
-          <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="1.5"/>
-          <line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" strokeWidth="1.5"/>
+        <svg width="20" height="20" viewBox="0 0 16 16">
+          <line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" strokeWidth="1"/>
+          <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="1"/>
+          <line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" strokeWidth="1"/>
         </svg>
       </ToolBtn>
 
-      <Separator variant="line" level="subtle" />
-
-      {/* Back/Forward navigation */}
-      <ToolBtn size="small" title="Back" className="titlebar-no-drag">
-        <svg width="10" height="10" viewBox="0 0 16 16"><path d="M10 2L4 8l6 6" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
-      </ToolBtn>
-      <ToolBtn size="small" title="Forward" className="titlebar-no-drag">
-        <svg width="10" height="10" viewBox="0 0 16 16"><path d="M6 2l6 6-6 6" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
-      </ToolBtn>
-
-      <Separator variant="line" level="subtle" />
-
-      {/* Project widget */}
-      <HeaderWidget
-        icon={<svg width="12" height="12" viewBox="0 0 16 16"><path d="M2 3h12v2H2V3zm0 4h12v2H2V7zm0 4h8v2H2v-2z" fill="currentColor"/></svg>}
-        label="VOID//SCRIPT"
-        hasDropdown
-      />
-
-      {/* VCS branch widget — no separator between project and VCS */}
-      <HeaderWidget
-        icon={<svg width="12" height="12" viewBox="0 0 16 16"><circle cx="5" cy="4" r="2" stroke="currentColor" strokeWidth="1.2" fill="none"/><circle cx="11" cy="4" r="2" stroke="currentColor" strokeWidth="1.2" fill="none"/><circle cx="5" cy="12" r="2" stroke="currentColor" strokeWidth="1.2" fill="none"/><path d="M5 6v4M11 6c0 4-6 4-6 4" stroke="currentColor" strokeWidth="1.2" fill="none"/></svg>}
-        label="main"
-        muted
-      />
+      <span className={styles.brandName}>
+        <span className={styles.brandPunc}>[</span>
+        <span className={styles.brandDead}>DEAD</span>
+        <span className={styles.brandPunc}>//</span>
+        <span className={styles.brandCode}>CODE</span>
+        <span className={styles.brandPunc}>]</span>
+      </span>
 
       {/* Center spacer - draggable */}
       <div className={styles.spacer} />
@@ -84,7 +68,7 @@ export function Header() {
               onClick={() => activeTabId && sendToRust({ type: 'run_script', script_id: activeTabId })}
               disabled={!activeTabId}
             >
-              <svg width="10" height="10" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
+              <svg width="20" height="20" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
             </ToolBtn>
             <ToolBtn
               size="small"
@@ -97,7 +81,7 @@ export function Header() {
               onClick={() => activeTabId && sendToRust({ type: 'debug_start', script_id: activeTabId })}
               disabled={!activeTabId}
             >
-              <svg width="12" height="12" viewBox="0 0 16 16">
+              <svg width="20" height="20" viewBox="0 0 16 16">
                 <circle cx="8" cy="9" r="5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
                 <line x1="8" y1="4" x2="6" y2="1" stroke="currentColor" strokeWidth="1.5"/>
                 <line x1="8" y1="4" x2="10" y2="1" stroke="currentColor" strokeWidth="1.5"/>
@@ -118,7 +102,7 @@ export function Header() {
               iconColor="var(--icon-stop)"
               onClick={() => activeTabId && sendToRust({ type: 'stop_script', script_id: activeTabId })}
             >
-              <svg width="8" height="8" viewBox="0 0 10 10"><rect width="10" height="10" rx="1.5" fill="currentColor"/></svg>
+              <svg width="14" height="14" viewBox="0 0 10 10"><rect width="10" height="10" rx="1.5" fill="currentColor"/></svg>
             </ToolBtn>
             {isDebugging && isPaused && (
               <>
@@ -133,16 +117,16 @@ export function Header() {
                   iconColor="var(--icon-run)"
                   onClick={() => activeTabId && sendToRust({ type: 'debug_continue', script_id: activeTabId })}
                 >
-                  <svg width="10" height="10" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
                 </ToolBtn>
                 <ToolBtn size="small" title="Step Over" shortcut="F8" onClick={() => activeTabId && sendToRust({ type: 'debug_step_over', script_id: activeTabId })}>
-                  <svg width="14" height="14" viewBox="0 0 16 16"><path d="M2 12h4V8h4v4h4L8 4z" fill="currentColor" transform="rotate(90 8 8)"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 16 16"><path d="M2 12h4V8h4v4h4L8 4z" fill="currentColor" transform="rotate(90 8 8)"/></svg>
                 </ToolBtn>
                 <ToolBtn size="small" title="Step Into" shortcut="F7" onClick={() => activeTabId && sendToRust({ type: 'debug_step_into', script_id: activeTabId })}>
-                  <svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 2v8m-3-3l3 3 3-3M5 14h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 16 16"><path d="M8 2v8m-3-3l3 3 3-3M5 14h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
                 </ToolBtn>
                 <ToolBtn size="small" title="Step Out" shortcut="Shift+F8" onClick={() => activeTabId && sendToRust({ type: 'debug_step_out', script_id: activeTabId })}>
-                  <svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 14V6m-3 3l3-3 3 3M5 2h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 16 16"><path d="M8 14V6m-3 3l3-3 3 3M5 2h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
                 </ToolBtn>
               </>
             )}
@@ -152,12 +136,52 @@ export function Header() {
         <Separator variant="line" level="subtle" />
         <SearchPill />
         <ToolBtn size="small" title="Settings">
-          <svg width="14" height="14" viewBox="0 0 16 16">
+          <svg width="20" height="20" viewBox="0 0 16 16">
             <path d="M6.5.5h3l.5 2.1a5.5 5.5 0 0 1 1.3.8l2-.8 1.5 2.6-1.5 1.3a5.5 5.5 0 0 1 0 1.5l1.5 1.3-1.5 2.6-2-.8a5.5 5.5 0 0 1-1.3.8l-.5 2.1h-3l-.5-2.1a5.5 5.5 0 0 1-1.3-.8l-2 .8L1.2 9.3l1.5-1.3a5.5 5.5 0 0 1 0-1.5L1.2 5.2l1.5-2.6 2 .8A5.5 5.5 0 0 1 6 2.6L6.5.5z" stroke="currentColor" strokeWidth="1" fill="none"/>
             <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1" fill="none"/>
           </svg>
         </ToolBtn>
       </div>
+
+      {/* Windows window controls (minimize/maximize/close) */}
+      {isWindows && <WindowControlsWin />}
+    </div>
+  );
+}
+
+/* --- Window Controls (Windows) --- */
+
+function WindowControlsWin() {
+  return (
+    <div className={`titlebar-no-drag ${styles.winControls}`}>
+      <button
+        className={styles.winBtn}
+        onClick={() => sendToRust({ type: 'window_minimize' })}
+        title="Minimize"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" strokeWidth="1" />
+        </svg>
+      </button>
+      <button
+        className={styles.winBtn}
+        onClick={() => sendToRust({ type: 'window_maximize' })}
+        title="Maximize"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <rect x="1" y="1" width="10" height="10" stroke="currentColor" strokeWidth="1" fill="none" />
+        </svg>
+      </button>
+      <button
+        className={`${styles.winBtn} ${styles.winBtnClose}`}
+        onClick={() => sendToRust({ type: 'window_close' })}
+        title="Close"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" strokeWidth="1.2" />
+          <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -239,7 +263,7 @@ function RunConfigSelector({ label }: { label: string }) {
   return (
     <button className={styles.runConfig}>
       <span className={styles.runConfigIcon}>
-        <svg width="10" height="10" viewBox="0 0 16 16">
+        <svg width="12" height="12" viewBox="0 0 16 16">
           <path d="M4 2l10 6-10 6V2z" fill="currentColor"/>
         </svg>
       </span>
@@ -259,7 +283,7 @@ function SearchPill() {
   return (
     <Tooltip content="Search Everywhere (Shift Shift)">
       <button className={styles.searchPill}>
-        <svg width="12" height="12" viewBox="0 0 16 16">
+        <svg width="16" height="16" viewBox="0 0 16 16">
           <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
           <line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
         </svg>

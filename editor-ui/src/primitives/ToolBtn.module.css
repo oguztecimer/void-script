@@ -6,7 +6,7 @@
   border-radius: 6px;
   padding: 0;
   cursor: pointer;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   background: transparent;
   transition: background-color var(--transition-hover), color var(--transition-hover);
 }

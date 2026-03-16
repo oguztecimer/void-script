@@ -77,3 +77,41 @@
 .panelAnimated {
   transition: flex-basis 150ms ease;
 }
+
+.leftPanel {
+  flex-shrink: 0;
+  overflow: hidden;
+  height: 100%;
+  transition: width 150ms ease;
+}
+
+.leftPanelCollapsed {
+  width: 0 !important;
+}
+
+.leftResizeHandle {
+  width: 5px;
+  margin-left: -2px;
+  margin-right: -2px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+.leftResizeHandle::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+.leftResizeHandleHidden {
+  width: 0;
+  cursor: default;
+  pointer-events: none;
+}

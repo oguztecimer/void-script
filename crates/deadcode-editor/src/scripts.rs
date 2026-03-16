@@ -1,4 +1,3 @@
-use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -28,7 +27,6 @@ impl ScriptType {
     }
 }
 
-#[derive(Resource)]
 pub struct ScriptStore {
     pub scripts: HashMap<String, Script>,
     pub scripts_dir: PathBuf,

@@ -1,12 +1,15 @@
 # Mothership Brain - Fleet management
 # Manages ship production and resource allocation
-
+def patat():
+def osman():
+    ddd
 def main():
-    while True:
-        # Check fleet status
-        miners = get_fleet("MINER")
-        fighters = get_fleet("FIGHTER")
-
+        while True:
+            # Check fleet status
+            miners = get_fleet("MINER")
+            fighters = get_fleet("FIGHTER")
+            osman
+        
         # Maintain minimum fleet composition
         if len(miners) < 3:
             build(MINER)
@@ -29,5 +32,11 @@ def main():
         cargo = get_cargo()
         if cargo[IRON] > 500:
             print("Iron reserves sufficient")
+            dsd
+        
+
+
+
+            sdsd
 
         wait()

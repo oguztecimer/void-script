@@ -1,19 +1,18 @@
 [package]
-name = "voidscript-editor"
+name = "deadcode-editor"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-bevy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+crossbeam-channel = { workspace = true }
 wry = "0.50"
 http = "1"
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
-crossbeam-channel = "0.5"
 uuid = { version = "1", features = ["v4"] }
 mime_guess = "2"
-voidscript-lang = { path = "../voidscript-lang" }
+deadcode-lang = { path = "../deadcode-lang" }
 raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]

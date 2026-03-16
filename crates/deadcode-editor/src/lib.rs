@@ -1,4 +1,3 @@
-pub mod plugin;
 pub mod window;
 pub mod ipc;
 pub mod tabs;

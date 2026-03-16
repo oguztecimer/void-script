@@ -1,0 +1,193 @@
+use crossbeam_channel::{Receiver, Sender, unbounded};
+use std::collections::{HashMap, HashSet};
+use std::thread::JoinHandle;
+
+use deadcode_lang::{ScriptEvent, DebugCommand, OutputLevel};
+use crate::ipc::*;
+use crate::scripts::ScriptStore;
+use crate::window::WebViewManager;
+
+/// Tracks a running script execution
+struct RunningScript {
+    script_id: String,
+    event_rx: Receiver<ScriptEvent>,
+    command_tx: Sender<DebugCommand>,
+    _handle: JoinHandle<()>,
+    is_debug: bool,
+}
+
+/// Manages active script executions
+#[derive(Default)]
+pub struct ScriptExecutionManager {
+    active: Option<RunningScript>,
+    breakpoints: HashMap<String, HashSet<u32>>,
+}
+
+impl ScriptExecutionManager {
+    pub fn handle_run_script(
+        &mut self,
+        script_id: &str,
+        script_store: &ScriptStore,
+        webview: &WebViewManager,
+    ) {
+        // Stop any existing execution
+        if let Some(active) = self.active.take() {
+            let _ = active.command_tx.send(DebugCommand::Stop);
+        }
+
+        let Some(script) = script_store.scripts.get(script_id) else {
+            return;
+        };
+
+        let source = script.content.clone();
+        let sid = script_id.to_string();
+        let (event_tx, event_rx) = unbounded();
+        let (command_tx, command_rx) = unbounded();
+
+        let handle = std::thread::spawn(move || {
+            deadcode_lang::run_script(&source, event_tx, command_rx);
+        });
+
+        self.active = Some(RunningScript {
+            script_id: sid.clone(),
+            event_rx,
+            command_tx,
+            _handle: handle,
+            is_debug: false,
+        });
+
+        webview.send_to_all(&RustToJs::ScriptStarted {
+            script_id: sid,
+        });
+    }
+
+    pub fn handle_debug_start(
+        &mut self,
+        script_id: &str,
+        script_store: &ScriptStore,
+        webview: &WebViewManager,
+    ) {
+        // Stop any existing execution
+        if let Some(active) = self.active.take() {
+            let _ = active.command_tx.send(DebugCommand::Stop);
+        }
+
+        let Some(script) = script_store.scripts.get(script_id) else {
+            return;
+        };
+
+        let source = script.content.clone();
+        let sid = script_id.to_string();
+        let breakpoints = self.breakpoints
+            .get(script_id)
+            .cloned()
+            .unwrap_or_default();
+        let (event_tx, event_rx) = unbounded();
+        let (command_tx, command_rx) = unbounded();
+
+        let handle = std::thread::spawn(move || {
+            deadcode_lang::debug_script(&source, event_tx, command_rx, breakpoints);
+        });
+
+        self.active = Some(RunningScript {
+            script_id: sid.clone(),
+            event_rx,
+            command_tx,
+            _handle: handle,
+            is_debug: true,
+        });
+
+        webview.send_to_all(&RustToJs::ScriptStarted {
+            script_id: sid,
+        });
+    }
+
+    pub fn handle_stop_script(&self) {
+        if let Some(active) = self.active.as_ref() {
+            let _ = active.command_tx.send(DebugCommand::Stop);
+        }
+    }
+
+    pub fn handle_debug_command(&self, cmd: DebugCommand, webview: &WebViewManager) {
+        let Some(active) = self.active.as_ref() else { return };
+        if !active.is_debug { return }
+
+        let _ = active.command_tx.send(cmd);
+        webview.send_to_all(&RustToJs::DebugResumed {
+            script_id: active.script_id.clone(),
+        });
+    }
+
+    pub fn handle_toggle_breakpoint(&mut self, script_id: &str, line: u32) {
+        let bps = self.breakpoints
+            .entry(script_id.to_string())
+            .or_default();
+        if bps.contains(&line) {
+            bps.remove(&line);
+        } else {
+            bps.insert(line);
+        }
+        let bps_snapshot = bps.clone();
+        if let Some(active) = self.active.as_ref() {
+            if active.script_id == script_id {
+                let _ = active.command_tx.send(
+                    DebugCommand::SetBreakpoints(bps_snapshot)
+                );
+            }
+        }
+    }
+
+    /// Poll script execution events and forward to JS
+    pub fn poll_script_events(&mut self, webview: &WebViewManager) {
+        let Some(active) = self.active.as_ref() else { return };
+
+        // Process up to 100 events per frame to avoid blocking
+        for _ in 0..100 {
+            match active.event_rx.try_recv() {
+                Ok(event) => {
+                    match event {
+                        ScriptEvent::Output { line, level } => {
+                            let level_str = match level {
+                                OutputLevel::Info => "info",
+                                OutputLevel::Warn => "warn",
+                                OutputLevel::Error => "error",
+                            };
+                            webview.send_to_all(&RustToJs::ConsoleOutput {
+                                text: line,
+                                level: level_str.to_string(),
+                            });
+                        }
+                        ScriptEvent::Paused { line, variables, call_stack } => {
+                            let debug_vars: Vec<DebugVariable> = variables.into_iter().map(|v| {
+                                DebugVariable {
+                                    name: v.name,
+                                    value: v.value,
+                                    var_type: v.var_type,
+                                }
+                            }).collect();
+                            webview.send_to_all(&RustToJs::DebugPaused {
+                                script_id: active.script_id.clone(),
+                                line,
+                                variables: debug_vars,
+                                call_stack,
+                            });
+                        }
+                        ScriptEvent::Finished { success, error } => {
+                            webview.send_to_all(&RustToJs::ScriptFinished {
+                                script_id: active.script_id.clone(),
+                                success,
+                                error,
+                            });
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+
+        // Check if finished (channel disconnected means thread ended)
+        if self.active.as_ref().is_some_and(|a| a.event_rx.is_empty() && a._handle.is_finished()) {
+            self.active = None;
+        }
+    }
+}

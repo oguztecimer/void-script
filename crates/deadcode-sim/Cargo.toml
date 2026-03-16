@@ -1,5 +1,5 @@
 [package]
-name = "voidscript-sim"
+name = "deadcode-sim"
 version.workspace = true
 edition.workspace = true
 

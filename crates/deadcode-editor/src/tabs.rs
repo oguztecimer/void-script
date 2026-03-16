@@ -1,5 +1,3 @@
-use bevy::prelude::*;
-
 #[derive(Debug, Clone)]
 pub struct TabState {
     pub script_id: String,
@@ -7,7 +5,7 @@ pub struct TabState {
     pub is_modified: bool,
 }
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct EditorWindowState {
     pub tabs: Vec<TabState>,
     pub active_tab_index: Option<usize>,

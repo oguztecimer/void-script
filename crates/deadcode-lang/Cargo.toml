@@ -1,5 +1,5 @@
 [package]
-name = "voidscript-lang"
+name = "deadcode-lang"
 version.workspace = true
 edition.workspace = true
 

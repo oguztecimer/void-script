@@ -24,8 +24,13 @@ export const voidScriptTheme = EditorView.theme({
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
     backgroundColor: 'var(--bg-selection)',
-    position: 'relative',
-    zIndex: 1,
+  },
+  '&.cm-has-selection .cm-activeLine': {
+    backgroundColor: 'transparent',
+  },
+  '&.cm-has-selection .cm-activeLineGutter': {
+    backgroundColor: 'transparent',
+    color: 'var(--text-tertiary)',
   },
   '.cm-gutters': {
     backgroundColor: 'var(--bg-editor) !important',

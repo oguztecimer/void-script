@@ -120,6 +120,9 @@ function buildExtensions(
     lineNumbers({ domEventHandlers: { mousedown: handleBreakpointClick } }),
     highlightActiveLine(),
     drawSelection(),
+    EditorView.editorAttributes.of((view) =>
+      view.state.selection.main.empty ? null : { class: 'cm-has-selection' }
+    ),
     history(),
     indentOnInput(),
     bracketMatching(),
@@ -145,6 +148,7 @@ function buildExtensions(
           if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
           sendToRust({ type: 'script_save', script_id: scriptId, content });
           useStore.getState().updateContent(scriptId, content);
+          useStore.getState().markSaved(scriptId);
           return true;
         },
       },
@@ -268,12 +272,6 @@ export function Editor() {
       if (update.docChanged) {
         const content = update.state.doc.toString();
         useStore.getState().updateContent(scriptId, content);
-
-        // Debounced auto-save
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(() => {
-          sendToRust({ type: 'script_save', script_id: scriptId, content });
-        }, 1000);
       }
       if (update.selectionSet) {
         const pos = update.state.selection.main.head;
@@ -357,6 +355,9 @@ export function Editor() {
       viewRef.current.dispatch({ effects: cached.scrollSnapshot });
     }
 
+    // Focus the editor
+    viewRef.current.focus();
+
     // Set CSS variable for gutter width so the full-height border line positions correctly
     requestAnimationFrame(() => {
       const gutters = containerRef.current?.querySelector('.cm-gutters') as HTMLElement;
@@ -371,6 +372,13 @@ export function Editor() {
 
     return () => {
       if (viewRef.current) {
+        const id = prevTabIdRef.current;
+        if (id) {
+          editorStates.set(id, {
+            state: viewRef.current.state,
+            scrollSnapshot: viewRef.current.scrollSnapshot(),
+          });
+        }
         viewRef.current.destroy();
         viewRef.current = null;
       }

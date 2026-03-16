@@ -11,6 +11,7 @@ export interface Tab {
   scriptId: string;
   name: string;
   content: string;
+  savedContent: string;
   scriptType: string;
   isModified: boolean;
   diagnostics: Diagnostic[];
@@ -39,6 +40,7 @@ interface EditorState {
   closeTab: (scriptId: string) => void;
   switchTab: (scriptId: string) => void;
   updateContent: (scriptId: string, content: string) => void;
+  markSaved: (scriptId: string) => void;
   setDiagnostics: (scriptId: string, diagnostics: Diagnostic[]) => void;
   setScriptList: (scripts: ScriptInfo[]) => void;
   setCursor: (line: number, col: number) => void;
@@ -85,7 +87,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
         return { activeTabId: scriptId, cursorLine: 1, cursorCol: 1 };
       }
       return {
-        tabs: [...state.tabs, { scriptId, name, content, scriptType, isModified: false, diagnostics: [] }],
+        tabs: [...state.tabs, { scriptId, name, content, savedContent: content, scriptType, isModified: false, diagnostics: [] }],
         activeTabId: scriptId,
         cursorLine: 1,
         cursorCol: 1,
@@ -110,7 +112,14 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   updateContent: (scriptId, content) =>
     set((state) => ({
       tabs: state.tabs.map((t) =>
-        t.scriptId === scriptId ? { ...t, content, isModified: true } : t
+        t.scriptId === scriptId ? { ...t, content, isModified: content !== t.savedContent } : t
+      ),
+    })),
+
+  markSaved: (scriptId) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.scriptId === scriptId ? { ...t, savedContent: t.content, isModified: false } : t
       ),
     })),
 

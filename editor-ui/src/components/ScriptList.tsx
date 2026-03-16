@@ -25,11 +25,6 @@ export function ScriptList() {
                 <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
             </ToolBtn>
-            <ToolBtn size="small" onClick={() => toggleLeftPanel()} title="Hide">
-              <svg width="12" height="12" viewBox="0 0 16 16">
-                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5"/>
-              </svg>
-            </ToolBtn>
           </>
         }
       />

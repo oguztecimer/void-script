@@ -137,8 +137,8 @@ export function App() {
         bottomPanelOpen: true,
       });
       if (store.consoleOutput.length === 0) {
-        store.addConsoleOutput('The dead stir beneath your feet.', 'info');
-        store.addConsoleOutput('Type consult() to hear the bones speak.', 'info');
+        store.addConsoleOutput('The dead stir beneath your feet', 'info');
+        store.addConsoleOutput('Type consult() to hear the bones speak', 'info');
       }
       sendToRust({ type: 'window_set_size', width: 500, height: 250, resizable: false });
     } else {

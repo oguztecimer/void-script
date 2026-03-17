@@ -3,6 +3,9 @@
   align-items: center;
   height: 100%;
   padding-left: 2px;
+  overflow: hidden;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .segment {

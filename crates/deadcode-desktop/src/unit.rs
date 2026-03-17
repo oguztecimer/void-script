@@ -58,7 +58,7 @@ fn draw_number(canvas: &mut Pixmap, n: u32, center_x: i32, y: i32, sz: i32, colo
     }
 }
 
-pub const WORLD_WIDTH: u32 = 500;
+pub const WORLD_WIDTH: u32 = 1000;
 
 pub type UnitId = u64;
 
@@ -72,6 +72,11 @@ pub struct Unit {
     pub name: String,
     pub animation: AnimationPlayer,
     pub x: f32,
+    pub y: f32,
+    /// X pivot offset in frame pixels (0 = left edge, frame_width/2 = center).
+    pub pivot_x: f32,
+    /// Y pivot offset in frame pixels (0 = bottom edge, frame_height = top).
+    pub pivot_y: f32,
     pub movement: Option<MovementState>,
     pub z_order: i32,
     pub visible: bool,
@@ -98,6 +103,8 @@ impl UnitManager {
         png_bytes: &[u8],
         json_str: &str,
         x: f32,
+        pivot_x: f32,
+        pivot_y: f32
     ) -> UnitId {
         let id = self.next_id;
         self.next_id += 1;
@@ -109,6 +116,9 @@ impl UnitManager {
             name: name.to_string(),
             animation,
             x: x.clamp(0.0, WORLD_WIDTH as f32),
+            y: 0.0,
+            pivot_x,
+            pivot_y,
             movement: None,
             z_order: 0,
             visible: true,
@@ -178,7 +188,7 @@ impl UnitManager {
         }
     }
 
-    pub fn draw_all(&self, canvas: &mut Pixmap, strip_height: u32, pixel_scale: u32) {
+    pub fn draw_all(&self, canvas: &mut Pixmap, strip_height: u32, pixel_scale: u32, dock_height: u32) {
         let scale = pixel_scale as f32;
         let screen_width = canvas.width();
         let world_px = WORLD_WIDTH * pixel_scale;
@@ -191,50 +201,63 @@ impl UnitManager {
         sorted.sort_by_key(|u| (u.z_order, u.id));
 
         for unit in sorted {
-            let sw = (unit.animation.frame_width() as f32 * scale) as i32;
-            let sh = (unit.animation.frame_height() as f32 * scale) as i32;
-            let y = strip_height as i32 - sh * 2;
-            let x = offset_x + (unit.x * scale) as i32 - sw / 2;
-            unit.animation.draw_reflection(canvas, x, y, 0.4, scale);
-            unit.animation.draw(canvas, x, y, scale);
+            let us = scale * 2.0;
+            // y is the bottom base in world coords; world 0 aligns with dock/taskbar top.
+            let base_y = strip_height as i32 - (dock_height * pixel_scale) as i32 - ((unit.y + 20.0) * scale) as i32;
+            let sh = (unit.animation.frame_height() as f32 * us) as i32;
+            let draw_y = base_y - sh + (unit.pivot_y * us) as i32;
+            let x = offset_x + (unit.x * scale) as i32 - (unit.pivot_x * us) as i32;
+            let reflection_y = base_y - sh;
+            unit.animation.draw_reflection(canvas, x, reflection_y, 0.4, us);
+            unit.animation.draw(canvas, x, draw_y, us);
         }
 
+        // Collect unit x positions for proximity-based ruler opacity.
+        let unit_xs: Vec<f32> = self.units.values()
+            .filter(|u| u.visible)
+            .map(|u| u.x)
+            .collect();
+
         // Draw grid on top of everything.
-        Self::draw_grid(canvas, strip_height, pixel_scale, offset_x);
+        Self::draw_grid(canvas, strip_height, pixel_scale, offset_x, dock_height, &unit_xs);
     }
 
-    fn draw_grid(canvas: &mut Pixmap, strip_height: u32, pixel_scale: u32, offset_x: i32) {
+    fn draw_grid(canvas: &mut Pixmap, strip_height: u32, pixel_scale: u32, offset_x: i32, dock_height: u32, unit_xs: &[f32]) {
         let scale = pixel_scale as i32;
-        // 50 segments of 10 world-px each = 500px total. Lines at 0..=50.
-        let line_count = (WORLD_WIDTH / 10) as i32;
+        let line_count = (WORLD_WIDTH / 20) as i32;
 
         let sz = (scale / 2).max(2);
 
-        let ch = strip_height as i32;
+        let ground_y = strip_height as i32 - (dock_height * pixel_scale) as i32;
         let font_h = 5 * sz;
-        let major_tick = 6 * sz;
-        let minor_tick = 3 * sz;
-        let ruler_y = ch - 2;
-        let center = line_count as f32 / 2.0; // 25
+        let text_y = ground_y - font_h;
+        let full_radius = 20.0_f32;
+        let fade_radius = 60.0_f32;
 
         for i in 0..=line_count {
-            let x = offset_x + i * 10 * scale;
-            // Opacity: 100% at center (25), fading to 70% at edges (0 and 50).
-            let dist = (i as f32 - center).abs() / center;
-            let opacity = 1.0 - dist * 0.3; // 1.0 → 0.7
+            let x = offset_x + i * 20 * scale;
+            let world_x = i as f32 * 20.0;
+
+            let nearest = unit_xs.iter()
+                .map(|&ux| (ux - world_x).abs())
+                .fold(f32::MAX, f32::min);
+            let opacity = if nearest <= full_radius {
+                1.0
+            } else if nearest >= fade_radius {
+                0.0
+            } else {
+                1.0 - (nearest - full_radius) / (fade_radius - full_radius)
+            };
 
             let is_major = i % 2 == 0;
             let c = if is_major {
                 ColorU8::from_rgba(220, 210, 190, (opacity * 255.0) as u8).premultiply()
             } else {
-                ColorU8::from_rgba(40, 35, 30, (opacity * 200.0) as u8).premultiply()
+                ColorU8::from_rgba(220, 200, 80, (opacity * 200.0) as u8).premultiply()
             };
-            let tick_h = if is_major { major_tick } else { minor_tick };
+            let shadow = ColorU8::from_rgba(0, 0, 0, (opacity * 180.0) as u8).premultiply();
 
-            for dy in 0..tick_h {
-                set_px(canvas, x, ruler_y - dy, c);
-            }
-            let text_y = ruler_y - tick_h - sz - font_h;
+            draw_number(canvas, i as u32, x + 1, text_y + 1, sz, shadow);
             draw_number(canvas, i as u32, x, text_y, sz, c);
         }
     }

@@ -10,7 +10,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 use deadcode_desktop::UserEvent;
-use deadcode_desktop::animation::{SKELETON_ATLAS_PNG, skeleton_atlas_json};
+use deadcode_desktop::animation::{SKELETON_ATLAS_PNG, skeleton_atlas_json, SUMMONER_ATLAS_PNG, summoner_atlas_json};
 use deadcode_desktop::fullscreen;
 use deadcode_desktop::renderer::Renderer;
 use deadcode_desktop::save;
@@ -253,10 +253,20 @@ impl ApplicationHandler<UserEvent> for App {
         }
 
         // --- Unit system init ---
-        let json = skeleton_atlas_json();
         let mut um = UnitManager::new();
-        let id = um.spawn("skeleton", SKELETON_ATLAS_PNG, &json, 200.0);
+
+        // Skeleton.
+        let skeleton_json = skeleton_atlas_json();
+        let id = um.spawn("skeleton", SKELETON_ATLAS_PNG, &skeleton_json, 500.0,23.0,0.0);
         um.move_to(id, 600.0, 30.0);
+
+        // Summoner (behind skeletons).
+        let summoner_json = summoner_atlas_json();
+        let summoner_id = um.spawn("summoner", SUMMONER_ATLAS_PNG, &summoner_json, 300.0,49.0,2.0);
+        if let Some(s) = um.get_mut(summoner_id) {
+            s.z_order = -1;
+        }
+
         self.unit_manager = Some(um);
 
         let tray_icon = tray::create_tray(self.proxy.clone());
@@ -344,6 +354,7 @@ impl ApplicationHandler<UserEvent> for App {
                         info.monitor_width,
                         info.strip_height,
                         um,
+                        info.dock_height,
                     );
 
                     if self.first_frame {
@@ -393,12 +404,12 @@ impl ApplicationHandler<UserEvent> for App {
             um.tick(delta);
             // Random wandering: pick a new target when idle.
             let idle: Vec<_> = um.iter()
-                .filter(|u| u.movement.is_none())
+                .filter(|u| u.movement.is_none() && u.name == "skeleton")
                 .map(|u| u.id)
                 .collect();
             for id in idle {
                 let seed = now.elapsed().as_nanos() as u32;
-                let target = (seed % 500) as f32;
+                let target = (seed % 1000) as f32;
                 let speed = 10.0 + (seed % 20) as f32;
                 um.move_to(id, target, speed);
             }
@@ -465,12 +476,12 @@ impl ApplicationHandler<UserEvent> for App {
         }
 
         // --- Dynamic FPS ---
-        let interval = if self.active_until.map(|t| Instant::now() < t).unwrap_or(false) {
+        let redraw_interval = if self.active_until.map(|t| Instant::now() < t).unwrap_or(false) {
             Duration::from_millis(33) // ~30 FPS when active
         } else {
             Duration::from_millis(100) // 10 FPS when idle
         };
-        event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + interval));
+        event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + redraw_interval));
 
         if !self.is_hidden_for_fullscreen {
             if let Some(slot) = self.monitor_slots.get(self.active_monitor) {

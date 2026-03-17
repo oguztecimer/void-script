@@ -19,6 +19,12 @@ use tiny_skia::{IntRect, Pixmap, PixmapPaint, PixmapRef, Transform};
 /// Embedded skeleton sprite atlas PNG (compile-time).
 pub const SKELETON_ATLAS_PNG: &[u8] = include_bytes!("assets/skeleton_atlas.png");
 
+/// Embedded merchant sprite sheet PNG (compile-time).
+pub const MERCHANT_ATLAS_PNG: &[u8] = include_bytes!("assets/merchant_sheet.png");
+
+/// Embedded summoner sprite atlas PNG (compile-time).
+pub const SUMMONER_ATLAS_PNG: &[u8] = include_bytes!("assets/summoner_atlas.png");
+
 /// Load the skeleton atlas JSON metadata.
 pub fn skeleton_atlas_json() -> String {
     #[cfg(debug_assertions)]
@@ -30,6 +36,32 @@ pub fn skeleton_atlas_json() -> String {
         }
     }
     include_str!("assets/skeleton_atlas.json").to_owned()
+}
+
+/// Load the summoner atlas JSON metadata.
+pub fn summoner_atlas_json() -> String {
+    #[cfg(debug_assertions)]
+    {
+        if let Ok(s) = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/assets/summoner_atlas.json")
+        ) {
+            return s;
+        }
+    }
+    include_str!("assets/summoner_atlas.json").to_owned()
+}
+
+/// Load the merchant atlas JSON metadata.
+pub fn merchant_atlas_json() -> String {
+    #[cfg(debug_assertions)]
+    {
+        if let Ok(s) = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/assets/merchant_atlas.json")
+        ) {
+            return s;
+        }
+    }
+    include_str!("assets/merchant_atlas.json").to_owned()
 }
 
 // ---------------------------------------------------------------------------

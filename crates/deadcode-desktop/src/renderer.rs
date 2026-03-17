@@ -122,12 +122,13 @@ impl Renderer {
         _width: u32,
         height: u32,
         units: &UnitManager,
+        dock_height: u32,
     ) {
         // Clear canvas to fully transparent.
         self.canvas.data_mut().fill(0);
 
         // Draw all units.
-        units.draw_all(&mut self.canvas, height, self.pixel_scale);
+        units.draw_all(&mut self.canvas, height, self.pixel_scale, dock_height);
 
         // Blit canvas pixels to softbuffer.
         let mut buffer = surface.buffer_mut().expect("Failed to get surface buffer");
@@ -153,6 +154,7 @@ impl Renderer {
         width: u32,
         height: u32,
         units: &UnitManager,
+        dock_height: u32,
     ) {
         use objc2_core_graphics::{
             CGImage, CGImageAlphaInfo, CGImageByteOrderInfo,
@@ -169,7 +171,7 @@ impl Renderer {
         self.canvas.data_mut().fill(0);
 
         // Draw all units.
-        units.draw_all(&mut self.canvas, height, self.pixel_scale);
+        units.draw_all(&mut self.canvas, height, self.pixel_scale, dock_height);
 
         let macos_layer = self.layer.as_ref().unwrap();
 

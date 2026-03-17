@@ -391,6 +391,17 @@ impl ApplicationHandler<UserEvent> for App {
         // --- Unit system tick ---
         if let Some(um) = &mut self.unit_manager {
             um.tick(delta);
+            // Random wandering: pick a new target when idle.
+            let idle: Vec<_> = um.iter()
+                .filter(|u| u.movement.is_none())
+                .map(|u| u.id)
+                .collect();
+            for id in idle {
+                let seed = now.elapsed().as_nanos() as u32;
+                let target = (seed % 500) as f32;
+                let speed = 10.0 + (seed % 20) as f32;
+                um.move_to(id, target, speed);
+            }
             self.active_until = Some(Instant::now() + Duration::from_secs(1));
         }
 

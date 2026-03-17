@@ -30,7 +30,10 @@ export type JsToRustMessage =
   | { type: 'window_maximize' }
   | { type: 'window_close' }
   | { type: 'window_drag_start' }
-  | { type: 'window_resize_start'; direction: string };
+  | { type: 'window_resize_start'; direction: string }
+  | { type: 'window_shake' }
+  | { type: 'window_set_size'; width: number; height: number; resizable: boolean }
+  | { type: 'console_command'; command: string };
 
 export interface Diagnostic {
   line: number;

@@ -59,12 +59,23 @@
   to   { transform: rotate(360deg); }
 }
 
+.terminal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  background-color: var(--bg-editor);
+}
+
+
 .bottomPanel {
   display: flex;
   flex-direction: column;
   height: 100%;
   border-top: 1px solid var(--border-strong);
 }
+
 
 .centerGroup {
   flex: 1;
@@ -146,4 +157,100 @@
   width: 0;
   cursor: default;
   pointer-events: none;
+}
+
+/* ─── CRT Overlay (scanlines + vignette + flicker) ─────────────────────── */
+
+.crtOverlay {
+  position: fixed;
+  top: 38px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 99998;
+}
+
+.crtOverlay::before {
+  content: '';
+  position: absolute;
+  inset: -2px 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 1px,
+    rgba(0, 0, 0, 0.25) 1px,
+    rgba(0, 0, 0, 0.25) 2px
+  );
+  background-size: 100% 2px;
+  animation: crtScanline 8s linear infinite, crtFlicker 0.12s infinite alternate;
+}
+
+
+@keyframes crtScanline {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(2px); }
+}
+
+@keyframes crtFlicker {
+  0%   { opacity: 0.88; }
+  100% { opacity: 1; }
+}
+
+/* ─── Tier transition (CRT shutdown → startup) ─────────────────────────── */
+
+.tierTransition {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  pointer-events: none;
+}
+
+/* Black fullscreen fade — stays full size the entire time */
+.tierTransition::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: black;
+  animation: tierBlack 900ms ease-in-out forwards;
+}
+
+/* White CRT line — collapses, holds, flashes open */
+.tierTransition::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: white;
+  animation: tierFlash 900ms ease-in-out forwards;
+}
+
+@keyframes tierBlack {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  75%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+
+@keyframes tierFlash {
+  0%   { opacity: 0; transform: scaleY(1); }
+  35%  { opacity: 0; transform: scaleY(1); }
+  /* Collapse to bright horizontal line */
+  36%  { opacity: 1; transform: scaleY(0.003); }
+  /* Hold the line — tier changes here */
+  50%  { opacity: 1; transform: scaleY(0.003); }
+  /* Flash open */
+  60%  { opacity: 0.8; transform: scaleY(1); }
+  /* Fade out */
+  100% { opacity: 0; transform: scaleY(1); }
+}
+
+/* ─── Tier 0 editor area — subdued watermarks ──────────────────────────── */
+
+.editorAreaTier0::after {
+  opacity: 0.01;
+}
+
+.editorAreaTier0::before {
+  opacity: 0.008;
 }

@@ -35,8 +35,10 @@ interface EditorState {
   debugVariables: VariableInfo[];
   debugCallStack: string[];
   breakpoints: Record<string, number[]>;
+  tier: number;
   foldedLines: Record<string, number[]>;
 
+  setTier: (tier: number) => void;
   openTab: (scriptId: string, name: string, content: string, scriptType: string) => void;
   closeTab: (scriptId: string) => void;
   switchTab: (scriptId: string) => void;
@@ -80,9 +82,11 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   debugLine: null,
   debugVariables: [],
   debugCallStack: [],
+  tier: 0,
   breakpoints: {},
   foldedLines: {},
 
+  setTier: (tier) => set({ tier }),
   openTab: (scriptId, name, content, scriptType) =>
     set((state) => {
       const existing = state.tabs.find((t) => t.scriptId === scriptId);
@@ -183,10 +187,20 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
 }), {
   name: 'void-editor-panels',
   partialize: (state) => ({
+    tier: state.tier,
     leftPanelOpen: state.leftPanelOpen,
     bottomPanelOpen: state.bottomPanelOpen,
     rightPanelOpen: state.rightPanelOpen,
     bottomPanelTab: state.bottomPanelTab,
     foldedLines: state.foldedLines,
   }),
+  onRehydrateStorage: () => (state) => {
+    if (state && state.tier === 0) {
+      useStore.setState({
+        leftPanelOpen: false,
+        rightPanelOpen: false,
+        bottomPanelOpen: true,
+      });
+    }
+  },
 }));

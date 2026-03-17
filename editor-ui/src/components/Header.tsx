@@ -1,5 +1,6 @@
 import styles from './Header.module.css';
 import { useStore } from '../state/store';
+import { useTierVisibility } from '../state/useTier';
 import { sendToRust } from '../ipc/bridge';
 import { ToolBtn } from '../primitives/ToolBtn';
 import { Separator } from '../primitives/Separator';
@@ -14,6 +15,7 @@ function handleDragStart(e: React.MouseEvent) {
 }
 
 export function Header() {
+  const tv = useTierVisibility();
   const activeTabId = useStore((s) => s.activeTabId);
   const tabs = useStore((s) => s.tabs);
   const activeTab = tabs.find((t) => t.scriptId === activeTabId);
@@ -23,16 +25,15 @@ export function Header() {
   const active = isRunning || isDebugging;
 
   return (
-    <div className={styles.toolbar} onMouseDown={handleDragStart}>
+    <div className={`${styles.toolbar} ${!tv.showHeaderToolbar ? styles.toolbarPlain : ''}`} onMouseDown={handleDragStart}>
       {/* Space for native macOS traffic lights (hidden on Windows) */}
       {!isWindows && <div className={styles.trafficLightSpacer} />}
-
 
       {/* Center spacer - draggable */}
       <div className={styles.spacer} />
 
       {/* Right: run config + run/debug + search + settings */}
-      <div className={`titlebar-no-drag ${styles.rightGroup}`}>
+      {tv.showHeaderToolbar && <div className={`titlebar-no-drag ${styles.rightGroup}`}>
         {/* Run configuration selector */}
         <RunConfigSelector label={activeTab ? `${activeTab.name}.vs` : 'No configuration'} />
 
@@ -125,7 +126,7 @@ export function Header() {
             <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1" fill="none"/>
           </svg>
         </ToolBtn>
-      </div>
+      </div>}
 
       {/* Windows window controls (minimize/maximize/close) */}
       {isWindows && <WindowControlsWin />}

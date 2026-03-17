@@ -54,6 +54,31 @@
   color: #D94452;
 }
 
+/* Tier 0: flat toolbar — no gradient, no texture, shorter */
+.toolbarPlain {
+  background: var(--bg-toolbar);
+  height: 38px;
+}
+
+.toolbarPlain::before {
+  display: none;
+}
+
+/* Tier 0 terminal title */
+.terminalTitle {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: var(--text-tertiary);
+  opacity: 0.7;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .spacer {
   flex: 1;
 }

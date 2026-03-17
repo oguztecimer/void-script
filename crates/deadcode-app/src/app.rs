@@ -843,6 +843,9 @@ impl ApplicationHandler<UserEvent> for App {
         // --- Editor IPC polling ---
         self.poll_editor_ipc();
 
+        // --- Window shake animation ---
+        self.webview_manager.tick_shake();
+
         // --- Script execution polling ---
         self.execution_manager.poll_script_events(&self.webview_manager);
 
@@ -988,6 +991,16 @@ impl App {
                 }
                 JsToRust::WindowResizeStart { .. } => {
                     // Handled directly in the IPC handler for native resize
+                }
+                JsToRust::WindowShake => {
+                    self.webview_manager.start_shake();
+                }
+                JsToRust::WindowSetSize { width, height, resizable } => {
+                    self.webview_manager.set_size(width, height, resizable);
+                }
+                JsToRust::ConsoleCommand { command } => {
+                    // TODO: Route terminal commands to the game engine
+                    eprintln!("[console] command: {}", command);
                 }
             }
         }

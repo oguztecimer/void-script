@@ -1,13 +1,11 @@
-//! Sprite animation system for good-boi.
+//! Sprite animation system.
 //!
 //! Provides `AnimationPlayer`, which:
-//! - Decodes the dog atlas PNG once at startup (zero per-frame decode overhead)
+//! - Decodes an atlas PNG once at construction (zero per-frame decode overhead)
 //! - Pre-extracts all animation frames into `Vec<Vec<Pixmap>>` at load time
 //! - Advances frames based on wall-clock time (`Duration`) — animation speed is
 //!   independent of render frame rate
 //! - Supports horizontal flip via Transform for left-facing rendering
-//!
-//! The module is wired into `App` and `Renderer` as of Plan 02-02.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -18,24 +16,24 @@ use tiny_skia::{IntRect, Pixmap, PixmapPaint, PixmapRef, Transform};
 // Embedded assets
 // ---------------------------------------------------------------------------
 
-const ATLAS_PNG: &[u8] = include_bytes!("assets/dog_atlas.png");
+/// Embedded skeleton sprite atlas PNG (compile-time).
+pub const SKELETON_ATLAS_PNG: &[u8] = include_bytes!("assets/skeleton_atlas.png");
 
-/// Load the JSON metadata. In debug builds, prefer a local file override so
-/// that the JSON can be edited without recompiling. In release, use the
-/// embedded string baked in at compile time.
-fn load_json_str() -> String {
+/// Load the skeleton atlas JSON metadata.
+pub fn skeleton_atlas_json() -> String {
     #[cfg(debug_assertions)]
     {
-        // Try to load from the workspace-relative path first (dev override).
-        if let Ok(s) = std::fs::read_to_string("src/assets/dog_atlas.json") {
+        if let Ok(s) = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/assets/skeleton_atlas.json")
+        ) {
             return s;
         }
     }
-    include_str!("assets/dog_atlas.json").to_owned()
+    include_str!("assets/skeleton_atlas.json").to_owned()
 }
 
 // ---------------------------------------------------------------------------
-// Data structures (Serde-deserializable from dog_atlas.json)
+// Data structures
 // ---------------------------------------------------------------------------
 
 #[derive(serde::Deserialize, Clone)]
@@ -105,15 +103,18 @@ impl AnimationPlayer {
     /// - The JSON is malformed
     /// - Any animation frame rect falls outside the atlas bounds
     /// - The "idle" animation is not present in the metadata
+    /// Load the embedded skeleton atlas (default).
     pub fn new() -> Self {
-        // Decode atlas PNG once.
-        let atlas =
-            Pixmap::decode_png(ATLAS_PNG).expect("AnimationPlayer: failed to decode dog_atlas.png");
+        Self::from_bytes(SKELETON_ATLAS_PNG, &skeleton_atlas_json())
+    }
 
-        // Parse JSON metadata.
-        let json = load_json_str();
+    /// Construct from arbitrary atlas PNG bytes and JSON metadata string.
+    pub fn from_bytes(png_bytes: &[u8], json_str: &str) -> Self {
+        let atlas =
+            Pixmap::decode_png(png_bytes).expect("AnimationPlayer: failed to decode atlas PNG");
+
         let meta: AtlasMetadata =
-            serde_json::from_str(&json).expect("AnimationPlayer: failed to parse dog_atlas.json");
+            serde_json::from_str(json_str).expect("AnimationPlayer: failed to parse atlas JSON");
 
         let atlas_w = atlas.width();
         let atlas_h = atlas.height();
@@ -255,20 +256,17 @@ impl AnimationPlayer {
 
     /// Draw the current frame onto `canvas` at `(dst_x, dst_y)`.
     ///
-    /// If `self.facing_left` is `true`, applies a horizontal mirror transform
-    /// so the dog faces left without needing separate left-facing art.
-    pub fn draw(&self, canvas: &mut Pixmap, dst_x: i32, dst_y: i32) {
+    /// If `self.facing_left` is `true`, applies a horizontal mirror transform.
+    pub fn draw(&self, canvas: &mut Pixmap, dst_x: i32, dst_y: i32, scale: f32) {
         let frame = self.current_frame_pixmap();
+        let sw = (self.frame_width as f32 * scale) as i32;
+
         let transform = if self.facing_left {
-            // Mirror around the frame's vertical centre, then translate to destination.
-            // scale(-1, 1) flips horizontally; post_translate shifts it into place.
-            Transform::from_scale(-1.0, 1.0)
-                .post_translate(
-                    (dst_x + self.frame_width as i32) as f32,
-                    dst_y as f32,
-                )
+            Transform::from_scale(-scale, scale)
+                .post_translate((dst_x + sw) as f32, dst_y as f32)
         } else {
-            Transform::from_translate(dst_x as f32, dst_y as f32)
+            Transform::from_scale(scale, scale)
+                .post_translate(dst_x as f32, dst_y as f32)
         };
 
         canvas.draw_pixmap(
@@ -277,6 +275,34 @@ impl AnimationPlayer {
             PixmapRef::from_bytes(frame.data(), frame.width(), frame.height())
                 .expect("AnimationPlayer::draw: invalid pixmap"),
             &PixmapPaint::default(),
+            transform,
+            None,
+        );
+    }
+
+    /// Draw a vertically-flipped reflection with the given opacity and scale.
+    pub fn draw_reflection(&self, canvas: &mut Pixmap, dst_x: i32, dst_y: i32, opacity: f32, scale: f32) {
+        let frame = self.current_frame_pixmap();
+        let sh = (self.frame_height as f32 * scale) as i32;
+        let sw = (self.frame_width as f32 * scale) as i32;
+
+        let transform = if self.facing_left {
+            Transform::from_scale(-scale, -scale)
+                .post_translate((dst_x + sw) as f32, (dst_y + sh * 2) as f32)
+        } else {
+            Transform::from_scale(scale, -scale)
+                .post_translate(dst_x as f32, (dst_y + sh * 2) as f32)
+        };
+
+        let mut paint = PixmapPaint::default();
+        paint.opacity = opacity;
+
+        canvas.draw_pixmap(
+            0,
+            0,
+            PixmapRef::from_bytes(frame.data(), frame.width(), frame.height())
+                .expect("AnimationPlayer::draw_reflection: invalid pixmap"),
+            &paint,
             transform,
             None,
         );

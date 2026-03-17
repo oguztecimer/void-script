@@ -1,8 +1,6 @@
 def odfm():
-  asdasdad
-asdasd
-
-topolihi bbo
+    asdasdad
+    asdasd
 def asd():
     deneme
     while True:

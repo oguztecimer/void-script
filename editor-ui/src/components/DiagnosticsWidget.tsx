@@ -43,7 +43,7 @@ export function DiagnosticsWidget({ errorCount, warningCount, hasActiveTab }: Di
         />
       )}
       {errorCount === 0 && warningCount === 0 && (
-        <StatusSegment label={<span style={{ color: 'var(--accent-green)' }}>OK</span>} />
+        <StatusSegment label={<span style={{ color: 'var(--accent-green)' }}>BOUND</span>} />
       )}
     </>
   );

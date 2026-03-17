@@ -27,14 +27,6 @@ export function Header() {
       {/* Space for native macOS traffic lights (hidden on Windows) */}
       {!isWindows && <div className={styles.trafficLightSpacer} />}
 
-      {/* Hamburger menu */}
-      <ToolBtn size="small" title="Menu" className="titlebar-no-drag">
-        <svg width="20" height="20" viewBox="0 0 16 16">
-          <line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" strokeWidth="1"/>
-          <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="1"/>
-          <line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" strokeWidth="1"/>
-        </svg>
-      </ToolBtn>
 
       {/* Center spacer - draggable */}
       <div className={styles.spacer} />

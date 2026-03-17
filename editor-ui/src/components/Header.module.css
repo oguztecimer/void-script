@@ -28,13 +28,26 @@
   -webkit-mask-image: linear-gradient(to right, black 0%, black 40%, transparent 80%);
 }
 
-.brandName {
-  font-weight: 600;
-  font-size: 13px;
-  letter-spacing: 1px;
+.brandBlock {
+  display: flex;
+  flex-direction: column;
   margin-left: 33px;
   flex-shrink: 0;
-  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.brandName {
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 1px;
+  color: var(--text-tertiary);
+}
+
+.brandTagline {
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  color: var(--text-disabled);
+  font-weight: 400;
 }
 
 .brandAccent {

@@ -35,7 +35,7 @@ export function BreadcrumbBar() {
 
   return (
     <div className={styles.bar}>
-      <span className={styles.segment}>{activeTabName}.vs</span>
+      <span className={styles.segment}>{activeTabName}.gs</span>
       {fnName !== null && (
         <>
           <span className={styles.chevron}> &rsaquo; </span>

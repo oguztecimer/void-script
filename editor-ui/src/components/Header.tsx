@@ -35,7 +35,7 @@ export function Header() {
       {/* Right: run config + run/debug + search + settings */}
       {tv.showHeaderToolbar && <div className={`titlebar-no-drag ${styles.rightGroup}`}>
         {/* Run configuration selector */}
-        <RunConfigSelector label={activeTab ? `${activeTab.name}.vs` : 'No configuration'} />
+        <RunConfigSelector label={activeTab ? `${activeTab.name}.gs` : 'No configuration'} />
 
         <Separator variant="line" level="subtle" />
 

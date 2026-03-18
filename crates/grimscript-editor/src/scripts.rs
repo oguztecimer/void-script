@@ -50,7 +50,7 @@ impl ScriptStore {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "vs") {
+                if path.extension().map_or(false, |ext| ext == "gs") {
                     if let Ok(content) = std::fs::read_to_string(&path) {
                         let name = path
                             .file_stem()
@@ -87,7 +87,7 @@ impl ScriptStore {
     pub fn save_script(&mut self, id: &str, content: String) {
         if let Some(script) = self.scripts.get_mut(id) {
             script.content = content.clone();
-            let path = self.scripts_dir.join(format!("{}.vs", script.name));
+            let path = self.scripts_dir.join(format!("{}.gs", script.name));
             let _ = std::fs::write(path, content);
         }
     }

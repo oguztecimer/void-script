@@ -3,6 +3,9 @@ name = "grimscript-app"
 version.workspace = true
 edition.workspace = true
 
+[features]
+dev-mode = ["grimscript-desktop/dev-mode"]
+
 [dependencies]
 grimscript-desktop = { path = "../grimscript-desktop" }
 grimscript-editor = { path = "../grimscript-editor" }

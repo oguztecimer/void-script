@@ -3,6 +3,9 @@ name = "grimscript-desktop"
 version.workspace = true
 edition.workspace = true
 
+[features]
+dev-mode = []
+
 [dependencies]
 winit = { workspace = true }
 serde = { workspace = true }

@@ -1,3 +1,8 @@
+/// Returns `true` when the binary was compiled with `--features dev-mode`.
+pub const fn is_dev_mode() -> bool {
+    cfg!(feature = "dev-mode")
+}
+
 pub mod animation;
 pub mod fullscreen;
 pub mod renderer;

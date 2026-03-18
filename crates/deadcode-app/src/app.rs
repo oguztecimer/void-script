@@ -392,7 +392,7 @@ impl ApplicationHandler<UserEvent> for App {
 
         // Summoner (behind skeletons).
         let summoner_json = summoner_atlas_json();
-        let summoner_id = um.spawn("summoner", SUMMONER_ATLAS_PNG, &summoner_json, 300.0,49.0,2.0);
+        let summoner_id = um.spawn("summoner", SUMMONER_ATLAS_PNG, &summoner_json, 500.0,49.0,2.0);
         if let Some(s) = um.get_mut(summoner_id) {
             s.z_order = -1;
         }

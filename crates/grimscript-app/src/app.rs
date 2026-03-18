@@ -325,11 +325,16 @@ impl ApplicationHandler<UserEvent> for App {
 
         // On Windows, invisible windows don't receive RedrawRequested events,
         // so we must make the active window visible before entering the event loop.
+        // Position the strip behind the taskbar but in front of all other windows.
         #[cfg(target_os = "windows")]
         {
             use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
             use windows::Win32::UI::WindowsAndMessaging::*;
             use windows::Win32::Foundation::HWND;
+            use windows::core::w;
+
+            // Find the taskbar so we can place our strip just behind it.
+            let taskbar_hwnd = unsafe { FindWindowW(w!("Shell_TrayWnd"), None) }.ok();
 
             for slot in &slots {
                 if let Ok(handle) = slot.window.window_handle() {
@@ -338,14 +343,24 @@ impl ApplicationHandler<UserEvent> for App {
                         unsafe {
                             let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
                             let new_style = (ex_style & !(WS_EX_APPWINDOW.0 as i32))
-                                | WS_EX_TOOLWINDOW.0 as i32;
+                                | WS_EX_TOOLWINDOW.0 as i32
+                                | WS_EX_TOPMOST.0 as i32;
                             SetWindowLongW(hwnd, GWL_EXSTYLE, new_style);
-                            let _ = SetWindowPos(
-                                hwnd,
-                                None,
-                                0, 0, 0, 0,
-                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
-                            );
+
+                            // Place just behind the taskbar in z-order.
+                            if let Some(tb) = taskbar_hwnd {
+                                let _ = SetWindowPos(
+                                    hwnd, tb,
+                                    0, 0, 0, 0,
+                                    SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED,
+                                );
+                            } else {
+                                let _ = SetWindowPos(
+                                    hwnd, HWND_TOPMOST,
+                                    0, 0, 0, 0,
+                                    SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED,
+                                );
+                            }
                         }
                     }
                 }
@@ -359,16 +374,20 @@ impl ApplicationHandler<UserEvent> for App {
                     if let RawWindowHandle::Win32(h) = handle.as_raw() {
                         let hwnd = HWND(h.hwnd.get() as *mut _);
                         unsafe {
-                            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-                            let new_style = (ex_style & !(WS_EX_APPWINDOW.0 as i32))
-                                | WS_EX_TOOLWINDOW.0 as i32;
-                            SetWindowLongW(hwnd, GWL_EXSTYLE, new_style);
-                            let _ = SetWindowPos(
-                                hwnd,
-                                None,
-                                0, 0, 0, 0,
-                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
-                            );
+                            // Re-apply after visibility change to ensure z-order sticks.
+                            if let Some(tb) = taskbar_hwnd {
+                                let _ = SetWindowPos(
+                                    hwnd, tb,
+                                    0, 0, 0, 0,
+                                    SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED,
+                                );
+                            } else {
+                                let _ = SetWindowPos(
+                                    hwnd, HWND_TOPMOST,
+                                    0, 0, 0, 0,
+                                    SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED,
+                                );
+                            }
                         }
                     }
                 }

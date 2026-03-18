@@ -138,24 +138,48 @@ impl ApplicationHandler<UserEvent> for App {
         let slots: Vec<MonitorSlot> = monitor_infos
             .into_iter()
             .map(|info| {
-                use winit::dpi::{LogicalPosition, LogicalSize};
                 use winit::window::WindowLevel;
 
-                let attrs = winit::window::Window::default_attributes()
-                    .with_title("deadcode")
-                    .with_transparent(true)
-                    .with_decorations(false)
-                    .with_window_level(WindowLevel::AlwaysOnTop)
-                    .with_resizable(false)
-                    .with_visible(false)
-                    .with_inner_size(LogicalSize::new(
-                        info.monitor_width as f64,
-                        info.strip_height as f64,
-                    ))
-                    .with_position(LogicalPosition::new(
-                        info.monitor_x as f64,
-                        info.strip_y as f64,
-                    ));
+                // macOS: use logical coords (Cocoa handles DPI natively).
+                // Windows: use physical coords to avoid DPI mismatch on multi-monitor.
+                #[cfg(target_os = "macos")]
+                let attrs = {
+                    use winit::dpi::{LogicalPosition, LogicalSize};
+                    winit::window::Window::default_attributes()
+                        .with_title("deadcode")
+                        .with_transparent(true)
+                        .with_decorations(false)
+                        .with_window_level(WindowLevel::AlwaysOnTop)
+                        .with_resizable(false)
+                        .with_visible(false)
+                        .with_inner_size(LogicalSize::new(
+                            info.monitor_width as f64,
+                            info.strip_height as f64,
+                        ))
+                        .with_position(LogicalPosition::new(
+                            info.monitor_x as f64,
+                            info.strip_y as f64,
+                        ))
+                };
+                #[cfg(not(target_os = "macos"))]
+                let attrs = {
+                    use winit::dpi::{LogicalSize, PhysicalPosition};
+                    winit::window::Window::default_attributes()
+                        .with_title("deadcode")
+                        .with_transparent(true)
+                        .with_decorations(false)
+                        .with_window_level(WindowLevel::AlwaysOnTop)
+                        .with_resizable(false)
+                        .with_visible(false)
+                        .with_inner_size(LogicalSize::new(
+                            info.monitor_width as f64,
+                            info.strip_height as f64,
+                        ))
+                        .with_position(PhysicalPosition::new(
+                            info.phys_x,
+                            info.phys_y,
+                        ))
+                };
 
                 let window = Arc::new(
                     event_loop
@@ -185,7 +209,14 @@ impl ApplicationHandler<UserEvent> for App {
                 let surface = Surface::new(&context, window.clone())
                     .expect("Failed to create softbuffer surface");
 
-                let mut renderer = Renderer::new(info.monitor_width, info.strip_height);
+                // Canvas must match physical window size (softbuffer blits 1:1 on Windows).
+                // But pixel_scale stays logical-based so sprite size matches macOS.
+                #[cfg(target_os = "macos")]
+                let (canvas_w, canvas_h) = (info.monitor_width, info.strip_height);
+                #[cfg(not(target_os = "macos"))]
+                let (canvas_w, canvas_h) = (info.phys_width, info.phys_height);
+
+                let mut renderer = Renderer::new(canvas_w, canvas_h);
                 renderer.pixel_scale = (info.monitor_width / WORLD_WIDTH).max(1);
                 renderer.set_window(&window);
 
@@ -305,19 +336,26 @@ impl ApplicationHandler<UserEvent> for App {
             }
 
             WindowEvent::Resized(new_size) => {
-                let scale = self.monitor_slots
-                    .get(self.active_monitor)
-                    .map(|s| s.window.scale_factor())
-                    .unwrap_or(1.0);
-                let logical_w = (new_size.width as f64 / scale).round() as u32;
-                let logical_h = (new_size.height as f64 / scale).round() as u32;
+                // On macOS, canvas uses logical pixels (CALayer handles DPI).
+                // On Windows, canvas must match physical size (softbuffer blits 1:1).
+                #[cfg(target_os = "macos")]
+                let (resize_w, resize_h) = {
+                    let scale = self.monitor_slots
+                        .get(self.active_monitor)
+                        .map(|s| s.window.scale_factor())
+                        .unwrap_or(1.0);
+                    ((new_size.width as f64 / scale).round() as u32,
+                     (new_size.height as f64 / scale).round() as u32)
+                };
+                #[cfg(not(target_os = "macos"))]
+                let (resize_w, resize_h) = (new_size.width, new_size.height);
 
-                if logical_w == 0 || logical_h == 0 {
+                if resize_w == 0 || resize_h == 0 {
                     return;
                 }
 
                 if let Some(slot) = self.monitor_slots.get_mut(self.active_monitor) {
-                    slot.renderer.resize(logical_w, logical_h);
+                    slot.renderer.resize(resize_w, resize_h);
                 }
             }
 
@@ -342,19 +380,24 @@ impl ApplicationHandler<UserEvent> for App {
                 if let Some(um) = &self.unit_manager {
                     let info = slot.info;
 
+                    #[cfg(target_os = "macos")]
+                    let (rw, rh, rd) = (info.monitor_width, info.strip_height, info.dock_height);
+                    #[cfg(not(target_os = "macos"))]
+                    let (rw, rh, rd) = (info.phys_width, info.phys_height, info.phys_dock_height);
+
                     slot.surface
                         .resize(
-                            std::num::NonZeroU32::new(info.monitor_width).unwrap(),
-                            std::num::NonZeroU32::new(info.strip_height).unwrap(),
+                            std::num::NonZeroU32::new(rw).unwrap(),
+                            std::num::NonZeroU32::new(rh).unwrap(),
                         )
                         .expect("Failed to resize surface");
 
                     slot.renderer.render(
                         &mut slot.surface,
-                        info.monitor_width,
-                        info.strip_height,
+                        rw,
+                        rh,
                         um,
-                        info.dock_height,
+                        rd,
                     );
 
                     if self.first_frame {

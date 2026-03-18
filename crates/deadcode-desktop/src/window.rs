@@ -22,6 +22,15 @@ pub struct StripInfo {
     pub monitor_index: usize,
     /// Height of the OS dock/taskbar in logical pixels.
     pub dock_height: u32,
+    /// DPI scale factor for this monitor (1.0, 1.25, 1.5, 2.0, etc.)
+    pub scale_factor: f64,
+    /// Height of the OS dock/taskbar in physical pixels.
+    pub phys_dock_height: u32,
+    /// Physical pixel values for window positioning (avoids DPI mismatch on multi-monitor).
+    pub phys_width: u32,
+    pub phys_height: u32,
+    pub phys_x: i32,
+    pub phys_y: i32,
 }
 
 /// Create the transparent, frameless, always-on-top strip window.
@@ -79,8 +88,14 @@ pub fn create_strip_window(event_loop: &ActiveEventLoop) -> (Arc<Window>, StripI
         strip_y,
         monitor_height,
         monitor_x,
-        monitor_index: 0, // Primary monitor window is always index 0.
+        monitor_index: 0,
         dock_height,
+        scale_factor,
+        phys_dock_height: (dock_height as f64 * scale_factor) as u32,
+        phys_width: monitor_width_phys,
+        phys_height: (strip_height as f64 * scale_factor) as u32,
+        phys_x: monitor_pos.x,
+        phys_y: monitor_size.height as i32 - (strip_height as f64 * scale_factor) as i32 + monitor_pos.y,
     };
 
     (window, info)
@@ -112,6 +127,10 @@ pub fn enumerate_monitors(event_loop: &ActiveEventLoop) -> Vec<StripInfo> {
             let dock_height = get_dock_height(monitor_height, scale_factor);
             let strip_y = monitor_height as i32 - strip_height as i32;
 
+            // Physical values for window positioning (avoids DPI mismatch)
+            let phys_strip_height = (strip_height as f64 * scale_factor) as u32;
+            let phys_y = monitor_size.height as i32 - phys_strip_height as i32 + monitor_pos.y;
+
             StripInfo {
                 strip_height,
                 monitor_width,
@@ -120,6 +139,12 @@ pub fn enumerate_monitors(event_loop: &ActiveEventLoop) -> Vec<StripInfo> {
                 monitor_x,
                 monitor_index: index,
                 dock_height,
+                scale_factor,
+                phys_dock_height: (dock_height as f64 * scale_factor) as u32,
+                phys_width: monitor_size.width,
+                phys_height: phys_strip_height,
+                phys_x: monitor_pos.x,
+                phys_y,
             }
         })
         .collect();
@@ -131,10 +156,10 @@ pub fn enumerate_monitors(event_loop: &ActiveEventLoop) -> Vec<StripInfo> {
 }
 
 /// Get the height of the OS dock/taskbar in logical pixels.
-fn get_dock_height(_monitor_height: u32, _scale_factor: f64) -> u32 {
+fn get_dock_height(monitor_height: u32, _scale_factor: f64) -> u32 {
     #[cfg(target_os = "macos")]
     {
-        let _ = _scale_factor;
+        let _ = (monitor_height, _scale_factor);
         get_dock_height_macos().unwrap_or(0)
     }
 
@@ -183,8 +208,10 @@ fn get_dock_height_windows(monitor_height: u32, scale_factor: f64) -> Option<u32
             ..Default::default()
         };
         if GetMonitorInfoW(monitor, &mut info).as_bool() {
-            let work_bottom = (info.rcWork.bottom as f64 / scale_factor) as u32;
-            Some(monitor_height - work_bottom)
+            // Taskbar height = difference between full monitor bottom and work area bottom
+            let dock_physical = (info.rcMonitor.bottom - info.rcWork.bottom).max(0);
+            let dock = (dock_physical as f64 / scale_factor) as u32;
+            Some(dock)
         } else {
             None
         }

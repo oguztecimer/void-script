@@ -203,7 +203,7 @@ impl UnitManager {
         for unit in sorted {
             let us = scale * 2.0;
             // y is the bottom base in world coords; world 0 aligns with dock/taskbar top.
-            let base_y = strip_height as i32 - (dock_height * pixel_scale) as i32 - ((unit.y + 20.0) * scale) as i32;
+            let base_y = strip_height as i32 - dock_height as i32 - ((unit.y + 20.0) * scale) as i32;
             let sh = (unit.animation.frame_height() as f32 * us) as i32;
             let draw_y = base_y - sh + (unit.pivot_y * us) as i32;
             let x = offset_x + (unit.x * scale) as i32 - (unit.pivot_x * us) as i32;
@@ -226,9 +226,12 @@ impl UnitManager {
         let scale = pixel_scale as i32;
         let line_count = (WORLD_WIDTH / 20) as i32;
 
-        let sz = (scale / 2).max(2);
+        // Font size scales with both pixel_scale and DPI (canvas width / logical world pixels).
+        // This ensures numbers are visually the same size on all DPI displays.
+        let canvas_scale = (canvas.width() as f32) / (WORLD_WIDTH as f32 * pixel_scale as f32);
+        let sz = ((scale as f32 * canvas_scale) as i32).max(2);
 
-        let ground_y = strip_height as i32 - (dock_height * pixel_scale) as i32;
+        let ground_y = strip_height as i32 - (dock_height) as i32;
         let font_h = 5 * sz;
         let text_y = ground_y - font_h;
         let full_radius = 20.0_f32;

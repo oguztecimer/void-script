@@ -140,7 +140,7 @@ impl Renderer {
                 let r = (src.red() as u32 * 255 / a as u32).min(255);
                 let g = (src.green() as u32 * 255 / a as u32).min(255);
                 let b = (src.blue() as u32 * 255 / a as u32).min(255);
-                *dst = (r << 16) | (g << 8) | b;
+                *dst = ((a as u32) << 24) | (r << 16) | (g << 8) | b;
             }
         }
         buffer.present().expect("Failed to present surface buffer");

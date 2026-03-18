@@ -229,7 +229,7 @@ html, body {
   --font-size-ui: 13px;
 
   /** Editor content font size */
-  --font-size-editor: 14px;
+  --font-size-editor: 11px;
 
   /** Status bar and compact labels */
   --font-size-status: 11px;
@@ -242,4 +242,24 @@ html, body {
   /** Hover state transition — consistent across all interactive elements */
   --transition-hover: 150ms ease;
 
+}
+
+/* ─── Scrollbars ──────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
 }

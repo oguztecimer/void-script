@@ -1,10 +1,29 @@
 .panel {
   /* width: 220px; — REMOVED: now controlled by react-resizable-panels Panel */
   background-color: var(--bg-panel);
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   height: 100%;
+  position: relative;
+  isolation: isolate;
+}
+
+.panel::before {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  aspect-ratio: 0.55;
+  background: url('/grimoire-watermark.png') no-repeat center bottom;
+  background-size: contain;
+  opacity: 0.02;
+  pointer-events: none;
+  z-index: -1;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 50%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 50%);
 }
 
 .list {

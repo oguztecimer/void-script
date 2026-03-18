@@ -11,6 +11,8 @@
   font: inherit;
   font-size: var(--font-size-status);
   transition: background-color var(--transition-hover), color var(--transition-hover);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .segment:hover {

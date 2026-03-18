@@ -1,6 +1,7 @@
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import './theme/tokens.css';
+import './theme/crt.css';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 

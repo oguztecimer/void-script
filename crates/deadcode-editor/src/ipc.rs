@@ -123,6 +123,12 @@ pub enum JsToRust {
     WindowDragStart,
     #[serde(rename = "window_resize_start")]
     WindowResizeStart { direction: String },
+    #[serde(rename = "window_shake")]
+    WindowShake,
+    #[serde(rename = "window_set_size")]
+    WindowSetSize { width: u32, height: u32, resizable: bool },
+    #[serde(rename = "console_command")]
+    ConsoleCommand { command: String },
 }
 
 pub enum WindowControlEvent {

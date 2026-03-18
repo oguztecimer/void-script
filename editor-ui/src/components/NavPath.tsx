@@ -12,7 +12,7 @@ function buildSegments(
   tabs: { scriptId: string; name: string }[],
   scriptList: { id: string; script_type: string }[],
 ): Segment[] {
-  const segments: Segment[] = [{ label: 'VOID//SCRIPT', kind: 'project' }];
+  const segments: Segment[] = [{ label: 'Grimoire', kind: 'project' }];
 
   if (!activeTabId) return segments;
 

@@ -5,7 +5,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 export const voidScriptTheme = EditorView.theme({
   '&': {
     color: 'var(--text-primary)',
-    backgroundColor: 'var(--bg-editor)',
+    backgroundColor: 'transparent',
     height: '100%',
   },
   '.cm-scroller': {
@@ -13,7 +13,7 @@ export const voidScriptTheme = EditorView.theme({
   },
   '.cm-content': {
     fontFamily: 'var(--font-mono)',
-    fontSize: '14px',
+    fontSize: 'var(--font-size-editor)',
     lineHeight: '1.6',
     caretColor: 'var(--text-primary)',
     fontVariantLigatures: 'none',
@@ -33,8 +33,9 @@ export const voidScriptTheme = EditorView.theme({
     color: 'var(--text-tertiary)',
   },
   '.cm-gutters': {
-    backgroundColor: 'var(--bg-editor) !important',
+    backgroundColor: 'transparent !important',
     color: 'var(--text-tertiary)',
+    fontSize: 'var(--font-size-editor)',
     borderRight: 'none',
     marginTop: '1px',
     paddingTop: '2px',
@@ -117,8 +118,8 @@ export const voidScriptTheme = EditorView.theme({
     top: '50%',
     left: '50%',
     transform: 'translate(calc(-50% + 1px), calc(-50% - 2px))',
-    width: '16px',
-    height: '16px',
+    width: 'calc(var(--font-size-editor) * 1.15)',
+    height: 'calc(var(--font-size-editor) * 1.15)',
     borderRadius: '50%',
     backgroundColor: 'var(--accent-breakpoint)',
   },
@@ -130,8 +131,8 @@ export const voidScriptTheme = EditorView.theme({
     top: '50%',
     left: '50%',
     transform: 'translate(calc(-50% + 1px), calc(-50% - 2px))',
-    width: '16px',
-    height: '16px',
+    width: 'calc(var(--font-size-editor) * 1.15)',
+    height: 'calc(var(--font-size-editor) * 1.15)',
     borderRadius: '50%',
     backgroundColor: 'var(--accent-breakpoint)',
     opacity: '0',

@@ -475,19 +475,7 @@ export function Editor() {
   }, [debugLine, isDebugging]);
 
   if (!activeTab) {
-    return (
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'var(--text-tertiary)',
-        fontSize: '16px',
-        fontStyle: 'italic',
-      }}>
-        Select a script to begin editing
-      </div>
-    );
+    return <div style={{ flex: 1 }} />;
   }
 
   return <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }} />;

@@ -9,7 +9,6 @@ import {
 import { Header } from './components/Header';
 import { ToolStrip, type ToolStripItem } from './components/ToolStrip';
 import { TabBar } from './components/TabBar';
-import { BreadcrumbBar } from './components/BreadcrumbBar';
 import { Editor } from './components/Editor';
 import { ScriptList } from './components/ScriptList';
 import { Console } from './components/Console';
@@ -17,8 +16,9 @@ import { DebugPanel } from './components/DebugPanel';
 import { StatusBar } from './components/StatusBar';
 import { BottomTabStrip } from './components/BottomTabStrip';
 import { WindowResizeBorder } from './components/WindowResizeBorder';
-import { initIpcBridge } from './ipc/bridge';
+import { initIpcBridge, sendToRust } from './ipc/bridge';
 import { useStore } from './state/store';
+import { useTierVisibility } from './state/useTier';
 import styles from './App.module.css';
 
 const LEFT_PANEL_STORAGE_KEY = 'void-left-panel-width';
@@ -29,12 +29,13 @@ const LEFT_ITEMS: ToolStripItem[] = [
   {
     id: 'scripts',
     icon: (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path d="M4 2h8v12H4V2z" stroke="currentColor" strokeWidth="1.2"/>
-        <path d="M6 5h4M6 7.5h4M6 10h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+      <svg width="24" height="24" viewBox="0 0 16 16" fill="none">
+        <path d="M4 2.5C4 2.5 4 2 4.5 2H11.5C12 2 12 2.5 12 2.5V13C12 13 12 13.5 11.5 13.5H5C4.2 13.5 3.5 13 3.5 12.2V4C3.5 3 4 2.5 4 2.5Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+        <path d="M3.5 12.2C3.5 11.5 4.2 11 5 11H12" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+        <path d="M6.5 5H9.5M6.5 7.5H9" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
       </svg>
     ),
-    label: 'Scripts',
+    label: 'Grimoire',
     shortcut: 'Alt+1',
   },
 ];
@@ -53,6 +54,9 @@ const RIGHT_ITEMS: ToolStripItem[] = [
 ];
 
 export function App() {
+  const tier = useStore((s) => s.tier);
+  const setTier = useStore((s) => s.setTier);
+  const tv = useTierVisibility();
   const leftPanelOpen = useStore((s) => s.leftPanelOpen);
   const bottomPanelOpen = useStore((s) => s.bottomPanelOpen);
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
@@ -65,6 +69,7 @@ export function App() {
   const rightPanelRef = useRef<PanelImperativeHandle | null>(null);
   const bottomPanelRef = useRef<PanelImperativeHandle | null>(null);
   const [isResizing, setIsResizing] = useState(false);
+  const [tierTransition, setTierTransition] = useState(false);
 
   // Left panel width — fixed pixel value, persisted to localStorage
   const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
@@ -121,6 +126,45 @@ export function App() {
   useEffect(() => {
     initIpcBridge();
   }, []);
+
+  // Force panel state and window size when tier changes
+  useEffect(() => {
+    if (tier === 0) {
+      const store = useStore.getState();
+      useStore.setState({
+        leftPanelOpen: false,
+        rightPanelOpen: false,
+        bottomPanelOpen: true,
+      });
+      if (store.consoleOutput.length === 0) {
+        store.addConsoleOutput('The dead stir beneath your feet', 'info');
+        store.addConsoleOutput('Type consult() to hear the bones speak', 'info');
+      }
+      sendToRust({ type: 'window_set_size', width: 500, height: 250, resizable: false });
+    } else {
+      sendToRust({ type: 'window_set_size', width: 800, height: 600, resizable: true });
+    }
+  }, [tier]);
+
+  // Dev-only: Ctrl+Shift+T to cycle tiers with CRT transition
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+        e.preventDefault();
+        if (tierTransition) return;
+        setTierTransition(true);
+        sendToRust({ type: 'window_shake' });
+        // Apply tier change during the white line hold
+        setTimeout(() => {
+          const current = useStore.getState().tier;
+          setTier((current + 1) % 3);
+        }, 400);
+        setTimeout(() => setTierTransition(false), 900);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [setTier, tierTransition]);
 
   // Left panel drag-resize handler — mutates DOM directly during drag for performance
   const handleLeftResizeMouseDown = useCallback((e: React.MouseEvent) => {
@@ -184,7 +228,13 @@ export function App() {
   }, [toggleBottomPanel]);
 
   return (
-    <div className={styles.app}>
+    <div className={styles.app} data-tier={tier}>
+      {/* CRT scanline + vignette overlay */}
+      {tv.showCrtEffects && <div className={styles.crtOverlay} />}
+
+      {/* Tier transition flash */}
+      {tierTransition && <div className={styles.tierTransition} />}
+
       {/* Window resize borders (Windows only — on macOS the native frame handles resize) */}
       <WindowResizeBorder />
 
@@ -194,28 +244,34 @@ export function App() {
       {/* Main area: left strip + resizable panels + right strip */}
       <div className={styles.main}>
         {/* Left tool strip — fixed, OUTSIDE Group */}
-        <ToolStrip
-          side="left"
-          items={LEFT_ITEMS}
-          activeId={leftPanelOpen ? 'scripts' : null}
-          onToggle={() => toggleLeftPanel()}
-        />
+        {tv.showLeftToolStrip && (
+          <ToolStrip
+            side="left"
+            items={LEFT_ITEMS}
+            activeId={leftPanelOpen ? 'scripts' : null}
+            onToggle={() => toggleLeftPanel()}
+          />
+        )}
 
         {/* Left panel — fixed pixel width, outside resizable Group */}
-        <div
-          ref={leftPanelElRef}
-          className={`${styles.leftPanel} ${!leftPanelOpen ? styles.leftPanelCollapsed : ''}`}
-          style={{ width: leftPanelOpen ? leftPanelWidth : 0 }}
-        >
-          <ScriptList />
-        </div>
+        {tv.showLeftPanel && (
+          <div
+            ref={leftPanelElRef}
+            className={`${styles.leftPanel} ${!leftPanelOpen ? styles.leftPanelCollapsed : ''}`}
+            style={{ width: leftPanelOpen ? leftPanelWidth : 0 }}
+          >
+            <ScriptList />
+          </div>
+        )}
 
         {/* Left resize handle */}
-        <div
-          className={leftPanelOpen ? styles.leftResizeHandle : styles.leftResizeHandleHidden}
-          onMouseDown={leftPanelOpen ? handleLeftResizeMouseDown : undefined}
-          onDoubleClick={(e) => { e.preventDefault(); toggleLeftPanel(); }}
-        />
+        {tv.showLeftPanel && (
+          <div
+            className={leftPanelOpen ? styles.leftResizeHandle : styles.leftResizeHandleHidden}
+            onMouseDown={leftPanelOpen ? handleLeftResizeMouseDown : undefined}
+            onDoubleClick={(e) => { e.preventDefault(); toggleLeftPanel(); }}
+          />
+        )}
 
         {/* Resizable panel layout */}
         <Group
@@ -228,9 +284,14 @@ export function App() {
         >
           {/* Center panel */}
           <Panel id="center">
+            {tier === 0 ? (
+              /* T0: full-height terminal */
+              <div className={styles.terminal}>
+                <Console />
+              </div>
+            ) : (
             <div className={styles.center}>
-              <TabBar />
-              <BreadcrumbBar />
+              {tv.showTabBar && <TabBar />}
               <Group
                 id="void-center-layout"
                 orientation="vertical"
@@ -256,7 +317,7 @@ export function App() {
                 <Panel
                   panelRef={bottomPanelRef}
                   id="bottom-panel"
-                  defaultSize="25%"
+                  defaultSize="35%"
                   minSize="10%"
                   maxSize="50%"
                   collapsible
@@ -274,12 +335,13 @@ export function App() {
                   }}
                 >
                   <div className={styles.bottomPanel}>
-                    <BottomTabStrip />
+                    {tv.showBottomTabStrip && <BottomTabStrip />}
                     <Console />
                   </div>
                 </Panel>
               </Group>
             </div>
+            )}
           </Panel>
 
           <Separator
@@ -314,16 +376,18 @@ export function App() {
         </Group>
 
         {/* Right tool strip — fixed, OUTSIDE Group */}
-        <ToolStrip
-          side="right"
-          items={RIGHT_ITEMS}
-          activeId={rightPanelOpen && isDebugging ? 'debug' : null}
-          onToggle={() => toggleRightPanel()}
-        />
+        {tv.showRightToolStrip && (
+          <ToolStrip
+            side="right"
+            items={RIGHT_ITEMS}
+            activeId={rightPanelOpen && isDebugging ? 'debug' : null}
+            onToggle={() => toggleRightPanel()}
+          />
+        )}
       </div>
 
       {/* Status bar */}
-      <StatusBar />
+      {tv.showStatusBar && <StatusBar />}
     </div>
   );
 }

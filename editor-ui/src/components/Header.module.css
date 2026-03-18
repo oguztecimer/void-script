@@ -4,41 +4,79 @@
   display: flex;
   align-items: center;
   height: var(--height-titlebar);
-  background: linear-gradient(90deg, var(--bg-toolbar) 0px, rgba(245, 210, 120, 0.08) 30px, rgba(245, 210, 120, 0.18) 80px, rgba(245, 210, 120, 0.25) 130px, rgba(245, 210, 120, 0.18) 220px, rgba(245, 210, 120, 0.1) 380px, rgba(245, 210, 120, 0.04) 540px, var(--bg-toolbar) 700px);
-  padding: 0 0 0 4px;
+  background: linear-gradient(90deg, var(--bg-toolbar) 0px, rgba(220, 210, 190, 0.04) 30px, rgba(220, 210, 190, 0.09) 80px, rgba(220, 210, 190, 0.12) 130px, rgba(220, 210, 190, 0.09) 220px, rgba(220, 210, 190, 0.05) 380px, rgba(220, 210, 190, 0.02) 540px, var(--bg-toolbar) 700px);
+  padding: 0 4px;
   user-select: none;
   border-bottom: 1px solid var(--border-strong);
   font-size: var(--font-size-ui);
-  overflow: hidden;
+  position: relative;
+  isolation: isolate;
+}
+
+.toolbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url('/skulls-pattern.png');
+  background-repeat: repeat;
+  background-size: 300px;
+  opacity: 0.015;
+  pointer-events: none;
+  z-index: -1;
+  filter: sepia(1) hue-rotate(230deg) saturate(3);
+  mask-image: linear-gradient(to right, black 0%, black 40%, transparent 80%);
+  -webkit-mask-image: linear-gradient(to right, black 0%, black 40%, transparent 80%);
+}
+
+.brandBlock {
+  display: flex;
+  flex-direction: column;
+  margin-left: 33px;
+  flex-shrink: 0;
+  line-height: 1.1;
 }
 
 .brandName {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 15px;
   letter-spacing: 1px;
-  margin-left: 8px;
-  flex-shrink: 1;
+  color: var(--text-tertiary);
+}
+
+.brandTagline {
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  color: var(--text-disabled);
+  font-weight: 400;
+}
+
+.brandAccent {
+  color: #D94452;
+}
+
+/* Tier 0: flat toolbar — no gradient, no texture, shorter */
+.toolbarPlain {
+  background: var(--bg-toolbar);
+  height: 38px;
+}
+
+.toolbarPlain::before {
+  display: none;
+}
+
+/* Tier 0 terminal title */
+.terminalTitle {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: var(--text-tertiary);
+  opacity: 0.7;
+  pointer-events: none;
   white-space: nowrap;
-  overflow: hidden;
-  min-width: 0;
-}
-
-.brandSpacer {
-  width: 45px;
-  flex-shrink: 1;
-  min-width: 0;
-}
-
-.brandDead {
-  color: #db5c5c;
-}
-
-.brandCode {
-  color: #c8c8c0;
-}
-
-.brandPunc {
-  color: #e0a030;
 }
 
 .spacer {
@@ -49,9 +87,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-shrink: 1;
-  overflow: hidden;
-  min-width: 0;
+  flex-shrink: 0;
 }
 
 /* Space reserved for native macOS traffic light buttons */
@@ -111,10 +147,7 @@
   font-family: inherit;
   transition: background-color var(--transition-hover);
   white-space: nowrap;
-  flex-shrink: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
+  flex-shrink: 0;
 }
 
 .runConfig:hover {
@@ -168,7 +201,6 @@
   align-items: center;
   margin-left: 8px;
   height: 100%;
-  flex-shrink: 0;
 }
 
 .winBtn {

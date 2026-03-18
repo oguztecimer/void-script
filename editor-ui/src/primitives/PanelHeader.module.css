@@ -8,10 +8,19 @@
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-default);
   min-height: 30px;
+  overflow: hidden;
+}
+
+.header > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .actions {
   display: flex;
   gap: 2px;
   padding: 0 4px;
+  flex-shrink: 0;
 }

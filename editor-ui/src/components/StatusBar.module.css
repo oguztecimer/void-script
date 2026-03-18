@@ -8,6 +8,9 @@
   color: var(--text-secondary);
   border-top: 1px solid var(--border-strong);
   gap: 0;
+  padding: 0 10px;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .spacer {

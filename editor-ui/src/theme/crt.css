@@ -1,0 +1,44 @@
+/* CRT / Cursed Terminal palette — active when data-tier="0" */
+
+[data-tier="0"] {
+  --bg-app: #21252b;
+  --bg-editor: #21252b;
+  --bg-panel: #21252b;
+  --bg-toolbar: #21252b;
+  --bg-input: #1b1f23;
+  --bg-selection: #2c3e50;
+  --bg-hover: #2c313a;
+  --bg-active: #2c3e50;
+  --bg-tab-active: #21252b;
+  --bg-tab-inactive: #1b1f23;
+  --bg-tooltip: #2c313a;
+
+  --text-primary: #abb2bf;
+  --text-secondary: #6b7280;
+  --text-tertiary: #4b5263;
+  --text-disabled: #3b4048;
+
+  --border-default: #181a1f;
+  --border-subtle: #2c313a;
+  --border-strong: #181a1f;
+
+  --syntax-keyword: #c678dd;
+  --syntax-function: #61afef;
+  --syntax-string: #98c379;
+  --syntax-number: #d19a66;
+  --syntax-comment: #4b5263;
+  --syntax-operator: #56b6c2;
+  --syntax-constant: #e5c07b;
+  --syntax-bracket: #6b7280;
+  --syntax-variable: #abb2bf;
+
+  --accent-blue: #61afef;
+  --accent-green: #98c379;
+  --accent-red: #e06c75;
+  --accent-yellow: #e5c07b;
+}
+
+/* Hide the gutter border line in tier 0 */
+[data-tier="0"] .cm-editor::after {
+  display: none;
+}

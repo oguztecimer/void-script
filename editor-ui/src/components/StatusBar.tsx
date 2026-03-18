@@ -29,7 +29,7 @@ export function StatusBar() {
           <StatusSegment label={`Ln ${cursorLine}, Col ${cursorCol}`} />
           <StatusSegment label="LF" />
           <StatusSegment label="UTF-8" />
-          <StatusSegment label="VoidScript" />
+          <StatusSegment label="GrimScript" />
         </>
       )}
     </div>

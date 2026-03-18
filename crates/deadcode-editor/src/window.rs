@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::time::Instant;
 use crossbeam_channel::Sender;
 use wry::WebView;
 use crate::embedded_assets;
@@ -33,6 +34,9 @@ pub struct WebViewManager {
     /// Whether the editor window has been shown at least once.
     /// Used to avoid detect_native_close destroying the window before it loads.
     shown_once: bool,
+    /// Window shake animation state.
+    shake_start: Option<Instant>,
+    shake_origin: Option<(f64, f64)>,
 }
 
 impl Default for WebViewManager {
@@ -44,6 +48,8 @@ impl Default for WebViewManager {
             #[cfg(target_os = "windows")]
             hwnd: None,
             shown_once: false,
+            shake_start: None,
+            shake_origin: None,
         }
     }
 }
@@ -103,6 +109,63 @@ impl WebViewManager {
                 return ns_window.isVisible();
             }
             return false;
+        }
+    }
+
+    /// Resize the window and optionally lock/unlock resizing.
+    pub fn set_size(&mut self, width: u32, height: u32, resizable: bool) {
+        // Cancel any active shake so it doesn't restore the old position
+        self.shake_start = None;
+        self.shake_origin = None;
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(ns_window) = &self.ns_window {
+                // Center on screen
+                let screen_frame = objc2_app_kit::NSScreen::mainScreen(
+                    MainThreadMarker::new().expect("must be on main thread"),
+                )
+                .map(|s| s.visibleFrame())
+                .unwrap_or(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1920.0, 1080.0)));
+                let new_frame = NSRect::new(
+                    NSPoint::new(
+                        screen_frame.origin.x + (screen_frame.size.width - width as f64) / 2.0,
+                        screen_frame.origin.y + (screen_frame.size.height - height as f64) / 2.0,
+                    ),
+                    NSSize::new(width as f64, height as f64),
+                );
+                // Unlock constraints BEFORE resizing so the frame isn't clamped
+                if resizable {
+                    ns_window.setMinSize(NSSize::new(MIN_WINDOW_WIDTH as f64, MIN_WINDOW_HEIGHT as f64));
+                    ns_window.setMaxSize(NSSize::new(f64::MAX, f64::MAX));
+                } else {
+                    ns_window.setMinSize(NSSize::new(width as f64, height as f64));
+                    ns_window.setMaxSize(NSSize::new(width as f64, height as f64));
+                }
+                ns_window.setFrame_display_animate(new_frame, true, true);
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(hwnd) = self.hwnd {
+                use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN, SWP_NOZORDER, SWP_NOACTIVATE};
+                use windows::Win32::Foundation::HWND;
+                unsafe {
+                    let h = HWND(hwnd as *mut _);
+                    let sw = GetSystemMetrics(SM_CXSCREEN);
+                    let sh = GetSystemMetrics(SM_CYSCREEN);
+                    let _ = SetWindowPos(
+                        h,
+                        HWND::default(),
+                        (sw - width as i32) / 2,
+                        (sh - height as i32) / 2,
+                        width as i32,
+                        height as i32,
+                        SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                }
+                // Note: On Windows, min/max size is enforced via WM_GETMINMAXINFO in wndproc.
+                // A full implementation would store resizable state and use it there.
+            }
         }
     }
 
@@ -172,19 +235,114 @@ impl WebViewManager {
         }
     }
 
+    /// Start a window shake animation.
+    pub fn start_shake(&mut self) {
+        if self.shake_start.is_some() {
+            return; // already shaking
+        }
+        // Capture the current origin so we can restore it
+        let origin = self.get_window_origin();
+        self.shake_origin = origin;
+        self.shake_start = Some(Instant::now());
+    }
+
+    /// Tick the shake animation. Call every frame. Returns true while shaking.
+    pub fn tick_shake(&mut self) -> bool {
+        let Some(start) = self.shake_start else { return false };
+        let Some((ox, oy)) = self.shake_origin else {
+            self.shake_start = None;
+            return false;
+        };
+
+        let elapsed = start.elapsed().as_secs_f64();
+        let duration = 0.35;
+
+        if elapsed >= duration {
+            // Restore original position
+            self.set_window_origin(ox, oy);
+            self.shake_start = None;
+            self.shake_origin = None;
+            return false;
+        }
+
+        // Damped random-ish shake using sine waves at different frequencies
+        let t = elapsed / duration;
+        let decay = 1.0 - t;
+        let intensity = 6.0 * decay;
+        let dx = intensity * (t * 73.0).sin() + (intensity * 0.5) * (t * 137.0).cos();
+        let dy = intensity * (t * 97.0).cos() + (intensity * 0.5) * (t * 163.0).sin();
+        self.set_window_origin(ox + dx, oy + dy);
+        true
+    }
+
+    fn get_window_origin(&self) -> Option<(f64, f64)> {
+        #[cfg(target_os = "macos")]
+        {
+            let ns_window = self.ns_window.as_ref()?;
+            let frame = ns_window.frame();
+            Some((frame.origin.x, frame.origin.y))
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let hwnd = self.hwnd?;
+            use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+            use windows::Win32::Foundation::{HWND, RECT};
+            let mut rect = RECT::default();
+            unsafe { GetWindowRect(HWND(hwnd as *mut _), &mut rect).ok()? };
+            Some((rect.left as f64, rect.top as f64))
+        }
+    }
+
+    fn set_window_origin(&self, x: f64, y: f64) {
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(ns_window) = &self.ns_window {
+                let frame = ns_window.frame();
+                let new_origin = NSPoint::new(x, y);
+                let new_frame = NSRect::new(new_origin, frame.size);
+                ns_window.setFrame_display(new_frame, true);
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(hwnd) = self.hwnd {
+                use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOSIZE, SWP_NOZORDER, SWP_NOACTIVATE};
+                use windows::Win32::Foundation::HWND;
+                unsafe {
+                    let _ = SetWindowPos(
+                        HWND(hwnd as *mut _),
+                        HWND::default(),
+                        x as i32, y as i32,
+                        0, 0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                }
+            }
+        }
+    }
+
     /// Detects when the native close button was clicked (bypassing our IPC)
-    /// and cleans up editor resources.
-    pub fn detect_native_close(&mut self) {
+    /// and cleans up editor resources. Returns the window geometry if a close
+    /// was detected (so the caller can persist it).
+    pub fn detect_native_close(&mut self) -> Option<(i32, i32, i32, i32)> {
         if !self.shown_once {
-            return;
+            return None;
         }
         #[cfg(target_os = "macos")]
         {
             if let Some(ns_window) = &self.ns_window {
                 if !ns_window.isVisible() && !ns_window.isMiniaturized() {
+                    let frame = ns_window.frame();
+                    let geometry = (
+                        frame.origin.x as i32,
+                        frame.origin.y as i32,
+                        frame.size.width as i32,
+                        frame.size.height as i32,
+                    );
                     self.webview = None;
                     self.ns_window = None;
                     self.shown_once = false;
+                    return Some(geometry);
                 }
             }
         }
@@ -202,6 +360,7 @@ impl WebViewManager {
                 }
             }
         }
+        None
     }
 
     pub fn cleanup(&mut self) {

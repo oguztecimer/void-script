@@ -24,17 +24,7 @@
   color: var(--text-primary);
 }
 
-/* Active strip button: edge indicator instead of solid blue fill */
+/* Active strip button: colored icon, no edge indicator */
 .activeBtn {
-  color: var(--text-primary);
-}
-
-/* Left strip: active indicator on RIGHT edge (inner edge) */
-.left .activeBtn {
-  box-shadow: inset -2px 0 0 var(--accent-blue);
-}
-
-/* Right strip: active indicator on LEFT edge (inner edge) */
-.right .activeBtn {
-  box-shadow: inset 2px 0 0 var(--accent-blue);
+  color: var(--accent-blue);
 }

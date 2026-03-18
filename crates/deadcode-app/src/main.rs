@@ -3,7 +3,7 @@ mod app;
 use winit::event_loop::EventLoop;
 
 use app::App;
-use grimscript_desktop::UserEvent;
+use deadcode_desktop::UserEvent;
 
 fn main() {
     #[cfg(target_os = "windows")]

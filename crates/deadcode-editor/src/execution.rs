@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::thread::JoinHandle;
 
 use grimscript_lang::{ScriptEvent, DebugCommand, OutputLevel};
+
 use crate::ipc::*;
 use crate::scripts::ScriptStore;
 use crate::window::WebViewManager;

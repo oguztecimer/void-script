@@ -595,7 +595,7 @@ fn open_editor_macos(
     // Enforce minimum window size
     ns_window.setMinSize(NSSize::new(MIN_WINDOW_WIDTH as f64, MIN_WINDOW_HEIGHT as f64));
 
-    ns_window.setTitle(&NSString::from_str("GRIMSCRIPT Editor"));
+    ns_window.setTitle(&NSString::from_str("Dead Code Editor"));
     ns_window.setTitlebarAppearsTransparent(true);
     ns_window.setTitleVisibility(objc2_app_kit::NSWindowTitleVisibility::Hidden);
     if saved_geometry.is_none() {
@@ -748,19 +748,19 @@ fn open_editor_windows(
             hwnd: NonZeroIsize::new(hwnd_val).unwrap(),
         };
 
-        eprintln!("[grimscript] Created HWND: {:?}", hwnd);
+        eprintln!("[deadcode] Created HWND: {:?}", hwnd);
 
         let builder = build_webview_common(ipc_sender, hwnd_val);
 
         match builder.build(&handle) {
             Ok(webview) => {
-                eprintln!("[grimscript] WebView created successfully");
+                eprintln!("[deadcode] WebView created successfully");
                 // Don't show yet — wait for EditorReady.
                 webview_manager.webview = Some(webview);
                 webview_manager.hwnd = Some(hwnd_val);
             }
             Err(e) => {
-                eprintln!("[grimscript] Failed to create webview: {e}");
+                eprintln!("[deadcode] Failed to create webview: {e}");
                 let _ = DestroyWindow(hwnd);
             }
         }

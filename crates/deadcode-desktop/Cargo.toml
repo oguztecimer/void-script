@@ -1,5 +1,5 @@
 [package]
-name = "grimscript-desktop"
+name = "deadcode-desktop"
 version.workspace = true
 edition.workspace = true
 

@@ -21,7 +21,7 @@ import { useStore } from './state/store';
 import { useTierVisibility } from './state/useTier';
 import styles from './App.module.css';
 
-const LEFT_PANEL_STORAGE_KEY = 'void-left-panel-width';
+const LEFT_PANEL_STORAGE_KEY = 'deadcode-left-panel-width';
 const LEFT_PANEL_DEFAULT_WIDTH = 220;
 const LEFT_PANEL_MIN_WIDTH = 200;
 
@@ -120,8 +120,8 @@ export function App() {
   }, [leftPanelOpen]);
 
   // Persist layout across page loads via useDefaultLayout
-  const { defaultLayout, onLayoutChanged: saveLayout } = useDefaultLayout({ id: 'void-main-layout' });
-  const { defaultLayout: centerLayout, onLayoutChanged: saveCenterLayout } = useDefaultLayout({ id: 'void-center-layout' });
+  const { defaultLayout, onLayoutChanged: saveLayout } = useDefaultLayout({ id: 'deadcode-main-layout' });
+  const { defaultLayout: centerLayout, onLayoutChanged: saveCenterLayout } = useDefaultLayout({ id: 'deadcode-center-layout' });
 
   useEffect(() => {
     initIpcBridge();
@@ -275,7 +275,7 @@ export function App() {
 
         {/* Resizable panel layout */}
         <Group
-          id="void-main-layout"
+          id="deadcode-main-layout"
           orientation="horizontal"
           defaultLayout={defaultLayout}
           onLayoutChange={() => setIsResizing(true)}
@@ -293,7 +293,7 @@ export function App() {
             <div className={styles.center}>
               {tv.showTabBar && <TabBar />}
               <Group
-                id="void-center-layout"
+                id="deadcode-center-layout"
                 orientation="vertical"
                 defaultLayout={centerLayout}
                 onLayoutChange={() => setIsResizing(true)}

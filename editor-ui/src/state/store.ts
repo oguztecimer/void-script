@@ -185,7 +185,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
       foldedLines: { ...state.foldedLines, [key]: lines },
     })),
 }), {
-  name: 'void-editor-panels',
+  name: 'deadcode-editor-panels',
   partialize: (state) => ({
     tier: state.tier,
     leftPanelOpen: state.leftPanelOpen,

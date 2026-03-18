@@ -6,9 +6,9 @@ import { bracketMatching, indentOnInput, foldGutter, foldedRanges, foldEffect, u
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
 import { linter, type Diagnostic as CmDiagnostic } from '@codemirror/lint';
-import { voidScriptLanguage, voidScriptFolding } from '../codemirror/voidscript-lang';
-import { voidScriptTheme, voidScriptHighlightStyle } from '../codemirror/voidscript-theme';
-import { voidScriptCompletion } from '../codemirror/voidscript-completion';
+import { grimScriptLanguage, grimScriptFolding } from '../codemirror/grimscript-lang';
+import { grimScriptTheme, grimScriptHighlightStyle } from '../codemirror/grimscript-theme';
+import { grimScriptCompletion } from '../codemirror/grimscript-completion';
 import { useStore } from '../state/store';
 import { sendToRust } from '../ipc/bridge';
 
@@ -96,7 +96,7 @@ const debugLineField = StateField.define<DecorationSet>({
 
 function buildExtensions(
   scriptId: string,
-  voidScriptLinter: Extension,
+  grimScriptLinter: Extension,
   saveTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
   handleUpdate: (id: string) => Extension,
 ): Extension[] {
@@ -135,12 +135,12 @@ function buildExtensions(
         return span;
       },
     }),
-    autocompletion({ override: [voidScriptCompletion] }),
-    voidScriptLanguage,
-    voidScriptFolding,
-    voidScriptTheme,
-    voidScriptHighlightStyle,
-    voidScriptLinter,
+    autocompletion({ override: [grimScriptCompletion] }),
+    grimScriptLanguage,
+    grimScriptFolding,
+    grimScriptTheme,
+    grimScriptHighlightStyle,
+    grimScriptLinter,
     keymap.of([
       {
         key: 'Mod-s',
@@ -324,7 +324,7 @@ export function Editor() {
     }
 
     const diagnostics = activeTab.diagnostics;
-    const voidScriptLinter = linter(() => {
+    const grimScriptLinter = linter(() => {
       return diagnostics.map((d): CmDiagnostic => ({
         from: 0, // Will be computed properly with line info
         to: 0,
@@ -344,14 +344,14 @@ export function Editor() {
         // Content changed externally — create fresh state to avoid stale doc
         editorState = EditorState.create({
           doc: activeTab.content,
-          extensions: buildExtensions(activeTab.scriptId, voidScriptLinter, saveTimerRef, handleUpdate),
+          extensions: buildExtensions(activeTab.scriptId, grimScriptLinter, saveTimerRef, handleUpdate),
         });
       } else {
         // Restore cached state — preserves undo history, selection, and all StateField values.
         // Apply StateEffect.reconfigure so the linter and handleUpdate closures are refreshed.
         editorState = cached.state.update({
           effects: StateEffect.reconfigure.of(
-            buildExtensions(activeTab.scriptId, voidScriptLinter, saveTimerRef, handleUpdate)
+            buildExtensions(activeTab.scriptId, grimScriptLinter, saveTimerRef, handleUpdate)
           ),
         }).state;
       }
@@ -359,7 +359,7 @@ export function Editor() {
       // First time opening this tab — create fresh state
       editorState = EditorState.create({
         doc: activeTab.content,
-        extensions: buildExtensions(activeTab.scriptId, voidScriptLinter, saveTimerRef, handleUpdate),
+        extensions: buildExtensions(activeTab.scriptId, grimScriptLinter, saveTimerRef, handleUpdate),
       });
     }
 

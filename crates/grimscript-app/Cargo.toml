@@ -1,12 +1,12 @@
 [package]
-name = "deadcode-app"
+name = "grimscript-app"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-deadcode-desktop = { path = "../deadcode-desktop" }
-deadcode-editor = { path = "../deadcode-editor" }
-deadcode-lang = { path = "../deadcode-lang" }
+grimscript-desktop = { path = "../grimscript-desktop" }
+grimscript-editor = { path = "../grimscript-editor" }
+grimscript-lang = { path = "../grimscript-lang" }
 winit = { workspace = true }
 crossbeam-channel = { workspace = true }
 serde = { workspace = true }

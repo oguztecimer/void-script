@@ -1,5 +1,5 @@
 use crate::ast::*;
-use crate::error::VoidScriptError;
+use crate::error::GrimScriptError;
 use crate::token::{SpannedToken, Token};
 
 pub struct Parser {
@@ -12,7 +12,7 @@ impl Parser {
         Self { tokens, pos: 0 }
     }
 
-    pub fn parse(&mut self) -> Result<Program, VoidScriptError> {
+    pub fn parse(&mut self) -> Result<Program, GrimScriptError> {
         let stmts = self.parse_program()?;
         Ok(Program { statements: stmts })
     }
@@ -45,12 +45,12 @@ impl Parser {
         tok
     }
 
-    fn expect(&mut self, expected: &Token) -> Result<(), VoidScriptError> {
+    fn expect(&mut self, expected: &Token) -> Result<(), GrimScriptError> {
         if self.current() == expected {
             self.advance();
             Ok(())
         } else {
-            Err(VoidScriptError::syntax(
+            Err(GrimScriptError::syntax(
                 self.current_line(),
                 format!("Expected {:?}, got {:?}", expected, self.current()),
             ))
@@ -65,7 +65,7 @@ impl Parser {
 
     // --- Program & Blocks ---
 
-    fn parse_program(&mut self) -> Result<Vec<Statement>, VoidScriptError> {
+    fn parse_program(&mut self) -> Result<Vec<Statement>, GrimScriptError> {
         let mut stmts = Vec::new();
         self.skip_newlines();
         while self.current() != &Token::Eof {
@@ -76,7 +76,7 @@ impl Parser {
         Ok(stmts)
     }
 
-    fn parse_block(&mut self) -> Result<Vec<Statement>, VoidScriptError> {
+    fn parse_block(&mut self) -> Result<Vec<Statement>, GrimScriptError> {
         self.expect(&Token::Indent)?;
         let mut stmts = Vec::new();
         self.skip_newlines();
@@ -93,7 +93,7 @@ impl Parser {
 
     // --- Statements ---
 
-    fn parse_statement(&mut self) -> Result<Statement, VoidScriptError> {
+    fn parse_statement(&mut self) -> Result<Statement, GrimScriptError> {
         let line = self.current_line();
         let stmt_kind = match self.current().clone() {
             Token::Def => self.parse_function_def()?,
@@ -124,7 +124,7 @@ impl Parser {
         })
     }
 
-    fn parse_function_def(&mut self) -> Result<StmtKind, VoidScriptError> {
+    fn parse_function_def(&mut self) -> Result<StmtKind, GrimScriptError> {
         self.advance(); // skip 'def'
         let name = match self.current().clone() {
             Token::Identifier(n) => {
@@ -132,7 +132,7 @@ impl Parser {
                 n
             }
             _ => {
-                return Err(VoidScriptError::syntax(
+                return Err(GrimScriptError::syntax(
                     self.current_line(),
                     "Expected function name",
                 ))
@@ -147,7 +147,7 @@ impl Parser {
                     params.push(p);
                 }
                 _ => {
-                    return Err(VoidScriptError::syntax(
+                    return Err(GrimScriptError::syntax(
                         self.current_line(),
                         "Expected parameter name",
                     ))
@@ -164,7 +164,7 @@ impl Parser {
         Ok(StmtKind::FunctionDef { name, params, body })
     }
 
-    fn parse_if(&mut self) -> Result<StmtKind, VoidScriptError> {
+    fn parse_if(&mut self) -> Result<StmtKind, GrimScriptError> {
         self.advance(); // skip 'if'
         let condition = self.parse_expression()?;
         self.expect(&Token::Colon)?;
@@ -200,7 +200,7 @@ impl Parser {
         })
     }
 
-    fn parse_while(&mut self) -> Result<StmtKind, VoidScriptError> {
+    fn parse_while(&mut self) -> Result<StmtKind, GrimScriptError> {
         self.advance(); // skip 'while'
         let condition = self.parse_expression()?;
         self.expect(&Token::Colon)?;
@@ -209,7 +209,7 @@ impl Parser {
         Ok(StmtKind::While { condition, body })
     }
 
-    fn parse_for(&mut self) -> Result<StmtKind, VoidScriptError> {
+    fn parse_for(&mut self) -> Result<StmtKind, GrimScriptError> {
         self.advance(); // skip 'for'
         let var = match self.current().clone() {
             Token::Identifier(v) => {
@@ -217,7 +217,7 @@ impl Parser {
                 v
             }
             _ => {
-                return Err(VoidScriptError::syntax(
+                return Err(GrimScriptError::syntax(
                     self.current_line(),
                     "Expected variable name after 'for'",
                 ))
@@ -235,7 +235,7 @@ impl Parser {
         })
     }
 
-    fn parse_return(&mut self) -> Result<StmtKind, VoidScriptError> {
+    fn parse_return(&mut self) -> Result<StmtKind, GrimScriptError> {
         self.advance(); // skip 'return'
         let value = if self.current() == &Token::Newline || self.current() == &Token::Eof {
             None
@@ -245,7 +245,7 @@ impl Parser {
         Ok(StmtKind::Return { value })
     }
 
-    fn parse_expr_or_assignment(&mut self) -> Result<StmtKind, VoidScriptError> {
+    fn parse_expr_or_assignment(&mut self) -> Result<StmtKind, GrimScriptError> {
         let expr = self.parse_expression()?;
 
         // Check for assignment
@@ -300,7 +300,7 @@ impl Parser {
         }
     }
 
-    fn expr_to_assign_target(&self, expr: &Expr) -> Result<AssignTarget, VoidScriptError> {
+    fn expr_to_assign_target(&self, expr: &Expr) -> Result<AssignTarget, GrimScriptError> {
         match &expr.kind {
             ExprKind::Name(n) => Ok(AssignTarget::Name(n.clone())),
             ExprKind::Index { object, index } => Ok(AssignTarget::Index {
@@ -317,7 +317,7 @@ impl Parser {
                     },
                 })
             }
-            _ => Err(VoidScriptError::syntax(
+            _ => Err(GrimScriptError::syntax(
                 expr.line,
                 "Invalid assignment target",
             )),
@@ -336,13 +336,13 @@ impl Parser {
     //   unary minus:        13
     //   call / [] / .:  15, 16   (postfix)
 
-    fn parse_expression(&mut self) -> Result<Expr, VoidScriptError> {
+    fn parse_expression(&mut self) -> Result<Expr, GrimScriptError> {
         self.parse_expr(0)
     }
 
     /// Pratt parser core: parse an expression whose operators all have
     /// left-binding-power >= `min_bp`.
-    fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, VoidScriptError> {
+    fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, GrimScriptError> {
         let mut lhs = self.parse_prefix()?;
 
         loop {
@@ -380,7 +380,7 @@ impl Parser {
 
     // --- Prefix (nud) ---
 
-    fn parse_prefix(&mut self) -> Result<Expr, VoidScriptError> {
+    fn parse_prefix(&mut self) -> Result<Expr, GrimScriptError> {
         let line = self.current_line();
         match self.current().clone() {
             // Prefix operators
@@ -406,13 +406,13 @@ impl Parser {
             Token::LParen   => self.parse_paren_expr(),
             Token::LBracket => self.parse_list_expr(),
             Token::LBrace   => self.parse_dict_expr(),
-            other => Err(VoidScriptError::syntax(line, format!("Unexpected token: {other:?}"))),
+            other => Err(GrimScriptError::syntax(line, format!("Unexpected token: {other:?}"))),
         }
     }
 
     // --- Infix / postfix (led) ---
 
-    fn parse_infix(&mut self, lhs: Expr, r_bp: u8) -> Result<Expr, VoidScriptError> {
+    fn parse_infix(&mut self, lhs: Expr, r_bp: u8) -> Result<Expr, GrimScriptError> {
         let line = lhs.line;
         match self.current().clone() {
             // Boolean
@@ -491,7 +491,7 @@ impl Parser {
                         self.advance();
                         Ok(Expr { kind: ExprKind::Attribute { object: Box::new(lhs), attr }, line })
                     }
-                    _ => Err(VoidScriptError::syntax(self.current_line(), "Expected attribute name after '.'")),
+                    _ => Err(GrimScriptError::syntax(self.current_line(), "Expected attribute name after '.'")),
                 }
             }
 
@@ -514,7 +514,7 @@ impl Parser {
     // --- Compound literals ---
 
     /// `(expr)` or `(a, b, ...)` tuple
-    fn parse_paren_expr(&mut self) -> Result<Expr, VoidScriptError> {
+    fn parse_paren_expr(&mut self) -> Result<Expr, GrimScriptError> {
         let line = self.current_line();
         self.advance(); // skip '('
         let expr = self.parse_expression()?;
@@ -540,7 +540,7 @@ impl Parser {
     }
 
     /// `[]`, `[a, b]`, or `[expr for var in iter if cond]`
-    fn parse_list_expr(&mut self) -> Result<Expr, VoidScriptError> {
+    fn parse_list_expr(&mut self) -> Result<Expr, GrimScriptError> {
         let line = self.current_line();
         self.advance(); // skip '['
 
@@ -556,7 +556,7 @@ impl Parser {
             self.advance();
             let var = match self.current().clone() {
                 Token::Identifier(v) => { self.advance(); v }
-                _ => return Err(VoidScriptError::syntax(self.current_line(), "Expected variable in list comprehension")),
+                _ => return Err(GrimScriptError::syntax(self.current_line(), "Expected variable in list comprehension")),
             };
             self.expect(&Token::In)?;
             let iter = self.parse_expression()?;
@@ -582,7 +582,7 @@ impl Parser {
     }
 
     /// `{}` or `{k: v, ...}`
-    fn parse_dict_expr(&mut self) -> Result<Expr, VoidScriptError> {
+    fn parse_dict_expr(&mut self) -> Result<Expr, GrimScriptError> {
         let line = self.current_line();
         self.advance(); // skip '{'
 

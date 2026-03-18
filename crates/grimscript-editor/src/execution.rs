@@ -2,7 +2,7 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use std::collections::{HashMap, HashSet};
 use std::thread::JoinHandle;
 
-use deadcode_lang::{ScriptEvent, DebugCommand, OutputLevel};
+use grimscript_lang::{ScriptEvent, DebugCommand, OutputLevel};
 use crate::ipc::*;
 use crate::scripts::ScriptStore;
 use crate::window::WebViewManager;
@@ -45,7 +45,7 @@ impl ScriptExecutionManager {
         let (command_tx, command_rx) = unbounded();
 
         let handle = std::thread::spawn(move || {
-            deadcode_lang::run_script(&source, event_tx, command_rx);
+            grimscript_lang::run_script(&source, event_tx, command_rx);
         });
 
         self.active = Some(RunningScript {
@@ -86,7 +86,7 @@ impl ScriptExecutionManager {
         let (command_tx, command_rx) = unbounded();
 
         let handle = std::thread::spawn(move || {
-            deadcode_lang::debug_script(&source, event_tx, command_rx, breakpoints);
+            grimscript_lang::debug_script(&source, event_tx, command_rx, breakpoints);
         });
 
         self.active = Some(RunningScript {

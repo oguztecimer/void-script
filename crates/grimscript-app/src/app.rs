@@ -9,22 +9,22 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
-use deadcode_desktop::UserEvent;
-use deadcode_desktop::animation::{SKELETON_ATLAS_PNG, skeleton_atlas_json, SUMMONER_ATLAS_PNG, summoner_atlas_json};
-use deadcode_desktop::fullscreen;
-use deadcode_desktop::renderer::Renderer;
-use deadcode_desktop::save;
-use deadcode_desktop::save::Settings;
-use deadcode_desktop::tray;
-use deadcode_desktop::unit::{UnitManager, WORLD_WIDTH};
-use deadcode_desktop::window::{StripInfo, enumerate_monitors};
+use grimscript_desktop::UserEvent;
+use grimscript_desktop::animation::{SKELETON_ATLAS_PNG, skeleton_atlas_json, SUMMONER_ATLAS_PNG, summoner_atlas_json};
+use grimscript_desktop::fullscreen;
+use grimscript_desktop::renderer::Renderer;
+use grimscript_desktop::save;
+use grimscript_desktop::save::Settings;
+use grimscript_desktop::tray;
+use grimscript_desktop::unit::{UnitManager, WORLD_WIDTH};
+use grimscript_desktop::window::{StripInfo, enumerate_monitors};
 
-use deadcode_editor::ipc::{JsToRust, RustToJs, WindowControlEvent};
-use deadcode_editor::window::{WebViewManager, MaximizedState, open_editor, get_window_geometry};
-use deadcode_editor::scripts::ScriptStore;
-use deadcode_editor::tabs::EditorWindowState;
-use deadcode_editor::execution::ScriptExecutionManager;
-use deadcode_lang::DebugCommand;
+use grimscript_editor::ipc::{JsToRust, RustToJs, WindowControlEvent};
+use grimscript_editor::window::{WebViewManager, MaximizedState, open_editor, get_window_geometry};
+use grimscript_editor::scripts::ScriptStore;
+use grimscript_editor::tabs::EditorWindowState;
+use grimscript_editor::execution::ScriptExecutionManager;
+use grimscript_lang::DebugCommand;
 
 // ---------------------------------------------------------------------------
 // MonitorSlot
@@ -245,7 +245,7 @@ impl ApplicationHandler<UserEvent> for App {
                 let attrs = {
                     use winit::dpi::{LogicalPosition, LogicalSize};
                     winit::window::Window::default_attributes()
-                        .with_title("deadcode")
+                        .with_title("grimscript")
                         .with_transparent(true)
                         .with_decorations(false)
                         .with_window_level(WindowLevel::AlwaysOnTop)
@@ -264,7 +264,7 @@ impl ApplicationHandler<UserEvent> for App {
                 let attrs = {
                     use winit::dpi::{LogicalSize, PhysicalPosition};
                     winit::window::Window::default_attributes()
-                        .with_title("deadcode")
+                        .with_title("grimscript")
                         .with_transparent(true)
                         .with_decorations(false)
                         .with_window_level(WindowLevel::AlwaysOnTop)

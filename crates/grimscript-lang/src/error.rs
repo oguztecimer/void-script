@@ -1,5 +1,5 @@
 #[derive(Debug, Clone)]
-pub struct VoidScriptError {
+pub struct GrimScriptError {
     pub kind: ErrorKind,
     pub message: String,
     pub line: u32,
@@ -16,7 +16,7 @@ pub enum ErrorKind {
     Stopped,
 }
 
-impl VoidScriptError {
+impl GrimScriptError {
     pub fn syntax(line: u32, message: impl Into<String>) -> Self {
         Self {
             kind: ErrorKind::SyntaxError,
@@ -74,10 +74,10 @@ impl VoidScriptError {
     }
 }
 
-impl std::fmt::Display for VoidScriptError {
+impl std::fmt::Display for GrimScriptError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?} at line {}: {}", self.kind, self.line, self.message)
     }
 }
 
-impl std::error::Error for VoidScriptError {}
+impl std::error::Error for GrimScriptError {}

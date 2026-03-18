@@ -1,1 +1,0 @@
-//! VoidScript simulation engine (stub)

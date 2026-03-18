@@ -2,7 +2,7 @@ import { EditorView } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 
-export const voidScriptTheme = EditorView.theme({
+export const grimScriptTheme = EditorView.theme({
   '&': {
     color: 'var(--text-primary)',
     backgroundColor: 'transparent',
@@ -147,7 +147,7 @@ export const voidScriptTheme = EditorView.theme({
   },
 }, { dark: true });
 
-export const voidScriptHighlightStyle = syntaxHighlighting(HighlightStyle.define([
+export const grimScriptHighlightStyle = syntaxHighlighting(HighlightStyle.define([
   { tag: tags.keyword, color: 'var(--syntax-keyword)' },              // cyan
   { tag: tags.variableName, color: 'var(--syntax-variable)' },         // foreground
   { tag: [tags.function(tags.variableName)], color: 'var(--syntax-function)' },  // amber

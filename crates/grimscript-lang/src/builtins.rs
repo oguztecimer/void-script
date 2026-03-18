@@ -1,7 +1,7 @@
 use crossbeam_channel::Sender;
 
 use crate::debug::{OutputLevel, ScriptEvent};
-use crate::error::VoidScriptError;
+use crate::error::GrimScriptError;
 use crate::value::Value;
 
 fn send_output(output_tx: &Sender<ScriptEvent>, msg: &str) {
@@ -59,7 +59,7 @@ pub fn call_builtin(
     name: &str,
     args: Vec<Value>,
     output_tx: &Sender<ScriptEvent>,
-) -> Result<Value, VoidScriptError> {
+) -> Result<Value, GrimScriptError> {
     match name {
         "print" => {
             let parts: Vec<String> = args.iter().map(|v| v.display()).collect();
@@ -69,7 +69,7 @@ pub fn call_builtin(
         }
         "len" => {
             if args.len() != 1 {
-                return Err(VoidScriptError::type_error(
+                return Err(GrimScriptError::type_error(
                     0,
                     "len() takes exactly 1 argument",
                 ));
@@ -79,7 +79,7 @@ pub fn call_builtin(
                 Value::String(s) => Ok(Value::Int(s.len() as i64)),
                 Value::Dict(d) => Ok(Value::Int(d.len() as i64)),
                 Value::Tuple(t) => Ok(Value::Int(t.len() as i64)),
-                other => Err(VoidScriptError::type_error(
+                other => Err(GrimScriptError::type_error(
                     0,
                     format!("object of type '{}' has no len()", other.type_name()),
                 )),
@@ -91,7 +91,7 @@ pub fn call_builtin(
                     let end = match &args[0] {
                         Value::Int(n) => *n,
                         _ => {
-                            return Err(VoidScriptError::type_error(
+                            return Err(GrimScriptError::type_error(
                                 0,
                                 "range() argument must be int",
                             ))
@@ -103,7 +103,7 @@ pub fn call_builtin(
                     let start = match &args[0] {
                         Value::Int(n) => *n,
                         _ => {
-                            return Err(VoidScriptError::type_error(
+                            return Err(GrimScriptError::type_error(
                                 0,
                                 "range() argument must be int",
                             ))
@@ -112,7 +112,7 @@ pub fn call_builtin(
                     let end = match &args[1] {
                         Value::Int(n) => *n,
                         _ => {
-                            return Err(VoidScriptError::type_error(
+                            return Err(GrimScriptError::type_error(
                                 0,
                                 "range() argument must be int",
                             ))
@@ -124,7 +124,7 @@ pub fn call_builtin(
                     let start = match &args[0] {
                         Value::Int(n) => *n,
                         _ => {
-                            return Err(VoidScriptError::type_error(
+                            return Err(GrimScriptError::type_error(
                                 0,
                                 "range() argument must be int",
                             ))
@@ -133,7 +133,7 @@ pub fn call_builtin(
                     let end = match &args[1] {
                         Value::Int(n) => *n,
                         _ => {
-                            return Err(VoidScriptError::type_error(
+                            return Err(GrimScriptError::type_error(
                                 0,
                                 "range() argument must be int",
                             ))
@@ -142,14 +142,14 @@ pub fn call_builtin(
                     let step = match &args[2] {
                         Value::Int(n) => *n,
                         _ => {
-                            return Err(VoidScriptError::type_error(
+                            return Err(GrimScriptError::type_error(
                                 0,
                                 "range() argument must be int",
                             ))
                         }
                     };
                     if step == 0 {
-                        return Err(VoidScriptError::runtime(
+                        return Err(GrimScriptError::runtime(
                             0,
                             "range() step argument must not be zero",
                         ));
@@ -157,7 +157,7 @@ pub fn call_builtin(
                     (start, end, step)
                 }
                 _ => {
-                    return Err(VoidScriptError::type_error(
+                    return Err(GrimScriptError::type_error(
                         0,
                         "range() takes 1 to 3 arguments",
                     ))
@@ -182,7 +182,7 @@ pub fn call_builtin(
         }
         "abs" => {
             if args.len() != 1 {
-                return Err(VoidScriptError::type_error(
+                return Err(GrimScriptError::type_error(
                     0,
                     "abs() takes exactly 1 argument",
                 ));
@@ -190,7 +190,7 @@ pub fn call_builtin(
             match &args[0] {
                 Value::Int(n) => Ok(Value::Int(n.abs())),
                 Value::Float(f) => Ok(Value::Float(f.abs())),
-                _ => Err(VoidScriptError::type_error(
+                _ => Err(GrimScriptError::type_error(
                     0,
                     "abs() argument must be numeric",
                 )),
@@ -198,7 +198,7 @@ pub fn call_builtin(
         }
         "min" => {
             if args.is_empty() {
-                return Err(VoidScriptError::type_error(
+                return Err(GrimScriptError::type_error(
                     0,
                     "min() requires at least 1 argument",
                 ));
@@ -206,7 +206,7 @@ pub fn call_builtin(
             if args.len() == 1 {
                 if let Value::List(list) = &args[0] {
                     if list.is_empty() {
-                        return Err(VoidScriptError::runtime(
+                        return Err(GrimScriptError::runtime(
                             0,
                             "min() arg is an empty sequence",
                         ));
@@ -230,7 +230,7 @@ pub fn call_builtin(
         }
         "max" => {
             if args.is_empty() {
-                return Err(VoidScriptError::type_error(
+                return Err(GrimScriptError::type_error(
                     0,
                     "max() requires at least 1 argument",
                 ));
@@ -238,7 +238,7 @@ pub fn call_builtin(
             if args.len() == 1 {
                 if let Value::List(list) = &args[0] {
                     if list.is_empty() {
-                        return Err(VoidScriptError::runtime(
+                        return Err(GrimScriptError::runtime(
                             0,
                             "max() arg is an empty sequence",
                         ));
@@ -262,7 +262,7 @@ pub fn call_builtin(
         }
         "int" => {
             if args.len() != 1 {
-                return Err(VoidScriptError::type_error(
+                return Err(GrimScriptError::type_error(
                     0,
                     "int() takes exactly 1 argument",
                 ));
@@ -271,13 +271,13 @@ pub fn call_builtin(
                 Value::Int(n) => Ok(Value::Int(*n)),
                 Value::Float(f) => Ok(Value::Int(*f as i64)),
                 Value::String(s) => s.parse::<i64>().map(Value::Int).map_err(|_| {
-                    VoidScriptError::runtime(
+                    GrimScriptError::runtime(
                         0,
                         format!("invalid literal for int(): '{s}'"),
                     )
                 }),
                 Value::Bool(b) => Ok(Value::Int(if *b { 1 } else { 0 })),
-                _ => Err(VoidScriptError::type_error(
+                _ => Err(GrimScriptError::type_error(
                     0,
                     "int() argument must be a string or number",
                 )),
@@ -285,7 +285,7 @@ pub fn call_builtin(
         }
         "float" => {
             if args.len() != 1 {
-                return Err(VoidScriptError::type_error(
+                return Err(GrimScriptError::type_error(
                     0,
                     "float() takes exactly 1 argument",
                 ));
@@ -294,12 +294,12 @@ pub fn call_builtin(
                 Value::Int(n) => Ok(Value::Float(*n as f64)),
                 Value::Float(f) => Ok(Value::Float(*f)),
                 Value::String(s) => s.parse::<f64>().map(Value::Float).map_err(|_| {
-                    VoidScriptError::runtime(
+                    GrimScriptError::runtime(
                         0,
                         format!("could not convert string to float: '{s}'"),
                     )
                 }),
-                _ => Err(VoidScriptError::type_error(
+                _ => Err(GrimScriptError::type_error(
                     0,
                     "float() argument must be a string or number",
                 )),
@@ -307,7 +307,7 @@ pub fn call_builtin(
         }
         "str" => {
             if args.len() != 1 {
-                return Err(VoidScriptError::type_error(
+                return Err(GrimScriptError::type_error(
                     0,
                     "str() takes exactly 1 argument",
                 ));
@@ -316,7 +316,7 @@ pub fn call_builtin(
         }
         "type" => {
             if args.len() != 1 {
-                return Err(VoidScriptError::type_error(
+                return Err(GrimScriptError::type_error(
                     0,
                     "type() takes exactly 1 argument",
                 ));
@@ -325,7 +325,7 @@ pub fn call_builtin(
         }
         "append" => {
             // This is a special case - handled as method call in interpreter
-            Err(VoidScriptError::runtime(
+            Err(GrimScriptError::runtime(
                 0,
                 "append() should be called as a method",
             ))
@@ -393,7 +393,7 @@ pub fn call_builtin(
         "get_owner" => Ok(Value::String("player".into())),
         "get_fleet" => Ok(Value::List(vec![])),
         "transfer" => Ok(Value::None),
-        _ => Err(VoidScriptError::runtime(
+        _ => Err(GrimScriptError::runtime(
             0,
             format!("Unknown function: {name}"),
         )),

@@ -1,5 +1,5 @@
 [package]
-name = "deadcode-sim"
+name = "grimscript-sim"
 version.workspace = true
 edition.workspace = true
 

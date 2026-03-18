@@ -10,7 +10,7 @@ pub mod token;
 pub mod value;
 
 pub use debug::{DebugCommand, OutputLevel, ScriptEvent, StepMode, VariableInfo};
-pub use error::VoidScriptError;
+pub use error::GrimScriptError;
 pub use interpreter::Interpreter;
 pub use value::Value;
 

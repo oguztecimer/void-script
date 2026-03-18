@@ -433,7 +433,7 @@ fn build_webview_common(
 
     wry::WebViewBuilder::new()
         .with_background_color((0x1E, 0x1F, 0x22, 0xFF))
-        .with_custom_protocol("deadcode".into(), |_webview_id, request| {
+        .with_custom_protocol("grimscript".into(), |_webview_id, request| {
             let path = request.uri().path().to_string();
             match embedded_assets::get_asset(&path) {
                 Some((body, mime)) => http::Response::builder()
@@ -447,7 +447,7 @@ fn build_webview_common(
                     .unwrap(),
             }
         })
-        .with_url("deadcode://localhost/index.html")
+        .with_url("grimscript://localhost/index.html")
         .with_ipc_handler(move |request| {
             let body = request.body();
             match serde_json::from_str::<JsToRust>(body) {
@@ -595,7 +595,7 @@ fn open_editor_macos(
     // Enforce minimum window size
     ns_window.setMinSize(NSSize::new(MIN_WINDOW_WIDTH as f64, MIN_WINDOW_HEIGHT as f64));
 
-    ns_window.setTitle(&NSString::from_str("DEADCODE Editor"));
+    ns_window.setTitle(&NSString::from_str("GRIMSCRIPT Editor"));
     ns_window.setTitlebarAppearsTransparent(true);
     ns_window.setTitleVisibility(objc2_app_kit::NSWindowTitleVisibility::Hidden);
     if saved_geometry.is_none() {
@@ -625,7 +625,7 @@ fn open_editor_macos(
     let builder = wry::WebViewBuilder::new()
         .with_traffic_light_inset(wry::dpi::LogicalPosition::new(12.0, 22.0))
         .with_background_color((0x1E, 0x1F, 0x22, 0xFF))
-        .with_custom_protocol("deadcode".into(), |_webview_id, request| {
+        .with_custom_protocol("grimscript".into(), |_webview_id, request| {
             let path = request.uri().path().to_string();
             match embedded_assets::get_asset(&path) {
                 Some((body, mime)) => http::Response::builder()
@@ -639,7 +639,7 @@ fn open_editor_macos(
                     .unwrap(),
             }
         })
-        .with_url("deadcode://localhost/index.html")
+        .with_url("grimscript://localhost/index.html")
         .with_accept_first_mouse(true)
         .with_ipc_handler(move |request| {
             let body = request.body();
@@ -690,7 +690,7 @@ fn open_editor_windows(
         let hinstance = GetModuleHandleW(None).unwrap_or_default();
 
         // Register window class
-        let class_name = w!("DeadcodeEditor");
+        let class_name = w!("GrimscriptEditor");
         let hinstance_handle: windows::Win32::Foundation::HINSTANCE = hinstance.into();
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
@@ -722,7 +722,7 @@ fn open_editor_windows(
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             class_name,
-            w!("DEADCODE Editor"),
+            w!("GRIMSCRIPT Editor"),
             style,
             x, y, win_w, win_h,
             None,
@@ -748,19 +748,19 @@ fn open_editor_windows(
             hwnd: NonZeroIsize::new(hwnd_val).unwrap(),
         };
 
-        eprintln!("[deadcode] Created HWND: {:?}", hwnd);
+        eprintln!("[grimscript] Created HWND: {:?}", hwnd);
 
         let builder = build_webview_common(ipc_sender, hwnd_val);
 
         match builder.build(&handle) {
             Ok(webview) => {
-                eprintln!("[deadcode] WebView created successfully");
+                eprintln!("[grimscript] WebView created successfully");
                 // Don't show yet — wait for EditorReady.
                 webview_manager.webview = Some(webview);
                 webview_manager.hwnd = Some(hwnd_val);
             }
             Err(e) => {
-                eprintln!("[deadcode] Failed to create webview: {e}");
+                eprintln!("[grimscript] Failed to create webview: {e}");
                 let _ = DestroyWindow(hwnd);
             }
         }

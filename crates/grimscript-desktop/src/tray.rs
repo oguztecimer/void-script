@@ -72,7 +72,7 @@ pub fn create_tray(proxy: EventLoopProxy<UserEvent>) -> TrayIcon {
     let icon = make_tray_icon();
     TrayIconBuilder::new()
         .with_icon(icon)
-        .with_tooltip("deadcode")
+        .with_tooltip("grimscript")
         .with_menu(Box::new(menu))
         .build()
         .expect("Failed to create system tray icon")

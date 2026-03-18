@@ -39,7 +39,7 @@ const functionCompletions: Completion[] = [
 
 const allCompletions = [...keywordCompletions, ...constantCompletions, ...functionCompletions];
 
-export function voidScriptCompletion(context: CompletionContext): CompletionResult | null {
+export function grimScriptCompletion(context: CompletionContext): CompletionResult | null {
   const word = context.matchBefore(/\w*/);
   if (!word || (word.from === word.to && !context.explicit)) return null;
 

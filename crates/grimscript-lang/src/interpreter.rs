@@ -6,7 +6,7 @@ use crate::ast::*;
 use crate::builtins;
 use crate::debug::*;
 use crate::environment::Environment;
-use crate::error::VoidScriptError;
+use crate::error::GrimScriptError;
 use crate::value::Value;
 
 enum ControlFlow {
@@ -91,7 +91,7 @@ impl Interpreter {
         self.breakpoints = breakpoints;
     }
 
-    pub fn execute(&mut self, program: &Program) -> Result<(), VoidScriptError> {
+    pub fn execute(&mut self, program: &Program) -> Result<(), GrimScriptError> {
         // First pass: collect top-level function definitions
         for stmt in &program.statements {
             if let StmtKind::FunctionDef { name, params, body } = &stmt.kind {
@@ -108,13 +108,13 @@ impl Interpreter {
             match self.execute_statement(stmt)? {
                 ControlFlow::Return(_) => break,
                 ControlFlow::Break => {
-                    return Err(VoidScriptError::syntax(
+                    return Err(GrimScriptError::syntax(
                         stmt.line,
                         "'break' outside loop",
                     ))
                 }
                 ControlFlow::Continue => {
-                    return Err(VoidScriptError::syntax(
+                    return Err(GrimScriptError::syntax(
                         stmt.line,
                         "'continue' outside loop",
                     ))
@@ -131,17 +131,17 @@ impl Interpreter {
         Ok(())
     }
 
-    fn check_step_limit(&mut self, line: u32) -> Result<(), VoidScriptError> {
+    fn check_step_limit(&mut self, line: u32) -> Result<(), GrimScriptError> {
         self.step_count += 1;
         if self.step_count > self.max_steps {
-            return Err(VoidScriptError::step_limit(line));
+            return Err(GrimScriptError::step_limit(line));
         }
         Ok(())
     }
 
-    fn check_debug(&mut self, line: u32) -> Result<(), VoidScriptError> {
+    fn check_debug(&mut self, line: u32) -> Result<(), GrimScriptError> {
         if self.stopped {
-            return Err(VoidScriptError::stopped(line));
+            return Err(GrimScriptError::stopped(line));
         }
 
         // Check for incoming commands non-blockingly (e.g., stop or breakpoint updates)
@@ -149,7 +149,7 @@ impl Interpreter {
             match cmd {
                 DebugCommand::Stop => {
                     self.stopped = true;
-                    return Err(VoidScriptError::stopped(line));
+                    return Err(GrimScriptError::stopped(line));
                 }
                 DebugCommand::SetBreakpoints(bps) => {
                     self.breakpoints = bps;
@@ -195,7 +195,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn pause_at(&mut self, line: u32) -> Result<(), VoidScriptError> {
+    fn pause_at(&mut self, line: u32) -> Result<(), GrimScriptError> {
         let variables: Vec<VariableInfo> = self
             .env
             .all_variables()
@@ -238,7 +238,7 @@ impl Interpreter {
                 }
                 Ok(DebugCommand::Stop) => {
                     self.stopped = true;
-                    return Err(VoidScriptError::stopped(line));
+                    return Err(GrimScriptError::stopped(line));
                 }
                 Ok(DebugCommand::SetBreakpoints(bps)) => {
                     self.breakpoints = bps;
@@ -247,7 +247,7 @@ impl Interpreter {
                 Err(_) => {
                     // Channel closed
                     self.stopped = true;
-                    return Err(VoidScriptError::stopped(line));
+                    return Err(GrimScriptError::stopped(line));
                 }
             }
         }
@@ -255,7 +255,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn execute_statement(&mut self, stmt: &Statement) -> Result<ControlFlow, VoidScriptError> {
+    fn execute_statement(&mut self, stmt: &Statement) -> Result<ControlFlow, GrimScriptError> {
         self.check_step_limit(stmt.line)?;
         self.check_debug(stmt.line)?;
 
@@ -328,7 +328,7 @@ impl Interpreter {
                     Value::Tuple(t) => t,
                     Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
                     other => {
-                        return Err(VoidScriptError::type_error(
+                        return Err(GrimScriptError::type_error(
                             stmt.line,
                             format!("'{}' is not iterable", other.type_name()),
                         ))
@@ -358,7 +358,7 @@ impl Interpreter {
         }
     }
 
-    fn execute_block(&mut self, stmts: &[Statement]) -> Result<ControlFlow, VoidScriptError> {
+    fn execute_block(&mut self, stmts: &[Statement]) -> Result<ControlFlow, GrimScriptError> {
         for stmt in stmts {
             match self.execute_statement(stmt)? {
                 ControlFlow::None => {}
@@ -373,7 +373,7 @@ impl Interpreter {
         target: &AssignTarget,
         value: Value,
         line: u32,
-    ) -> Result<(), VoidScriptError> {
+    ) -> Result<(), GrimScriptError> {
         match target {
             AssignTarget::Name(name) => {
                 self.env.update(name.clone(), value);
@@ -390,7 +390,7 @@ impl Interpreter {
                         .env
                         .get(&name)
                         .cloned()
-                        .ok_or_else(|| VoidScriptError::name_error(line, format!("'{name}' is not defined")))?;
+                        .ok_or_else(|| GrimScriptError::name_error(line, format!("'{name}' is not defined")))?;
 
                     match (&mut obj_val, &idx) {
                         (Value::List(list), Value::Int(i)) => {
@@ -400,7 +400,7 @@ impl Interpreter {
                                 *i as usize
                             };
                             if index >= list.len() {
-                                return Err(VoidScriptError::index_error(
+                                return Err(GrimScriptError::index_error(
                                     line,
                                     "list index out of range",
                                 ));
@@ -411,7 +411,7 @@ impl Interpreter {
                             dict.insert(key.clone(), value);
                         }
                         _ => {
-                            return Err(VoidScriptError::type_error(
+                            return Err(GrimScriptError::type_error(
                                 line,
                                 "Invalid index assignment",
                             ))
@@ -421,7 +421,7 @@ impl Interpreter {
                     self.env.update(name, obj_val);
                     Ok(())
                 } else {
-                    Err(VoidScriptError::type_error(
+                    Err(GrimScriptError::type_error(
                         line,
                         "Cannot assign to complex index expression",
                     ))
@@ -442,13 +442,13 @@ impl Interpreter {
         &mut self,
         target: &AssignTarget,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match target {
             AssignTarget::Name(name) => self
                 .env
                 .get(name)
                 .cloned()
-                .ok_or_else(|| VoidScriptError::name_error(line, format!("'{name}' is not defined"))),
+                .ok_or_else(|| GrimScriptError::name_error(line, format!("'{name}' is not defined"))),
             AssignTarget::Index { object, index } => {
                 let obj = self.eval_expr(object)?;
                 let idx = self.eval_expr(index)?;
@@ -463,7 +463,7 @@ impl Interpreter {
         left: &Value,
         right: &Value,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match op {
             AugOp::Add => self.add_values(left, right, line),
             AugOp::Sub => self.sub_values(left, right, line),
@@ -474,7 +474,7 @@ impl Interpreter {
 
     // --- Expression evaluation ---
 
-    fn eval_expr(&mut self, expr: &Expr) -> Result<Value, VoidScriptError> {
+    fn eval_expr(&mut self, expr: &Expr) -> Result<Value, GrimScriptError> {
         match &expr.kind {
             ExprKind::Integer(n) => Ok(Value::Int(*n)),
             ExprKind::Float(f) => Ok(Value::Float(*f)),
@@ -486,7 +486,7 @@ impl Interpreter {
                 .env
                 .get(name)
                 .cloned()
-                .ok_or_else(|| VoidScriptError::name_error(expr.line, format!("'{name}' is not defined"))),
+                .ok_or_else(|| GrimScriptError::name_error(expr.line, format!("'{name}' is not defined"))),
 
             ExprKind::List(items) => {
                 let mut vals = Vec::new();
@@ -507,7 +507,7 @@ impl Interpreter {
                     Value::List(l) => l,
                     Value::Tuple(t) => t,
                     _ => {
-                        return Err(VoidScriptError::type_error(
+                        return Err(GrimScriptError::type_error(
                             expr.line,
                             "list comprehension requires an iterable",
                         ))
@@ -542,7 +542,7 @@ impl Interpreter {
                     UnaryOp::Neg => match val {
                         Value::Int(n) => Ok(Value::Int(-n)),
                         Value::Float(f) => Ok(Value::Float(-f)),
-                        _ => Err(VoidScriptError::type_error(
+                        _ => Err(GrimScriptError::type_error(
                             expr.line,
                             format!("bad operand type for unary -: '{}'", val.type_name()),
                         )),
@@ -651,12 +651,12 @@ impl Interpreter {
                                     &self.output_tx,
                                 );
                             }
-                            return Err(VoidScriptError::name_error(
+                            return Err(GrimScriptError::name_error(
                                 expr.line,
                                 format!("'{name}' is not defined"),
                             ));
                         }
-                        Err(VoidScriptError::type_error(
+                        Err(GrimScriptError::type_error(
                             expr.line,
                             "object is not callable",
                         ))
@@ -682,15 +682,15 @@ impl Interpreter {
         name: &str,
         args: Vec<Value>,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         let (params, body) = self
             .functions
             .get(name)
             .cloned()
-            .ok_or_else(|| VoidScriptError::name_error(line, format!("Function '{name}' not defined")))?;
+            .ok_or_else(|| GrimScriptError::name_error(line, format!("Function '{name}' not defined")))?;
 
         if args.len() != params.len() {
-            return Err(VoidScriptError::type_error(
+            return Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "{name}() takes {} arguments but {} were given",
@@ -714,10 +714,10 @@ impl Interpreter {
         match result {
             Ok(ControlFlow::Return(val)) => Ok(val),
             Ok(ControlFlow::Break) => {
-                Err(VoidScriptError::syntax(line, "'break' outside loop"))
+                Err(GrimScriptError::syntax(line, "'break' outside loop"))
             }
             Ok(ControlFlow::Continue) => {
-                Err(VoidScriptError::syntax(line, "'continue' outside loop"))
+                Err(GrimScriptError::syntax(line, "'continue' outside loop"))
             }
             Ok(ControlFlow::None) => Ok(Value::None),
             Err(e) => Err(e),
@@ -731,11 +731,11 @@ impl Interpreter {
         args: Vec<Value>,
         line: u32,
         object_expr: &Expr,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match (obj, method) {
             (Value::List(_), "append") => {
                 if args.len() != 1 {
-                    return Err(VoidScriptError::type_error(
+                    return Err(GrimScriptError::type_error(
                         line,
                         "append() takes exactly 1 argument",
                     ));
@@ -743,7 +743,7 @@ impl Interpreter {
                 // We need to mutate the list in the environment
                 if let Some(name) = self.extract_name(object_expr) {
                     let mut list_val = self.env.get(&name).cloned().ok_or_else(|| {
-                        VoidScriptError::name_error(line, format!("'{name}' is not defined"))
+                        GrimScriptError::name_error(line, format!("'{name}' is not defined"))
                     })?;
                     if let Value::List(ref mut list) = list_val {
                         list.push(args.into_iter().next().unwrap());
@@ -751,7 +751,7 @@ impl Interpreter {
                     self.env.update(name, list_val);
                     Ok(Value::None)
                 } else {
-                    Err(VoidScriptError::type_error(
+                    Err(GrimScriptError::type_error(
                         line,
                         "Cannot append to expression",
                     ))
@@ -760,11 +760,11 @@ impl Interpreter {
             (Value::List(list), "pop") => {
                 if let Some(name) = self.extract_name(object_expr) {
                     let mut list_val = self.env.get(&name).cloned().ok_or_else(|| {
-                        VoidScriptError::name_error(line, format!("'{name}' is not defined"))
+                        GrimScriptError::name_error(line, format!("'{name}' is not defined"))
                     })?;
                     if let Value::List(ref mut l) = list_val {
                         if l.is_empty() {
-                            return Err(VoidScriptError::index_error(
+                            return Err(GrimScriptError::index_error(
                                 line,
                                 "pop from empty list",
                             ));
@@ -778,14 +778,14 @@ impl Interpreter {
                                 *i as usize
                             };
                             if idx >= l.len() {
-                                return Err(VoidScriptError::index_error(
+                                return Err(GrimScriptError::index_error(
                                     line,
                                     "pop index out of range",
                                 ));
                             }
                             l.remove(idx)
                         } else {
-                            return Err(VoidScriptError::type_error(
+                            return Err(GrimScriptError::type_error(
                                 line,
                                 "pop() index must be int",
                             ));
@@ -793,13 +793,13 @@ impl Interpreter {
                         self.env.update(name, list_val);
                         Ok(popped)
                     } else {
-                        Err(VoidScriptError::type_error(line, "pop() on non-list"))
+                        Err(GrimScriptError::type_error(line, "pop() on non-list"))
                     }
                 } else {
                     // Operate on a copy
                     let mut l = list.clone();
                     if l.is_empty() {
-                        return Err(VoidScriptError::index_error(
+                        return Err(GrimScriptError::index_error(
                             line,
                             "pop from empty list",
                         ));
@@ -809,20 +809,20 @@ impl Interpreter {
             }
             (Value::List(_), "insert") => {
                 if args.len() != 2 {
-                    return Err(VoidScriptError::type_error(
+                    return Err(GrimScriptError::type_error(
                         line,
                         "insert() takes exactly 2 arguments",
                     ));
                 }
                 if let Some(name) = self.extract_name(object_expr) {
                     let mut list_val = self.env.get(&name).cloned().ok_or_else(|| {
-                        VoidScriptError::name_error(line, format!("'{name}' is not defined"))
+                        GrimScriptError::name_error(line, format!("'{name}' is not defined"))
                     })?;
                     if let Value::List(ref mut l) = list_val {
                         let idx = match &args[0] {
                             Value::Int(i) => *i as usize,
                             _ => {
-                                return Err(VoidScriptError::type_error(
+                                return Err(GrimScriptError::type_error(
                                     line,
                                     "insert() index must be int",
                                 ))
@@ -834,7 +834,7 @@ impl Interpreter {
                     self.env.update(name, list_val);
                     Ok(Value::None)
                 } else {
-                    Err(VoidScriptError::type_error(
+                    Err(GrimScriptError::type_error(
                         line,
                         "Cannot insert to expression",
                     ))
@@ -842,20 +842,20 @@ impl Interpreter {
             }
             (Value::List(_), "remove") => {
                 if args.len() != 1 {
-                    return Err(VoidScriptError::type_error(
+                    return Err(GrimScriptError::type_error(
                         line,
                         "remove() takes exactly 1 argument",
                     ));
                 }
                 if let Some(name) = self.extract_name(object_expr) {
                     let mut list_val = self.env.get(&name).cloned().ok_or_else(|| {
-                        VoidScriptError::name_error(line, format!("'{name}' is not defined"))
+                        GrimScriptError::name_error(line, format!("'{name}' is not defined"))
                     })?;
                     if let Value::List(ref mut l) = list_val {
                         if let Some(pos) = l.iter().position(|v| *v == args[0]) {
                             l.remove(pos);
                         } else {
-                            return Err(VoidScriptError::runtime(
+                            return Err(GrimScriptError::runtime(
                                 line,
                                 "list.remove(x): x not in list",
                             ));
@@ -864,7 +864,7 @@ impl Interpreter {
                     self.env.update(name, list_val);
                     Ok(Value::None)
                 } else {
-                    Err(VoidScriptError::type_error(
+                    Err(GrimScriptError::type_error(
                         line,
                         "Cannot remove from expression",
                     ))
@@ -880,7 +880,7 @@ impl Interpreter {
                     match &args[0] {
                         Value::String(sep) => sep.clone(),
                         _ => {
-                            return Err(VoidScriptError::type_error(
+                            return Err(GrimScriptError::type_error(
                                 line,
                                 "split() separator must be str",
                             ))
@@ -895,7 +895,7 @@ impl Interpreter {
             }
             (Value::String(s), "join") => {
                 if args.len() != 1 {
-                    return Err(VoidScriptError::type_error(
+                    return Err(GrimScriptError::type_error(
                         line,
                         "join() takes exactly 1 argument",
                     ));
@@ -905,7 +905,7 @@ impl Interpreter {
                         let strs: Vec<String> = items.iter().map(|v| v.display()).collect();
                         Ok(Value::String(strs.join(s)))
                     }
-                    _ => Err(VoidScriptError::type_error(
+                    _ => Err(GrimScriptError::type_error(
                         line,
                         "join() argument must be a list",
                     )),
@@ -913,14 +913,14 @@ impl Interpreter {
             }
             (Value::String(s), "startswith") => {
                 if args.len() != 1 {
-                    return Err(VoidScriptError::type_error(
+                    return Err(GrimScriptError::type_error(
                         line,
                         "startswith() takes exactly 1 argument",
                     ));
                 }
                 match &args[0] {
                     Value::String(prefix) => Ok(Value::Bool(s.starts_with(prefix.as_str()))),
-                    _ => Err(VoidScriptError::type_error(
+                    _ => Err(GrimScriptError::type_error(
                         line,
                         "startswith() argument must be str",
                     )),
@@ -928,14 +928,14 @@ impl Interpreter {
             }
             (Value::String(s), "endswith") => {
                 if args.len() != 1 {
-                    return Err(VoidScriptError::type_error(
+                    return Err(GrimScriptError::type_error(
                         line,
                         "endswith() takes exactly 1 argument",
                     ));
                 }
                 match &args[0] {
                     Value::String(suffix) => Ok(Value::Bool(s.ends_with(suffix.as_str()))),
-                    _ => Err(VoidScriptError::type_error(
+                    _ => Err(GrimScriptError::type_error(
                         line,
                         "endswith() argument must be str",
                     )),
@@ -943,7 +943,7 @@ impl Interpreter {
             }
             (Value::String(s), "replace") => {
                 if args.len() != 2 {
-                    return Err(VoidScriptError::type_error(
+                    return Err(GrimScriptError::type_error(
                         line,
                         "replace() takes exactly 2 arguments",
                     ));
@@ -952,7 +952,7 @@ impl Interpreter {
                     (Value::String(old), Value::String(new)) => {
                         Ok(Value::String(s.replace(old.as_str(), new.as_str())))
                     }
-                    _ => Err(VoidScriptError::type_error(
+                    _ => Err(GrimScriptError::type_error(
                         line,
                         "replace() arguments must be str",
                     )),
@@ -960,7 +960,7 @@ impl Interpreter {
             }
             (Value::String(s), "find") => {
                 if args.len() != 1 {
-                    return Err(VoidScriptError::type_error(
+                    return Err(GrimScriptError::type_error(
                         line,
                         "find() takes exactly 1 argument",
                     ));
@@ -970,7 +970,7 @@ impl Interpreter {
                         let idx = s.find(sub.as_str()).map(|i| i as i64).unwrap_or(-1);
                         Ok(Value::Int(idx))
                     }
-                    _ => Err(VoidScriptError::type_error(
+                    _ => Err(GrimScriptError::type_error(
                         line,
                         "find() argument must be str",
                     )),
@@ -993,7 +993,7 @@ impl Interpreter {
             }
             (Value::Dict(dict), "get") => {
                 if args.is_empty() || args.len() > 2 {
-                    return Err(VoidScriptError::type_error(
+                    return Err(GrimScriptError::type_error(
                         line,
                         "get() takes 1 or 2 arguments",
                     ));
@@ -1016,13 +1016,13 @@ impl Interpreter {
                 if builtins::is_builtin(method) {
                     builtins::call_builtin(method, full_args, &self.output_tx)
                 } else {
-                    Err(VoidScriptError::runtime(
+                    Err(GrimScriptError::runtime(
                         line,
                         format!("Entity has no method '{method}'"),
                     ))
                 }
             }
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "'{}' object has no method '{method}'",
@@ -1038,7 +1038,7 @@ impl Interpreter {
         left: &Value,
         right: &Value,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match op {
             BinOp::Add => self.add_values(left, right, line),
             BinOp::Sub => self.sub_values(left, right, line),
@@ -1054,7 +1054,7 @@ impl Interpreter {
         left: &Value,
         right: &Value,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
@@ -1066,7 +1066,7 @@ impl Interpreter {
                 result.extend(b.iter().cloned());
                 Ok(Value::List(result))
             }
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "unsupported operand type(s) for +: '{}' and '{}'",
@@ -1082,13 +1082,13 @@ impl Interpreter {
         left: &Value,
         right: &Value,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
             (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 - b)),
             (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - *b as f64)),
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "unsupported operand type(s) for -: '{}' and '{}'",
@@ -1104,7 +1104,7 @@ impl Interpreter {
         left: &Value,
         right: &Value,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
@@ -1117,7 +1117,7 @@ impl Interpreter {
                     Ok(Value::String(s.repeat(*n as usize)))
                 }
             }
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "unsupported operand type(s) for *: '{}' and '{}'",
@@ -1133,33 +1133,33 @@ impl Interpreter {
         left: &Value,
         right: &Value,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => {
                 if *b == 0 {
-                    return Err(VoidScriptError::runtime(line, "division by zero"));
+                    return Err(GrimScriptError::runtime(line, "division by zero"));
                 }
                 Ok(Value::Float(*a as f64 / *b as f64))
             }
             (Value::Float(a), Value::Float(b)) => {
                 if *b == 0.0 {
-                    return Err(VoidScriptError::runtime(line, "division by zero"));
+                    return Err(GrimScriptError::runtime(line, "division by zero"));
                 }
                 Ok(Value::Float(a / b))
             }
             (Value::Int(a), Value::Float(b)) => {
                 if *b == 0.0 {
-                    return Err(VoidScriptError::runtime(line, "division by zero"));
+                    return Err(GrimScriptError::runtime(line, "division by zero"));
                 }
                 Ok(Value::Float(*a as f64 / b))
             }
             (Value::Float(a), Value::Int(b)) => {
                 if *b == 0 {
-                    return Err(VoidScriptError::runtime(line, "division by zero"));
+                    return Err(GrimScriptError::runtime(line, "division by zero"));
                 }
                 Ok(Value::Float(a / *b as f64))
             }
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "unsupported operand type(s) for /: '{}' and '{}'",
@@ -1175,33 +1175,33 @@ impl Interpreter {
         left: &Value,
         right: &Value,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => {
                 if *b == 0 {
-                    return Err(VoidScriptError::runtime(line, "division by zero"));
+                    return Err(GrimScriptError::runtime(line, "division by zero"));
                 }
                 Ok(Value::Int(a.div_euclid(*b)))
             }
             (Value::Float(a), Value::Float(b)) => {
                 if *b == 0.0 {
-                    return Err(VoidScriptError::runtime(line, "division by zero"));
+                    return Err(GrimScriptError::runtime(line, "division by zero"));
                 }
                 Ok(Value::Float((a / b).floor()))
             }
             (Value::Int(a), Value::Float(b)) => {
                 if *b == 0.0 {
-                    return Err(VoidScriptError::runtime(line, "division by zero"));
+                    return Err(GrimScriptError::runtime(line, "division by zero"));
                 }
                 Ok(Value::Float((*a as f64 / b).floor()))
             }
             (Value::Float(a), Value::Int(b)) => {
                 if *b == 0 {
-                    return Err(VoidScriptError::runtime(line, "division by zero"));
+                    return Err(GrimScriptError::runtime(line, "division by zero"));
                 }
                 Ok(Value::Float((a / *b as f64).floor()))
             }
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "unsupported operand type(s) for //: '{}' and '{}'",
@@ -1217,33 +1217,33 @@ impl Interpreter {
         left: &Value,
         right: &Value,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => {
                 if *b == 0 {
-                    return Err(VoidScriptError::runtime(line, "modulo by zero"));
+                    return Err(GrimScriptError::runtime(line, "modulo by zero"));
                 }
                 Ok(Value::Int(a.rem_euclid(*b)))
             }
             (Value::Float(a), Value::Float(b)) => {
                 if *b == 0.0 {
-                    return Err(VoidScriptError::runtime(line, "modulo by zero"));
+                    return Err(GrimScriptError::runtime(line, "modulo by zero"));
                 }
                 Ok(Value::Float(a % b))
             }
             (Value::Int(a), Value::Float(b)) => {
                 if *b == 0.0 {
-                    return Err(VoidScriptError::runtime(line, "modulo by zero"));
+                    return Err(GrimScriptError::runtime(line, "modulo by zero"));
                 }
                 Ok(Value::Float(*a as f64 % b))
             }
             (Value::Float(a), Value::Int(b)) => {
                 if *b == 0 {
-                    return Err(VoidScriptError::runtime(line, "modulo by zero"));
+                    return Err(GrimScriptError::runtime(line, "modulo by zero"));
                 }
                 Ok(Value::Float(a % *b as f64))
             }
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "unsupported operand type(s) for %: '{}' and '{}'",
@@ -1254,14 +1254,14 @@ impl Interpreter {
         }
     }
 
-    fn compare_lt(&self, left: &Value, right: &Value, line: u32) -> Result<bool, VoidScriptError> {
+    fn compare_lt(&self, left: &Value, right: &Value, line: u32) -> Result<bool, GrimScriptError> {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(a < b),
             (Value::Float(a), Value::Float(b)) => Ok(a < b),
             (Value::Int(a), Value::Float(b)) => Ok((*a as f64) < *b),
             (Value::Float(a), Value::Int(b)) => Ok(*a < (*b as f64)),
             (Value::String(a), Value::String(b)) => Ok(a < b),
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "'<' not supported between instances of '{}' and '{}'",
@@ -1272,14 +1272,14 @@ impl Interpreter {
         }
     }
 
-    fn compare_gt(&self, left: &Value, right: &Value, line: u32) -> Result<bool, VoidScriptError> {
+    fn compare_gt(&self, left: &Value, right: &Value, line: u32) -> Result<bool, GrimScriptError> {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => Ok(a > b),
             (Value::Float(a), Value::Float(b)) => Ok(a > b),
             (Value::Int(a), Value::Float(b)) => Ok((*a as f64) > *b),
             (Value::Float(a), Value::Int(b)) => Ok(*a > (*b as f64)),
             (Value::String(a), Value::String(b)) => Ok(a > b),
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "'>' not supported between instances of '{}' and '{}'",
@@ -1295,7 +1295,7 @@ impl Interpreter {
         obj: &Value,
         index: &Value,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match (obj, index) {
             (Value::List(list), Value::Int(i)) => {
                 let idx = if *i < 0 {
@@ -1304,7 +1304,7 @@ impl Interpreter {
                     *i as usize
                 };
                 list.get(idx).cloned().ok_or_else(|| {
-                    VoidScriptError::index_error(line, "list index out of range")
+                    GrimScriptError::index_error(line, "list index out of range")
                 })
             }
             (Value::Tuple(items), Value::Int(i)) => {
@@ -1314,7 +1314,7 @@ impl Interpreter {
                     *i as usize
                 };
                 items.get(idx).cloned().ok_or_else(|| {
-                    VoidScriptError::index_error(line, "tuple index out of range")
+                    GrimScriptError::index_error(line, "tuple index out of range")
                 })
             }
             (Value::String(s), Value::Int(i)) => {
@@ -1327,15 +1327,15 @@ impl Interpreter {
                     .nth(idx)
                     .map(|c| Value::String(c.to_string()))
                     .ok_or_else(|| {
-                        VoidScriptError::index_error(line, "string index out of range")
+                        GrimScriptError::index_error(line, "string index out of range")
                     })
             }
             (Value::Dict(dict), Value::String(key)) => {
                 dict.get(key).cloned().ok_or_else(|| {
-                    VoidScriptError::runtime(line, format!("KeyError: '{key}'"))
+                    GrimScriptError::runtime(line, format!("KeyError: '{key}'"))
                 })
             }
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "'{}' object is not subscriptable with '{}'",
@@ -1351,7 +1351,7 @@ impl Interpreter {
         obj: &Value,
         attr: &str,
         line: u32,
-    ) -> Result<Value, VoidScriptError> {
+    ) -> Result<Value, GrimScriptError> {
         match obj {
             Value::Entity {
                 id,
@@ -1361,7 +1361,7 @@ impl Interpreter {
                 "id" => Ok(Value::Int(*id as i64)),
                 "name" => Ok(Value::String(name.clone())),
                 "type" | "entity_type" => Ok(Value::String(entity_type.clone())),
-                _ => Err(VoidScriptError::runtime(
+                _ => Err(GrimScriptError::runtime(
                     line,
                     format!("Entity has no attribute '{attr}'"),
                 )),
@@ -1369,12 +1369,12 @@ impl Interpreter {
             Value::Tuple(items) => match attr {
                 "x" if items.len() >= 1 => Ok(items[0].clone()),
                 "y" if items.len() >= 2 => Ok(items[1].clone()),
-                _ => Err(VoidScriptError::runtime(
+                _ => Err(GrimScriptError::runtime(
                     line,
                     format!("tuple has no attribute '{attr}'"),
                 )),
             },
-            _ => Err(VoidScriptError::type_error(
+            _ => Err(GrimScriptError::type_error(
                 line,
                 format!(
                     "'{}' object has no attribute '{attr}'",

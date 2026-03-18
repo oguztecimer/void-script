@@ -1,10 +1,10 @@
 [workspace]
 members = [
-    "crates/deadcode-app",
-    "crates/deadcode-desktop",
-    "crates/deadcode-editor",
-    "crates/deadcode-lang",
-    "crates/deadcode-sim",
+    "crates/grimscript-app",
+    "crates/grimscript-desktop",
+    "crates/grimscript-editor",
+    "crates/grimscript-lang",
+    "crates/grimscript-sim",
 ]
 resolver = "2"
 

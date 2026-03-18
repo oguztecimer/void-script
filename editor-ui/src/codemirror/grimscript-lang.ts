@@ -23,7 +23,7 @@ const builtinFunctions = new Set([
 ]);
 
 // Indentation-based folding for Python-like syntax
-export const voidScriptFolding = foldService.of((state, lineStart, lineEnd) => {
+export const grimScriptFolding = foldService.of((state, lineStart, lineEnd) => {
   const line = state.doc.lineAt(lineStart);
   const lineText = line.text;
   const trimmed = lineText.trimEnd();
@@ -45,7 +45,7 @@ export const voidScriptFolding = foldService.of((state, lineStart, lineEnd) => {
   return { from: lineEnd, to: state.doc.line(lastFoldLine).to };
 });
 
-export const voidScriptLanguage = StreamLanguage.define({
+export const grimScriptLanguage = StreamLanguage.define({
   token(stream) {
     // Skip whitespace
     if (stream.eatSpace()) return null;

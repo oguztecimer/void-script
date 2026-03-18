@@ -36,6 +36,7 @@ export function Header() {
         </svg>
       </ToolBtn>
 
+      <div className={styles.brandSpacer} />
       <span className={styles.brandName}>
         <span className={styles.brandPunc}>[</span>
         <span className={styles.brandDead}>DEAD</span>

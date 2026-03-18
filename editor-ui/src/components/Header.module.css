@@ -5,18 +5,28 @@
   align-items: center;
   height: var(--height-titlebar);
   background: linear-gradient(90deg, var(--bg-toolbar) 0px, rgba(245, 210, 120, 0.08) 30px, rgba(245, 210, 120, 0.18) 80px, rgba(245, 210, 120, 0.25) 130px, rgba(245, 210, 120, 0.18) 220px, rgba(245, 210, 120, 0.1) 380px, rgba(245, 210, 120, 0.04) 540px, var(--bg-toolbar) 700px);
-  padding: 0 4px;
+  padding: 0 0 0 4px;
   user-select: none;
   border-bottom: 1px solid var(--border-strong);
   font-size: var(--font-size-ui);
+  overflow: hidden;
 }
 
 .brandName {
   font-weight: 600;
   font-size: 13px;
   letter-spacing: 1px;
-  margin-left: 53px;
-  flex-shrink: 0;
+  margin-left: 8px;
+  flex-shrink: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.brandSpacer {
+  width: 45px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .brandDead {
@@ -39,7 +49,9 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  min-width: 0;
 }
 
 /* Space reserved for native macOS traffic light buttons */
@@ -99,7 +111,10 @@
   font-family: inherit;
   transition: background-color var(--transition-hover);
   white-space: nowrap;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .runConfig:hover {
@@ -153,6 +168,7 @@
   align-items: center;
   margin-left: 8px;
   height: 100%;
+  flex-shrink: 0;
 }
 
 .winBtn {

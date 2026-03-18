@@ -18,6 +18,8 @@ pub struct Renderer {
     canvas: Pixmap,
     /// Global integer pixel scale applied to all rendering.
     pub pixel_scale: u32,
+    /// Window reference for platform-specific rendering.
+    window: Option<Arc<Window>>,
 
     /// macOS: pixel buffer (BGRA premultiplied) for building alpha-aware CGImages.
     #[cfg(target_os = "macos")]
@@ -58,6 +60,7 @@ impl Renderer {
         Self {
             canvas,
             pixel_scale: 1,
+            window: None,
             #[cfg(target_os = "macos")]
             pixel_buf: vec![0u8; (strip_width * strip_height * 4) as usize],
             #[cfg(target_os = "macos")]
@@ -114,8 +117,103 @@ impl Renderer {
     // Render paths
     // -----------------------------------------------------------------------
 
-    /// Non-macOS render path: blit via softbuffer using `0x00RRGGBB` pixel format.
-    #[cfg(not(target_os = "macos"))]
+    /// Windows render path: use UpdateLayeredWindow for per-pixel alpha transparency.
+    /// Softbuffer's BitBlt doesn't support per-pixel alpha on layered windows.
+    #[cfg(target_os = "windows")]
+    pub fn render(
+        &mut self,
+        _surface: &mut Surface<Arc<Window>, Arc<Window>>,
+        _width: u32,
+        height: u32,
+        units: &UnitManager,
+        dock_height: u32,
+    ) {
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows::Win32::Graphics::Gdi::*;
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        use windows::Win32::Foundation::{HWND, POINT, SIZE};
+
+        // Clear canvas to fully transparent.
+        self.canvas.data_mut().fill(0);
+
+        // Draw all units.
+        units.draw_all(&mut self.canvas, height, self.pixel_scale, dock_height);
+
+        let Some(window) = &self.window else { return };
+        let Ok(handle) = window.window_handle() else { return };
+        let RawWindowHandle::Win32(wh) = handle.as_raw() else { return };
+        let hwnd = HWND(wh.hwnd.get() as *mut _);
+
+        let w = self.canvas.width() as i32;
+        let h = self.canvas.height() as i32;
+
+        unsafe {
+            let hdc_screen = GetDC(HWND::default());
+            let hdc_mem = CreateCompatibleDC(hdc_screen);
+
+            // Create a 32-bit ARGB DIB section.
+            let mut bmi = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: w,
+                    biHeight: -h, // top-down
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut bits_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+            let hbmp = CreateDIBSection(
+                hdc_mem,
+                &bmi,
+                DIB_RGB_COLORS,
+                &mut bits_ptr,
+                None,
+                0,
+            ).unwrap();
+            let old_bmp = SelectObject(hdc_mem, HGDIOBJ(hbmp.0));
+
+            // Copy canvas pixels to the DIB as premultiplied BGRA.
+            let dst_slice = std::slice::from_raw_parts_mut(bits_ptr as *mut u32, (w * h) as usize);
+            for (dst, src) in dst_slice.iter_mut().zip(self.canvas.pixels()) {
+                // tiny_skia is premultiplied RGBA; Windows wants premultiplied BGRA.
+                *dst = (src.alpha() as u32) << 24
+                     | (src.red() as u32) << 16
+                     | (src.green() as u32) << 8
+                     | src.blue() as u32;
+            }
+
+            let size = SIZE { cx: w, cy: h };
+            let pt_src = POINT { x: 0, y: 0 };
+            let blend = BLENDFUNCTION {
+                BlendOp: 0, // AC_SRC_OVER
+                BlendFlags: 0,
+                SourceConstantAlpha: 255,
+                AlphaFormat: 1, // AC_SRC_ALPHA
+            };
+            let _ = UpdateLayeredWindow(
+                hwnd,
+                hdc_screen,
+                None,
+                Some(&size),
+                hdc_mem,
+                Some(&pt_src),
+                windows::Win32::Foundation::COLORREF(0),
+                Some(&blend),
+                UPDATE_LAYERED_WINDOW_FLAGS(2), // ULW_ALPHA = 2
+            );
+
+            SelectObject(hdc_mem, old_bmp);
+            let _ = DeleteObject(HGDIOBJ(hbmp.0));
+            DeleteDC(hdc_mem);
+            ReleaseDC(HWND::default(), hdc_screen);
+        }
+    }
+
+    /// Non-macOS/non-Windows render path: blit via softbuffer.
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     pub fn render(
         &mut self,
         surface: &mut Surface<Arc<Window>, Arc<Window>>,
@@ -124,13 +222,8 @@ impl Renderer {
         units: &UnitManager,
         dock_height: u32,
     ) {
-        // Clear canvas to fully transparent.
         self.canvas.data_mut().fill(0);
-
-        // Draw all units.
         units.draw_all(&mut self.canvas, height, self.pixel_scale, dock_height);
-
-        // Blit canvas pixels to softbuffer.
         let mut buffer = surface.buffer_mut().expect("Failed to get surface buffer");
         for (dst, src) in buffer.iter_mut().zip(self.canvas.pixels()) {
             let a = src.alpha();
@@ -140,7 +233,7 @@ impl Renderer {
                 let r = (src.red() as u32 * 255 / a as u32).min(255);
                 let g = (src.green() as u32 * 255 / a as u32).min(255);
                 let b = (src.blue() as u32 * 255 / a as u32).min(255);
-                *dst = ((a as u32) << 24) | (r << 16) | (g << 8) | b;
+                *dst = (r << 16) | (g << 8) | b;
             }
         }
         buffer.present().expect("Failed to present surface buffer");
@@ -242,6 +335,7 @@ impl Renderer {
     /// macOS: create a dedicated CALayer for rendering and add it to the NSView hierarchy.
     #[cfg(target_os = "macos")]
     pub fn set_window(&mut self, window: &Arc<Window>) {
+        self.window = Some(window.clone());
         use objc2::runtime::AnyObject;
         use objc2::msg_send;
         use objc2_foundation::MainThreadMarker;
@@ -293,7 +387,9 @@ impl Renderer {
         self.layer = Some(MacosLayer { layer: our_layer });
     }
 
-    /// Non-macOS stub: no-op (softbuffer manages the surface directly).
+    /// Non-macOS: store window reference for UpdateLayeredWindow.
     #[cfg(not(target_os = "macos"))]
-    pub fn set_window(&mut self, _window: &Arc<Window>) {}
+    pub fn set_window(&mut self, window: &Arc<Window>) {
+        self.window = Some(window.clone());
+    }
 }

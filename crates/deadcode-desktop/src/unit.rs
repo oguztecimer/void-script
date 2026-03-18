@@ -189,6 +189,9 @@ impl UnitManager {
     }
 
     pub fn draw_all(&self, canvas: &mut Pixmap, strip_height: u32, pixel_scale: u32, dock_height: u32) {
+        // Nudge everything up by 2px on Windows to align with taskbar edge.
+        #[cfg(target_os = "windows")]
+        let dock_height = dock_height + 2;
         let scale = pixel_scale as f32;
         let screen_width = canvas.width();
         let world_px = WORLD_WIDTH * pixel_scale;
@@ -203,7 +206,7 @@ impl UnitManager {
         for unit in sorted {
             let us = scale * 2.0;
             // y is the bottom base in world coords; world 0 aligns with dock/taskbar top.
-            let base_y = strip_height as i32 - dock_height as i32 - ((unit.y + 20.0) * scale) as i32;
+            let base_y = strip_height as i32 - dock_height as i32 - 20 - ((unit.y + 20.0) * scale) as i32;
             let sh = (unit.animation.frame_height() as f32 * us) as i32;
             let draw_y = base_y - sh + (unit.pivot_y * us) as i32;
             let x = offset_x + (unit.x * scale) as i32 - (unit.pivot_x * us) as i32;

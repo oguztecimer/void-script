@@ -20,6 +20,7 @@ use deadcode_desktop::unit::{UnitManager, WORLD_WIDTH};
 use deadcode_desktop::window::{StripInfo, enumerate_monitors};
 
 use deadcode_editor::ipc::{JsToRust, RustToJs, WindowControlEvent};
+use deadcode_sim::SimWorld;
 use deadcode_editor::window::{WebViewManager, MaximizedState, open_editor, get_window_geometry};
 use deadcode_editor::scripts::ScriptStore;
 use deadcode_editor::tabs::EditorWindowState;
@@ -62,6 +63,9 @@ pub struct App {
     save_timer: Duration,
     unit_manager: Option<UnitManager>,
 
+    // --- Simulation system ---
+    sim_world: Option<SimWorld>,
+
     // --- Editor system ---
     webview_manager: WebViewManager,
     ipc_sender: Sender<JsToRust>,
@@ -101,6 +105,9 @@ impl App {
             cursor_position: winit::dpi::PhysicalPosition::new(0.0, 0.0),
             save_timer: Duration::ZERO,
             unit_manager: None,
+
+            // Simulation system
+            sim_world: None,
 
             // Editor system
             webview_manager: WebViewManager::default(),
@@ -152,6 +159,57 @@ impl App {
                 um.move_to(id, target, speed);
             }
             self.active_until = Some(Instant::now() + Duration::from_secs(1));
+        }
+
+        // --- Simulation tick ---
+        if let Some(sim) = &mut self.sim_world {
+            if sim.is_running() {
+                sim.tick();
+
+                // Sync sim entity positions to UnitManager for rendering.
+                // Maps i64 sim position → f32 render position.
+                let snapshot = sim.snapshot();
+                if let Some(um) = &mut self.unit_manager {
+                    for es in &snapshot.entities {
+                        let render_x = es.position as f32;
+                        // Collect matching unit IDs first to avoid borrow conflict.
+                        let matching_id = um.iter()
+                            .find(|unit| unit.name == es.name)
+                            .map(|unit| unit.id);
+                        if let Some(uid) = matching_id {
+                            um.move_to(uid, render_x, 100.0);
+                        }
+                    }
+                }
+
+                // Forward script output events to editor console.
+                let events = sim.take_events();
+                for event in &events {
+                    match event {
+                        deadcode_sim::SimEvent::ScriptOutput { text, .. } => {
+                            let msg = RustToJs::ConsoleOutput {
+                                text: text.clone(),
+                                level: "info".to_string(),
+                            };
+                            self.webview_manager.send_to_all(&msg);
+                        }
+                        deadcode_sim::SimEvent::ScriptError { error, .. } => {
+                            let msg = RustToJs::ConsoleOutput {
+                                text: format!("[sim error] {error}"),
+                                level: "error".to_string(),
+                            };
+                            self.webview_manager.send_to_all(&msg);
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Send tick number to editor.
+                let msg = RustToJs::SimulationTick { tick: snapshot.tick };
+                self.webview_manager.send_to_all(&msg);
+
+                self.active_until = Some(Instant::now() + Duration::from_secs(1));
+            }
         }
 
         // Auto-save timer
@@ -694,6 +752,34 @@ impl App {
                 }
                 JsToRust::ConsoleCommand { command } => {
                     eprintln!("[console] command: {}", command);
+                }
+                JsToRust::StartSimulation => {
+                    if self.sim_world.is_none() {
+                        self.sim_world = Some(SimWorld::new(42));
+                    }
+                    if let Some(sim) = &mut self.sim_world {
+                        sim.start();
+                    }
+                    self.webview_manager.send_to_all(&RustToJs::SimulationStarted);
+                    eprintln!("[sim] started");
+                }
+                JsToRust::StopSimulation => {
+                    if let Some(sim) = &mut self.sim_world {
+                        sim.stop();
+                    }
+                    self.webview_manager.send_to_all(&RustToJs::SimulationStopped);
+                    eprintln!("[sim] stopped");
+                }
+                JsToRust::PauseSimulation => {
+                    if let Some(sim) = &mut self.sim_world {
+                        let is_running = sim.is_running();
+                        sim.set_paused(is_running);
+                        if is_running {
+                            self.webview_manager.send_to_all(&RustToJs::SimulationStopped);
+                        } else {
+                            self.webview_manager.send_to_all(&RustToJs::SimulationStarted);
+                        }
+                    }
                 }
             }
         }

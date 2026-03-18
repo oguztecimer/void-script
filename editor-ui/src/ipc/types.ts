@@ -8,7 +8,10 @@ export type RustToJsMessage =
   | { type: 'script_started'; script_id: string }
   | { type: 'script_finished'; script_id: string; success: boolean; error?: string }
   | { type: 'debug_paused'; script_id: string; line: number; variables: VariableInfo[]; call_stack: string[] }
-  | { type: 'debug_resumed'; script_id: string };
+  | { type: 'debug_resumed'; script_id: string }
+  | { type: 'simulation_started' }
+  | { type: 'simulation_stopped' }
+  | { type: 'simulation_tick'; tick: number };
 
 // Messages from JS to Rust
 export type JsToRustMessage =
@@ -33,7 +36,10 @@ export type JsToRustMessage =
   | { type: 'window_resize_start'; direction: string }
   | { type: 'window_shake' }
   | { type: 'window_set_size'; width: number; height: number; resizable: boolean }
-  | { type: 'console_command'; command: string };
+  | { type: 'console_command'; command: string }
+  | { type: 'start_simulation' }
+  | { type: 'stop_simulation' }
+  | { type: 'pause_simulation' };
 
 export interface Diagnostic {
   line: number;

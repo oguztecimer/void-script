@@ -51,6 +51,14 @@ pub enum RustToJs {
     DebugResumed {
         script_id: String,
     },
+    #[serde(rename = "simulation_started")]
+    SimulationStarted,
+    #[serde(rename = "simulation_stopped")]
+    SimulationStopped,
+    #[serde(rename = "simulation_tick")]
+    SimulationTick {
+        tick: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -129,6 +137,12 @@ pub enum JsToRust {
     WindowSetSize { width: u32, height: u32, resizable: bool },
     #[serde(rename = "console_command")]
     ConsoleCommand { command: String },
+    #[serde(rename = "start_simulation")]
+    StartSimulation,
+    #[serde(rename = "stop_simulation")]
+    StopSimulation,
+    #[serde(rename = "pause_simulation")]
+    PauseSimulation,
 }
 
 pub enum WindowControlEvent {

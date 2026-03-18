@@ -59,6 +59,15 @@ export function initIpcBridge(): void {
       case 'debug_resumed':
         store.setPaused(false);
         break;
+      case 'simulation_started':
+        store.addConsoleOutput('--- Simulation started ---', 'info');
+        break;
+      case 'simulation_stopped':
+        store.addConsoleOutput('--- Simulation stopped ---', 'info');
+        break;
+      case 'simulation_tick':
+        // Tick updates can be used by UI components if needed.
+        break;
     }
   };
 

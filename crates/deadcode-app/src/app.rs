@@ -71,6 +71,10 @@ pub struct App {
     execution_manager: ScriptExecutionManager,
     maximized_state: MaximizedState,
     settings: Settings,
+
+    /// Whether the background tick thread has been spawned (Windows only).
+    #[cfg(target_os = "windows")]
+    tick_thread_started: bool,
 }
 
 impl App {
@@ -107,6 +111,9 @@ impl App {
             execution_manager: ScriptExecutionManager::default(),
             maximized_state: MaximizedState::default(),
             settings: Settings::default(),
+
+            #[cfg(target_os = "windows")]
+            tick_thread_started: false,
         }
     }
 }
@@ -122,6 +129,98 @@ impl App {
             .map(|(x, y, w, h)| save::WindowGeometry { x, y, width: w, height: h })
             .or_else(|| self.settings.editor_window.clone());
         Settings { editor_window }
+    }
+
+    /// Run one game tick: advance units, poll IPC, check fullscreen, etc.
+    fn do_tick(&mut self) {
+        let now = Instant::now();
+        let delta = now.duration_since(self.last_tick);
+        self.last_tick = now;
+
+        // --- Unit system tick ---
+        if let Some(um) = &mut self.unit_manager {
+            um.tick(delta);
+            // Random wandering: pick a new target when idle.
+            let idle: Vec<_> = um.iter()
+                .filter(|u| u.movement.is_none() && u.name == "skeleton")
+                .map(|u| u.id)
+                .collect();
+            for id in idle {
+                let seed = now.elapsed().as_nanos() as u32;
+                let target = (seed % 1000) as f32;
+                let speed = 10.0 + (seed % 20) as f32;
+                um.move_to(id, target, speed);
+            }
+            self.active_until = Some(Instant::now() + Duration::from_secs(1));
+        }
+
+        // Auto-save timer
+        self.save_timer += delta;
+        if self.save_timer >= Duration::from_secs(60) {
+            self.save_timer = Duration::ZERO;
+            save::save(&save::SaveData {
+                last_active_unix: save::now_unix(),
+                settings: self.current_settings(),
+            });
+        }
+
+        // Fullscreen polling
+        if self.last_fullscreen_check.elapsed() >= Duration::from_millis(500) {
+            let fs = fullscreen::is_any_fullscreen();
+            if fs && !self.is_hidden_for_fullscreen {
+                if let Some(slot) = self.monitor_slots.get(self.active_monitor) {
+                    slot.window.set_visible(false);
+                }
+                self.is_hidden_for_fullscreen = true;
+            } else if !fs && self.is_hidden_for_fullscreen {
+                if let Some(slot) = self.monitor_slots.get(self.active_monitor) {
+                    slot.window.set_visible(true);
+                }
+                self.is_hidden_for_fullscreen = false;
+            }
+            self.last_fullscreen_check = Instant::now();
+        }
+
+        // Per-pixel hit testing
+        if let Some(slot) = self.monitor_slots.get(self.active_monitor) {
+            let should_hittest = cursor_over_sprite(&slot.window, &slot.renderer, &slot.info)
+                .unwrap_or(false);
+            let w = slot.window.clone();
+            if should_hittest && self.hittest_disabled {
+                let _ = w.set_cursor_hittest(true);
+                self.hittest_disabled = false;
+            } else if !should_hittest && !self.hittest_disabled {
+                let _ = w.set_cursor_hittest(false);
+                self.hittest_disabled = true;
+            }
+        }
+
+        // --- Editor IPC polling ---
+        self.poll_editor_ipc();
+
+        // --- Window shake animation ---
+        self.webview_manager.tick_shake();
+
+        // --- Script execution polling ---
+        self.execution_manager.poll_script_events(&self.webview_manager);
+
+        // --- Detect editor native close ---
+        if let Some((x, y, w, h)) = self.webview_manager.detect_native_close() {
+            self.settings.editor_window = Some(save::WindowGeometry { x, y, width: w, height: h });
+            save::save(&save::SaveData {
+                last_active_unix: save::now_unix(),
+                settings: self.current_settings(),
+            });
+        }
+    }
+
+    /// Render the current frame (request redraw on the active monitor).
+    fn do_redraw(&mut self) {
+        if !self.is_hidden_for_fullscreen {
+            if let Some(slot) = self.monitor_slots.get(self.active_monitor) {
+                slot.window.request_redraw();
+            }
+        }
     }
 }
 
@@ -322,6 +421,22 @@ impl ApplicationHandler<UserEvent> for App {
         self.script_store = Some(ScriptStore::new(scripts_dir));
 
         open_editor(&mut self.webview_manager, &self.ipc_sender, self.settings.editor_window.as_ref().map(|g| (g.x, g.y, g.width, g.height)));
+
+        // Spawn a background thread that sends Tick events every ~33ms.
+        // This keeps the game loop alive during Win32 modal loops (window drag).
+        #[cfg(target_os = "windows")]
+        if !self.tick_thread_started {
+            self.tick_thread_started = true;
+            let proxy = self.proxy.clone();
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(Duration::from_millis(33));
+                    if proxy.send_event(UserEvent::Tick).is_err() {
+                        break; // Event loop closed.
+                    }
+                }
+            });
+        }
     }
 
     fn window_event(
@@ -434,89 +549,16 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             UserEvent::MenuEvent(_) => {}
+            UserEvent::Tick => {
+                // Keep the game alive during Win32 modal loops (editor drag).
+                self.do_tick();
+                self.do_redraw();
+            }
         }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let now = Instant::now();
-        let delta = now.duration_since(self.last_tick);
-        self.last_tick = now;
-
-        // --- Unit system tick ---
-        if let Some(um) = &mut self.unit_manager {
-            um.tick(delta);
-            // Random wandering: pick a new target when idle.
-            let idle: Vec<_> = um.iter()
-                .filter(|u| u.movement.is_none() && u.name == "skeleton")
-                .map(|u| u.id)
-                .collect();
-            for id in idle {
-                let seed = now.elapsed().as_nanos() as u32;
-                let target = (seed % 1000) as f32;
-                let speed = 10.0 + (seed % 20) as f32;
-                um.move_to(id, target, speed);
-            }
-            self.active_until = Some(Instant::now() + Duration::from_secs(1));
-        }
-
-        // Auto-save timer
-        self.save_timer += delta;
-        if self.save_timer >= Duration::from_secs(60) {
-            self.save_timer = Duration::ZERO;
-            save::save(&save::SaveData {
-                last_active_unix: save::now_unix(),
-                settings: self.current_settings(),
-            });
-        }
-
-        // Fullscreen polling
-        if self.last_fullscreen_check.elapsed() >= Duration::from_millis(500) {
-            let fs = fullscreen::is_any_fullscreen();
-            if fs && !self.is_hidden_for_fullscreen {
-                if let Some(slot) = self.monitor_slots.get(self.active_monitor) {
-                    slot.window.set_visible(false);
-                }
-                self.is_hidden_for_fullscreen = true;
-            } else if !fs && self.is_hidden_for_fullscreen {
-                if let Some(slot) = self.monitor_slots.get(self.active_monitor) {
-                    slot.window.set_visible(true);
-                }
-                self.is_hidden_for_fullscreen = false;
-            }
-            self.last_fullscreen_check = Instant::now();
-        }
-
-        // Per-pixel hit testing
-        if let Some(slot) = self.monitor_slots.get(self.active_monitor) {
-            let should_hittest = cursor_over_sprite(&slot.window, &slot.renderer, &slot.info)
-                .unwrap_or(false);
-            let w = slot.window.clone();
-            if should_hittest && self.hittest_disabled {
-                let _ = w.set_cursor_hittest(true);
-                self.hittest_disabled = false;
-            } else if !should_hittest && !self.hittest_disabled {
-                let _ = w.set_cursor_hittest(false);
-                self.hittest_disabled = true;
-            }
-        }
-
-        // --- Editor IPC polling ---
-        self.poll_editor_ipc();
-
-        // --- Window shake animation ---
-        self.webview_manager.tick_shake();
-
-        // --- Script execution polling ---
-        self.execution_manager.poll_script_events(&self.webview_manager);
-
-        // --- Detect editor native close ---
-        if let Some((x, y, w, h)) = self.webview_manager.detect_native_close() {
-            self.settings.editor_window = Some(save::WindowGeometry { x, y, width: w, height: h });
-            save::save(&save::SaveData {
-                last_active_unix: save::now_unix(),
-                settings: self.current_settings(),
-            });
-        }
+        self.do_tick();
 
         // --- Dynamic FPS ---
         let redraw_interval = if self.active_until.map(|t| Instant::now() < t).unwrap_or(false) {
@@ -526,11 +568,7 @@ impl ApplicationHandler<UserEvent> for App {
         };
         event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + redraw_interval));
 
-        if !self.is_hidden_for_fullscreen {
-            if let Some(slot) = self.monitor_slots.get(self.active_monitor) {
-                slot.window.request_redraw();
-            }
-        }
+        self.do_redraw();
     }
 }
 

@@ -68,6 +68,7 @@ pub enum RustToJs {
     #[serde(rename = "available_commands")]
     AvailableCommands {
         commands: Vec<String>,
+        dev_mode: bool,
     },
 }
 

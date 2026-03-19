@@ -56,6 +56,7 @@ const RIGHT_ITEMS: ToolStripItem[] = [
 export function App() {
   const tier = useStore((s) => s.tier);
   const setTier = useStore((s) => s.setTier);
+  const devMode = useStore((s) => s.devMode);
   const tv = useTierVisibility();
   const leftPanelOpen = useStore((s) => s.leftPanelOpen);
   const bottomPanelOpen = useStore((s) => s.bottomPanelOpen);
@@ -151,6 +152,7 @@ export function App() {
 
   // Dev-only: Ctrl+Shift+T to cycle tiers with CRT transition
   useEffect(() => {
+    if (!devMode) return;
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'T') {
         e.preventDefault();
@@ -167,7 +169,7 @@ export function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [setTier, tierTransition]);
+  }, [devMode, setTier, tierTransition]);
 
   // Left panel drag-resize handler — mutates DOM directly during drag for performance
   const handleLeftResizeMouseDown = useCallback((e: React.MouseEvent) => {

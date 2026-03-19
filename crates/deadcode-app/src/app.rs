@@ -661,7 +661,7 @@ impl App {
         } else {
             self.available_commands.iter().cloned().collect()
         };
-        let msg = RustToJs::AvailableCommands { commands };
+        let msg = RustToJs::AvailableCommands { commands, dev_mode: deadcode_desktop::is_dev_mode() };
         self.webview_manager.send_to_all(&msg);
     }
 

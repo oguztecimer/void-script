@@ -23,6 +23,7 @@
 ### Modding System
 
 #### Added
+- **M-10: Phased commands (multi-tick abilities)** — Custom commands can now use `phases` instead of `effects` to create multi-tick abilities with distinct stages. Each phase has a tick duration, `on_start`/`per_tick` effect lists, and an `interruptible` flag. During interruptible phases, the entity's script runs and can cancel the channel by yielding a real action. During non-interruptible phases, script execution is blocked. Channels are cancelled if a `use_resource` effect fails mid-phase. Hot-reload clears active channels. `ChannelState` is stored on `SimEntity`, processed in the tick loop before normal script execution.
 - **M-07: `list_commands` effect type** — New `CommandEffect::ListCommands` variant that emits all registered custom commands and their descriptions as `ScriptOutput` events. Commands are sorted alphabetically for deterministic output. The `consult` command in `mods/core/mod.toml` now uses this effect instead of a static output message, making it a discovery mechanic that reveals available commands to the player.
 
 #### Fixed
@@ -37,6 +38,7 @@
 - **M-08: `[initial]` section with startup effects** — Mods can now define an `[initial]` section with an `effects` list in `mod.toml`. These effects run in order when the game opens (without loading a saved game state). The intro text ("The dead stir beneath your feet") is now data-driven via `output` effects in the core mod's `[initial]` section instead of hardcoded in the frontend.
 - **M-06: `use_resource` effect replaces cost system** — The separate `cost` field on custom commands has been removed. Resource costs are now expressed as a `use_resource` effect (e.g., `{ type = "use_resource", stat = "energy", amount = 30 }`). When a `use_resource` effect encounters insufficient resources, it aborts the command early — remaining effects are skipped and a console warning is printed. This unifies costs into the effect pipeline, giving modders precise control over when resource checks happen relative to other effects.
 - **M-05: Phase 2 library API design sketch** — Reserved `libraries` field in `[commands]` schema. Design sketch for `.grim` library files added to `docs/modding.md` covering namespace strategy, gating, and compilation order.
+- **M-09: Developer guide for effects vs builtins** — New "Adding New Effects (Developer Guide)" section in `docs/modding.md` explaining the two paths for adding game mechanics (effect system vs builtins), when to use each, step-by-step instructions for adding a new effect, and when validation in `modding.rs` is needed.
 
 #### Fixed
 - **BUG-001: Base commands no longer shadow custom definitions** — Removed hardcoded `ActionConsult/Raise/Harvest/Pact` IR instructions, executor handlers, and `UnitAction` variants. The four base commands (`consult`, `raise`, `harvest`, `pact`) now use the data-driven custom command path, meaning their mod.toml effects (spawn, energy cost, stat changes) and costs are actually executed.

@@ -99,12 +99,14 @@ src/
 
 **Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, use_resource, output). These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, then effects are resolved in order against world state. The `use_resource` effect checks and deducts a resource, aborting remaining effects if insufficient. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
 
+**Phased commands:** Commands can use `phases` instead of `effects` for multi-tick abilities (mutually exclusive, validated at load). Each `PhaseDef` has `ticks`, `interruptible`, `on_start`, and `per_tick` effect lists. On initiation, a `ChannelState` is stored on the entity. The tick loop processes channels before script execution: interruptible phases run the script and cancel if it yields a real action; non-interruptible phases skip script execution. `use_resource` failure mid-phase cancels the channel. Hot-reload clears active channels.
+
 **Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
 
 **Tick loop** (`SimWorld::tick()`):
 1. Derive per-tick RNG: `SimRng::new(seed ^ tick)`
-2. Shuffle scriptable entity IDs
-3. For each: take script state out, execute, collect action, put state back
+2. Shuffle scriptable entity IDs (includes entities with active channels)
+3. For each: process active channel if present (phase effects, interruption check), otherwise take script state out, execute, collect action, put state back
 4. Resolve all actions against world state
 5. Tick passive systems (cooldowns)
 6. Flush pending spawns/despawns
@@ -164,7 +166,8 @@ Message categories:
 | Save/load | `crates/deadcode-desktop/src/save.rs` |
 | Unlock a game command | `crates/deadcode-app/src/app.rs` → `available_commands` set |
 | Gate a new game builtin | Add to `is_builtin()`, `is_game_builtin()` returns true, `is_stdlib()` returns false |
-| Add custom mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, effects, cost |
+| Add custom mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, effects or phases |
+| Add phased mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, phases (see `docs/modding.md`) |
 | Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + handler in `resolve_custom_effects()` |
 
 ## Documentation Maintenance

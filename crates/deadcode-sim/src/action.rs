@@ -50,7 +50,22 @@ pub enum CommandEffect {
     ListCommands,
 }
 
+/// A single phase in a multi-tick phased command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhaseDef {
+    pub ticks: i64,
+    #[serde(default)]
+    pub interruptible: bool,
+    #[serde(default)]
+    pub per_tick: Vec<CommandEffect>,
+    #[serde(default)]
+    pub on_start: Vec<CommandEffect>,
+}
+
 /// Definition of a custom command (parsed from mod.toml).
+///
+/// Commands use either `effects` (instant, single-tick) or `phases` (multi-tick
+/// with channeling). They are mutually exclusive — validated at load time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandDef {
     pub name: String,
@@ -60,6 +75,8 @@ pub struct CommandDef {
     pub args: Vec<String>,
     #[serde(default)]
     pub effects: Vec<CommandEffect>,
+    #[serde(default)]
+    pub phases: Vec<PhaseDef>,
 }
 
 /// Resolve a unit's action against the world state.
@@ -157,6 +174,23 @@ pub fn resolve_action(
 
 
         UnitAction::Custom { name, args } => {
+            // Check if this is a phased command.
+            if let Some(phases) = world.custom_command_phases.get(&name).cloned() {
+                if !phases.is_empty() {
+                    // Set up channel state — effects start next tick.
+                    if let Some(entity) = world.get_entity_mut(entity_id) {
+                        entity.active_channel = Some(crate::entity::ChannelState {
+                            command_name: name,
+                            args,
+                            phases,
+                            phase_index: 0,
+                            ticks_elapsed_in_phase: 0,
+                        });
+                    }
+                    return events;
+                }
+            }
+            // Instant (non-phased) command.
             if let Some(effects) = world.custom_commands.get(&name).cloned() {
                 resolve_custom_effects(world, entity_id, &name, &effects, &args, &mut events);
             } else {
@@ -174,6 +208,7 @@ pub fn resolve_action(
 /// Resolve custom command effects against the world.
 /// Effects are resolved in order. A `UseResource` effect that fails (insufficient
 /// resource) aborts the remaining effects — the command ends early.
+/// Returns `true` if the effects were aborted (use_resource failure).
 pub fn resolve_custom_effects(
     world: &mut SimWorld,
     entity_id: EntityId,
@@ -181,7 +216,7 @@ pub fn resolve_custom_effects(
     effects: &[CommandEffect],
     args: &[SimValue],
     events: &mut Vec<SimEvent>,
-) {
+) -> bool {
     for effect in effects {
         match effect {
             CommandEffect::Output { message } => {
@@ -281,7 +316,7 @@ pub fn resolve_custom_effects(
                         entity_id,
                         text: format!("[{cmd_name}] not enough {stat}"),
                     });
-                    return; // Abort remaining effects.
+                    return true; // Abort remaining effects.
                 }
                 // Deduct the resource.
                 if let Some(entity) = world.get_entity_mut(entity_id) {
@@ -310,6 +345,7 @@ pub fn resolve_custom_effects(
             }
         }
     }
+    false
 }
 
 /// Resolve target string to EntityId using positional args.

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::action::{CommandDef, CommandEffect, UnitAction, resolve_action};
+use crate::action::{CommandDef, CommandEffect, PhaseDef, UnitAction, resolve_action, resolve_custom_effects};
 use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
@@ -77,6 +77,8 @@ pub struct SimWorld {
     pub custom_command_arg_counts: HashMap<String, usize>,
     /// Custom command name → description (for list_commands effect).
     pub custom_command_descriptions: HashMap<String, String>,
+    /// Custom command name → phases (for phased/channeled commands).
+    pub custom_command_phases: HashMap<String, Vec<PhaseDef>>,
     /// Entity type → stat overrides (for spawning from effects).
     pub entity_configs: HashMap<String, EntityConfig>,
 }
@@ -96,14 +98,19 @@ impl SimWorld {
             custom_commands: HashMap::new(),
             custom_command_arg_counts: HashMap::new(),
             custom_command_descriptions: HashMap::new(),
+            custom_command_phases: HashMap::new(),
             entity_configs: HashMap::new(),
         }
     }
 
     /// Register a custom command with its effects, arg count, costs, and description.
+    /// If the command has phases, they are stored separately for the phased execution path.
     pub fn register_custom_command(&mut self, def: &CommandDef) {
         self.custom_command_arg_counts.insert(def.name.clone(), def.args.len());
         self.custom_commands.insert(def.name.clone(), def.effects.clone());
+        if !def.phases.is_empty() {
+            self.custom_command_phases.insert(def.name.clone(), def.phases.clone());
+        }
         if !def.description.is_empty() {
             self.custom_command_descriptions.insert(def.name.clone(), def.description.clone());
         }
@@ -234,19 +241,160 @@ impl SimWorld {
         // 2. Derive per-tick RNG.
         let mut rng = SimRng::new(self.seed ^ self.tick);
 
-        // 3. Collect scriptable entity IDs, shuffle.
+        // 3. Collect scriptable entity IDs (including channeling entities), shuffle.
         let mut scriptable_ids: Vec<EntityId> = self
             .entities
             .iter()
-            .filter(|e| e.alive && e.script_state.is_some())
+            .filter(|e| e.alive && (e.script_state.is_some() || e.active_channel.is_some()))
             .map(|e| e.id)
             .collect();
         rng.shuffle(&mut scriptable_ids);
 
-        // 4. Execute each unit's script.
+        // 4. Execute each unit's script (with channel processing).
         let mut actions: Vec<(EntityId, UnitAction)> = Vec::new();
 
         for &eid in &scriptable_ids {
+            // --- Channel processing ---
+            let has_channel = self.get_entity(eid).map_or(false, |e| e.active_channel.is_some());
+
+            if has_channel {
+                let mut channel = self.get_entity_mut(eid).unwrap().active_channel.take().unwrap();
+                let phase = channel.phases[channel.phase_index].clone();
+                let is_interruptible = phase.interruptible;
+                let is_first_tick = channel.ticks_elapsed_in_phase == 0;
+
+                // If interruptible, let the script run and check if it interrupts.
+                let mut interrupted = false;
+                if is_interruptible {
+                    let mut script_state: Option<_> = self.get_entity_mut(eid)
+                        .and_then(|entity| entity.script_state.take());
+
+                    if let Some(ref mut state) = script_state {
+                        match executor::execute_unit(eid, state, self) {
+                            Ok(Some(action)) => {
+                                // Print doesn't interrupt — handle like normal.
+                                match action {
+                                    UnitAction::Wait => {} // no interruption
+                                    UnitAction::Print { text } => {
+                                        self.events.push(SimEvent::ScriptOutput {
+                                            entity_id: eid,
+                                            text,
+                                        });
+                                        // Continue executing after print in a loop.
+                                        loop {
+                                            match executor::execute_unit(eid, state, self) {
+                                                Ok(Some(UnitAction::Print { text })) => {
+                                                    self.events.push(SimEvent::ScriptOutput {
+                                                        entity_id: eid,
+                                                        text,
+                                                    });
+                                                }
+                                                Ok(Some(UnitAction::Wait)) | Ok(None) => break,
+                                                Ok(Some(real_action)) => {
+                                                    interrupted = true;
+                                                    actions.push((eid, real_action));
+                                                    break;
+                                                }
+                                                Err(err) => {
+                                                    state.error = Some(err.to_string());
+                                                    self.events.push(SimEvent::ScriptError {
+                                                        entity_id: eid,
+                                                        error: err.to_string(),
+                                                    });
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    real_action => {
+                                        interrupted = true;
+                                        actions.push((eid, real_action));
+                                    }
+                                }
+                            }
+                            Ok(None) => {} // script halted, no interruption
+                            Err(err) => {
+                                state.error = Some(err.to_string());
+                                self.events.push(SimEvent::ScriptError {
+                                    entity_id: eid,
+                                    error: err.to_string(),
+                                });
+                            }
+                        }
+
+                        if state.step_limit_hit {
+                            self.events.push(SimEvent::ScriptOutput {
+                                entity_id: eid,
+                                text: "[warning] Script exceeded step limit (10000 instructions) — auto-yielded".into(),
+                            });
+                        }
+                    }
+
+                    // Put script state back.
+                    if let Some(entity) = self.get_entity_mut(eid) {
+                        entity.script_state = script_state;
+                    }
+                }
+
+                if interrupted {
+                    self.events.push(SimEvent::ScriptOutput {
+                        entity_id: eid,
+                        text: format!("[{}] interrupted", channel.command_name),
+                    });
+                    // Channel cancelled, entity proceeds with interrupting action.
+                    continue;
+                }
+
+                // Run on_start effects (first tick of phase only).
+                let mut channel_cancelled = false;
+                if is_first_tick && !phase.on_start.is_empty() {
+                    let mut effect_events = Vec::new();
+                    let aborted = resolve_custom_effects(
+                        self, eid, &channel.command_name,
+                        &phase.on_start, &channel.args, &mut effect_events,
+                    );
+                    self.events.extend(effect_events);
+                    if aborted {
+                        channel_cancelled = true;
+                    }
+                }
+
+                // Run per_tick effects.
+                if !channel_cancelled && !phase.per_tick.is_empty() {
+                    let mut effect_events = Vec::new();
+                    let aborted = resolve_custom_effects(
+                        self, eid, &channel.command_name,
+                        &phase.per_tick, &channel.args, &mut effect_events,
+                    );
+                    self.events.extend(effect_events);
+                    if aborted {
+                        channel_cancelled = true;
+                    }
+                }
+
+                if channel_cancelled {
+                    continue;
+                }
+
+                // Advance tick counter within phase.
+                channel.ticks_elapsed_in_phase += 1;
+                if channel.ticks_elapsed_in_phase >= phase.ticks {
+                    channel.phase_index += 1;
+                    channel.ticks_elapsed_in_phase = 0;
+                }
+
+                // Check if channel is complete.
+                if channel.phase_index < channel.phases.len() {
+                    if let Some(entity) = self.get_entity_mut(eid) {
+                        entity.active_channel = Some(channel);
+                    }
+                }
+                // else: channel done, entity resumes normal script execution next tick.
+
+                continue;
+            }
+
+            // --- Normal script execution ---
             // Take script state out to avoid borrow conflicts.
             let mut script_state = match self.get_entity_mut(eid) {
                 Some(entity) => match entity.script_state.take() {
@@ -500,5 +648,275 @@ mod tests {
 
         let events = world.take_events();
         assert!(events.iter().any(|e| matches!(e, SimEvent::ScriptError { .. })));
+    }
+
+    /// Helper: collect all ScriptOutput texts from events.
+    fn output_texts(events: &[SimEvent]) -> Vec<String> {
+        events.iter().filter_map(|e| match e {
+            SimEvent::ScriptOutput { text, .. } => Some(text.clone()),
+            _ => None,
+        }).collect()
+    }
+
+    #[test]
+    fn phased_command_three_phases() {
+        let mut world = SimWorld::new(42);
+        let id = world.spawn_entity("summoner".into(), "s".into(), 0);
+
+        // Register a phased command: 2-tick phase 0, 1-tick phase 1, 1-tick phase 2.
+        let def = CommandDef {
+            name: "spell".into(),
+            description: "test spell".into(),
+            args: vec![],
+            effects: vec![],
+            phases: vec![
+                PhaseDef {
+                    ticks: 2,
+                    interruptible: false,
+                    per_tick: vec![CommandEffect::Output { message: "phase0-tick".into() }],
+                    on_start: vec![CommandEffect::Output { message: "phase0-start".into() }],
+                },
+                PhaseDef {
+                    ticks: 1,
+                    interruptible: false,
+                    per_tick: vec![],
+                    on_start: vec![CommandEffect::Output { message: "phase1-start".into() }],
+                },
+                PhaseDef {
+                    ticks: 1,
+                    interruptible: false,
+                    per_tick: vec![CommandEffect::Output { message: "phase2-tick".into() }],
+                    on_start: vec![],
+                },
+            ],
+        };
+        world.register_custom_command(&def);
+
+        // Script: call spell(), then wait forever.
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("spell".into()),
+                // After channel completes, loop wait.
+                Instruction::ActionWait,
+                Instruction::Jump(1),
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+
+        // Tick 1: script calls spell() → channel set up (no effects yet).
+        world.tick();
+        let events = world.take_events();
+        let texts = output_texts(&events);
+        assert!(texts.is_empty(), "No effects on initiation tick: {:?}", texts);
+        assert!(world.get_entity(id).unwrap().active_channel.is_some());
+
+        // Tick 2: phase 0, tick 0 → on_start + per_tick.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"phase0-start".to_string()), "on_start runs first tick: {:?}", texts);
+        assert!(texts.contains(&"phase0-tick".to_string()), "per_tick runs first tick: {:?}", texts);
+
+        // Tick 3: phase 0, tick 1 → per_tick only (no on_start).
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(!texts.contains(&"phase0-start".to_string()), "on_start should not repeat: {:?}", texts);
+        assert!(texts.contains(&"phase0-tick".to_string()), "per_tick runs: {:?}", texts);
+
+        // Tick 4: phase 1, tick 0 → on_start.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"phase1-start".to_string()), "phase1 on_start: {:?}", texts);
+
+        // Tick 5: phase 2, tick 0 → per_tick.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"phase2-tick".to_string()), "phase2 per_tick: {:?}", texts);
+
+        // Channel should be done now.
+        assert!(world.get_entity(id).unwrap().active_channel.is_none());
+    }
+
+    #[test]
+    fn phased_command_interruptible_cancelled_by_action() {
+        let mut world = SimWorld::new(42);
+        let id = world.spawn_entity("summoner".into(), "s".into(), 0);
+
+        // Register phased command with interruptible phase.
+        let def = CommandDef {
+            name: "channel".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![],
+            phases: vec![
+                PhaseDef {
+                    ticks: 5,
+                    interruptible: true,
+                    per_tick: vec![CommandEffect::Output { message: "channeling".into() }],
+                    on_start: vec![],
+                },
+            ],
+        };
+        world.register_custom_command(&def);
+
+        // Script: call channel(), then immediately move(100) (which interrupts).
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("channel".into()),
+                // Next tick (during interruptible phase), script runs and yields move.
+                Instruction::LoadConst(SimValue::Int(100)),
+                Instruction::ActionMove,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+
+        // Tick 1: script calls channel() → channel set up.
+        world.tick();
+        world.take_events();
+
+        // Tick 2: interruptible phase — script yields move(100) → interrupt.
+        world.tick();
+        let events = world.take_events();
+        let texts = output_texts(&events);
+        assert!(texts.iter().any(|t| t.contains("interrupted")), "Should emit interrupted: {:?}", texts);
+        // Channel should be gone.
+        assert!(world.get_entity(id).unwrap().active_channel.is_none());
+        // Entity should have moved.
+        assert!(world.get_entity(id).unwrap().position > 0);
+    }
+
+    #[test]
+    fn phased_command_use_resource_failure_cancels() {
+        let mut world = SimWorld::new(42);
+        let id = world.spawn_entity("summoner".into(), "s".into(), 0);
+        // Set energy to 15 — enough for 1 tick of 10 drain but not 2.
+        world.get_entity_mut(id).unwrap().energy = 15;
+
+        let def = CommandDef {
+            name: "drain".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![],
+            phases: vec![
+                PhaseDef {
+                    ticks: 3,
+                    interruptible: false,
+                    per_tick: vec![
+                        CommandEffect::UseResource { stat: "energy".into(), amount: 10 },
+                        CommandEffect::Output { message: "drained".into() },
+                    ],
+                    on_start: vec![],
+                },
+                PhaseDef {
+                    ticks: 1,
+                    interruptible: false,
+                    per_tick: vec![],
+                    on_start: vec![CommandEffect::Output { message: "should not reach".into() }],
+                },
+            ],
+        };
+        world.register_custom_command(&def);
+
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("drain".into()),
+                Instruction::ActionWait,
+                Instruction::Jump(1),
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+
+        // Tick 1: initiation.
+        world.tick();
+        world.take_events();
+
+        // Tick 2: phase 0, tick 0 — drains 10 energy (15 → 5). Should succeed.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"drained".to_string()), "First drain should succeed: {:?}", texts);
+        assert_eq!(world.get_entity(id).unwrap().energy, 5);
+
+        // Tick 3: phase 0, tick 1 — needs 10 energy but only 5 → abort.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(texts.iter().any(|t| t.contains("not enough")), "Should fail: {:?}", texts);
+        assert!(!texts.contains(&"drained".to_string()), "Should not drain: {:?}", texts);
+        // Channel should be cancelled.
+        assert!(world.get_entity(id).unwrap().active_channel.is_none());
+
+        // Tick 4: no more channel — "should not reach" never fires.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(!texts.contains(&"should not reach".to_string()));
+    }
+
+    #[test]
+    fn phased_command_non_interruptible_blocks_script() {
+        let mut world = SimWorld::new(42);
+        let id = world.spawn_entity("summoner".into(), "s".into(), 0);
+
+        let def = CommandDef {
+            name: "lock".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![],
+            phases: vec![
+                PhaseDef {
+                    ticks: 2,
+                    interruptible: false,
+                    per_tick: vec![],
+                    on_start: vec![CommandEffect::Output { message: "locked".into() }],
+                },
+            ],
+        };
+        world.register_custom_command(&def);
+
+        // Script: call lock(), then move(100).
+        // During non-interruptible phase, script should NOT execute.
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("lock".into()),
+                Instruction::LoadConst(SimValue::Int(100)),
+                Instruction::ActionMove,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+
+        // Tick 1: initiation.
+        world.tick();
+        world.take_events();
+        assert_eq!(world.get_entity(id).unwrap().position, 0);
+
+        // Tick 2: non-interruptible phase tick 0 — script blocked.
+        world.tick();
+        world.take_events();
+        assert_eq!(world.get_entity(id).unwrap().position, 0, "Script should be blocked");
+
+        // Tick 3: non-interruptible phase tick 1 — still blocked.
+        world.tick();
+        world.take_events();
+        assert_eq!(world.get_entity(id).unwrap().position, 0, "Script should still be blocked");
+
+        // Tick 4: channel done — script resumes, moves.
+        world.tick();
+        world.take_events();
+        assert!(world.get_entity(id).unwrap().position > 0, "Script should resume and move");
     }
 }

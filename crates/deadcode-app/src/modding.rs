@@ -325,10 +325,15 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
                 );
             }
         }
-        // Also validate spawn effects in custom command definitions.
+        // Also validate spawn effects in custom command definitions (effects + phases).
         if let Some(cmds) = &m.manifest.commands {
             for def in &cmds.definitions {
-                for effect in &def.effects {
+                let mut all_effects: Vec<&CommandEffect> = def.effects.iter().collect();
+                for phase in &def.phases {
+                    all_effects.extend(phase.on_start.iter());
+                    all_effects.extend(phase.per_tick.iter());
+                }
+                for effect in all_effects {
                     if let CommandEffect::Spawn { entity_type, .. } = effect {
                         if !known_types.contains(entity_type) {
                             eprintln!(
@@ -343,9 +348,55 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
     }
 }
 
+/// Validate a list of effects against known stat names, target references, and arg names.
+fn validate_effects(
+    effects: &[CommandEffect],
+    args: &[String],
+    cmd_name: &str,
+    mod_id: &str,
+    valid_stats: &HashSet<&str>,
+) {
+    for effect in effects {
+        // Validate stat names in ModifyStat and UseResource effects.
+        let stat_name = match effect {
+            CommandEffect::ModifyStat { stat, .. }
+            | CommandEffect::UseResource { stat, .. } => Some(stat.as_str()),
+            _ => None,
+        };
+        if let Some(stat) = stat_name {
+            if !valid_stats.contains(stat) {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{cmd_name}' references unknown stat '{stat}' \
+                     (valid: health, energy, shield, speed)",
+                );
+            }
+        }
+        // Validate UseResource amounts.
+        if let CommandEffect::UseResource { stat, amount } = effect {
+            if *amount <= 0 {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{cmd_name}' has non-positive use_resource amount {amount} for {stat}",
+                );
+            }
+        }
+        // Validate target strings in effects that have them.
+        let target_str = match effect {
+            CommandEffect::Damage { target, .. }
+            | CommandEffect::Heal { target, .. }
+            | CommandEffect::ModifyStat { target, .. } => Some(target.as_str()),
+            _ => None,
+        };
+        if let Some(target) = target_str {
+            validate_target(target, args, cmd_name, mod_id);
+        }
+    }
+}
+
 /// Validate custom command definitions at load time.
 ///
 /// Checks stat names in `ModifyStat`/`UseResource` effects, `arg:` target references.
+/// For phased commands: validates mutual exclusivity with `effects`, phase ticks > 0,
+/// and effects within `on_start`/`per_tick` lists.
 pub fn validate_command_defs(mods: &[LoadedMod]) {
     let valid_stats: HashSet<&str> = ["health", "energy", "shield", "speed"].into_iter().collect();
 
@@ -353,6 +404,28 @@ pub fn validate_command_defs(mods: &[LoadedMod]) {
         let Some(cmds) = &m.manifest.commands else { continue };
         let mod_id = &m.manifest.meta.id;
         for def in &cmds.definitions {
+            // Mutual exclusivity: warn if both effects and phases are non-empty.
+            if !def.effects.is_empty() && !def.phases.is_empty() {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{}' has both 'effects' and 'phases' — \
+                     'phases' takes precedence",
+                    def.name
+                );
+            }
+
+            // Validate phases.
+            for (i, phase) in def.phases.iter().enumerate() {
+                if phase.ticks <= 0 {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: command '{}' phase {i} has non-positive ticks ({})",
+                        def.name, phase.ticks
+                    );
+                }
+                validate_effects(&phase.on_start, &def.args, &def.name, mod_id, &valid_stats);
+                validate_effects(&phase.per_tick, &def.args, &def.name, mod_id, &valid_stats);
+            }
+
+            // Validate instant effects.
             for effect in &def.effects {
                 // Validate stat names in ModifyStat and UseResource effects.
                 let stat_name = match effect {

@@ -20,7 +20,7 @@ pub mod rng;
 pub mod value;
 pub mod world;
 
-pub use action::{CommandDef, CommandEffect};
+pub use action::{CommandDef, CommandEffect, PhaseDef};
 pub use entity::{EntityId, SimEntity};
 pub use ir::{CompiledScript, Instruction};
 pub use value::SimValue;

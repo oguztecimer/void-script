@@ -358,6 +358,86 @@ The `use_resource` effect checks and deducts the resource atomically. Valid stat
 
 Since `use_resource` is just an effect, you can place multiple resource checks or interleave them with other effects for fine-grained control.
 
+## Phased Commands
+
+Commands can optionally use **phases** instead of instant effects to create multi-tick abilities with distinct stages — e.g., a windup, impact, and recovery. Commands with `phases` use the phased system; commands with only `effects` use the instant system. They are mutually exclusive (validated at load time).
+
+### Schema
+
+```toml
+[[commands.definitions]]
+name = "fireball"
+description = "Channel a fireball"
+args = ["target"]
+phases = [
+  { ticks = 5, interruptible = true, per_tick = [
+    { type = "use_resource", stat = "energy", amount = 10 },
+  ], on_start = [
+    { type = "output", message = "[fireball] Channeling..." },
+  ]},
+  { ticks = 1, interruptible = false, on_start = [
+    { type = "damage", target = "arg:target", amount = 50 },
+    { type = "output", message = "[fireball] Impact!" },
+  ]},
+  { ticks = 4, interruptible = false, on_start = [
+    { type = "output", message = "[fireball] Recovering..." },
+  ]},
+]
+```
+
+### Phase Fields
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `ticks` | Yes | — | Number of ticks this phase lasts (must be > 0) |
+| `interruptible` | No | `false` | Whether the entity's script runs during this phase |
+| `on_start` | No | `[]` | Effects that run on the first tick of the phase |
+| `per_tick` | No | `[]` | Effects that run every tick of the phase (including the first) |
+
+Effects inside `on_start` and `per_tick` use the same effect types as instant commands (output, damage, heal, spawn, modify_stat, use_resource, list_commands).
+
+### Execution Model
+
+1. **Initiation tick:** The script calls the command (e.g., `fireball(target)`) → a channel is set up on the entity. No effects run this tick — the action is consumed.
+2. **Phase ticks (next tick onward):** Before normal script execution, the tick loop processes active channels:
+   - **First tick of a phase:** `on_start` effects run, then `per_tick` effects.
+   - **Subsequent ticks:** Only `per_tick` effects run.
+   - When ticks remaining reaches 0, the next phase begins.
+3. **Channel complete:** All phases done → entity resumes normal script execution next tick.
+
+### Timing Example
+
+For the fireball example above (5 + 1 + 4 = 10 phase ticks):
+
+| Tick | What happens |
+|------|-------------|
+| N | Script calls `fireball(target)` → channel set up |
+| N+1 to N+5 | Phase 0: windup (interruptible, drains 10 energy/tick) |
+| N+6 | Phase 1: impact (50 damage, non-interruptible) |
+| N+7 to N+10 | Phase 2: recovery (non-interruptible) |
+| N+11 | Script resumes normally |
+
+### Interruption
+
+During **interruptible** phases, the entity's script runs normally each tick:
+- If the script yields a real action (move, attack, flee, or another command), the channel is **cancelled** and that action executes instead. A `[<command>] interrupted` message is emitted.
+- If the script yields `wait` or halts, the channel continues as normal.
+
+During **non-interruptible** phases, the script is not executed at all — the entity is locked into the channel.
+
+### Cancellation on Resource Failure
+
+If a `use_resource` effect within a phase's `on_start` or `per_tick` fails (insufficient resource), the entire channel is cancelled. Remaining effects in that tick and all subsequent phases are skipped. The standard `[<command>] not enough <stat>` message is emitted.
+
+### Edge Cases
+
+| Case | Behavior |
+|------|----------|
+| Entity dies mid-channel | Dead entities don't tick → channel abandoned |
+| Target dies mid-channel | Effects targeting it become no-ops (existing behavior) |
+| Script hot-reload during channel | Channel is cleared along with script state |
+| Both `effects` and `phases` set | Validation warning; `phases` takes precedence |
+
 ## Phase 2: Library Files (Future)
 
 > **Status:** Design sketch. The `libraries` field is reserved in the schema but not yet loaded or compiled.
@@ -391,6 +471,90 @@ Library functions inherit the mod's available commands set. If a library functio
 
 Library functions can call custom commands from the same mod. Cross-mod library-to-custom-command calls work if the target command is in the available set (i.e., in `initial` or unlocked at runtime).
 
+## Adding New Effects (Developer Guide)
+
+There are two paths for adding new game mechanics, depending on what the mechanic needs to do.
+
+### Effects vs Builtins
+
+| | Effect path | Builtin path |
+|---|---|---|
+| **What it is** | A new `CommandEffect` variant modders use from `mod.toml` | A new function scripts call directly (e.g., `nearest("skeleton")`) |
+| **Files touched** | 1–2 Rust files | 5 files |
+| **Use when** | The mechanic modifies world state as part of a command (teleport, area damage, buff/debuff, resource transfer, etc.) | The mechanic returns a value to the script, or needs script-computed arguments (`move(get_pos(target))`) |
+| **Examples** | `damage`, `heal`, `spawn`, `modify_stat`, `use_resource` | `nearest`, `scan`, `get_health`, `move`, `attack` |
+
+**Rule of thumb:** if a modder can express it as static TOML values (fixed amounts, stat names, entity types), it belongs in the effect system. If the script needs to compute arguments at runtime or read a return value, it needs a builtin.
+
+### Step-by-step: Adding a New Effect
+
+1. **Add a variant to `CommandEffect`** in `crates/deadcode-sim/src/action.rs`:
+
+   ```rust
+   #[serde(rename = "teleport")]
+   Teleport {
+       target: String,
+       position: i64,
+   },
+   ```
+
+   The `#[serde(rename = "...")]` controls the `type` string used in `mod.toml`.
+
+2. **Add a match arm in `resolve_custom_effects()`** in the same file. This is where the effect actually modifies world state:
+
+   ```rust
+   CommandEffect::Teleport { target, position } => {
+       let target_id = resolve_target_from_args(entity_id, target, args);
+       if let Some(tid) = target_id {
+           if let Some(entity) = world.get_entity_mut(tid) {
+               entity.position = *position;
+           }
+       }
+   }
+   ```
+
+3. **(Optional) Add validation in `modding.rs`** — see below for when this is needed.
+
+4. **Use it in `mod.toml`:**
+
+   ```toml
+   effects = [
+     { type = "teleport", target = "self", position = 100 },
+   ]
+   ```
+
+5. **Update `docs/modding.md`** — add the effect to the Effect Types table and document its fields.
+
+### When to Add Validation in `modding.rs`
+
+`validate_command_defs()` in `crates/deadcode-app/src/modding.rs` runs at mod load time and checks that TOML values reference valid things. Not all effects need validation — only effects with fields whose values can be wrong in ways TOML parsing alone can't catch.
+
+**Fields that need validation:**
+
+| Field | What's checked | Why |
+|-------|---------------|-----|
+| `target` (in `damage`, `heal`, `modify_stat`) | Must be `"self"` or `"arg:<name>"` where `<name>` matches a declared arg | Catches typos like `"arg:victem"` when the arg is `"victim"` |
+| `stat` (in `modify_stat`, `use_resource`) | Must be one of `health`, `energy`, `shield`, `speed` | Catches invalid stat names like `"mana"` or `"hp"` |
+| `amount` (in `use_resource`) | Must be positive | A non-positive cost doesn't make sense |
+| `entity_type` (in `spawn`) | Validated separately by `validate_spawns()` — checks the type exists in some loaded mod | Catches references to undefined entity types |
+
+**Fields that don't need validation:**
+
+- `message` in `output` — any string is valid
+- Effects with no fields (like `list_commands`)
+
+If your new effect has a `target` or `stat` field, add it to the existing match arms in `validate_command_defs()`. If it introduces a new kind of validated field, add a new check.
+
+### Step-by-step: Adding a New Builtin
+
+For completeness, here's the builtin path (5 files):
+
+1. `crates/deadcode-sim/src/ir.rs` — add `Instruction` variant(s) (e.g., `QueryTeleport`, `ActionTeleport`)
+2. `crates/deadcode-sim/src/executor.rs` — add match arm(s) to execute the instruction
+3. `crates/deadcode-sim/src/action.rs` — if it's an action, add a `UnitAction` variant and handle it in `resolve_action()`
+4. `crates/deadcode-sim/src/compiler/builtins.rs` — map the function name to IR instruction(s)
+5. `crates/grimscript-lang/src/builtins.rs` — register the function name so the interpreter knows about it; set `is_game_builtin()` to return true so it's gated by available commands
+
 ## Internals
 
 The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
@@ -402,7 +566,9 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `SpawnDef` | Initial spawn definition (type, name, position) |
 | `InitialDef` | Initial effects run on fresh game start |
 | `CommandsDef` | Available command list + command definitions |
-| `CommandDef` | Custom command definition (name, description, args, effects) — lives in `deadcode-sim/action.rs` |
+| `CommandDef` | Custom command definition (name, description, args, effects, phases) — lives in `deadcode-sim/action.rs` |
+| `PhaseDef` | Single phase in a multi-tick phased command (ticks, interruptible, on_start, per_tick) — lives in `deadcode-sim/action.rs` |
+| `ChannelState` | Active channel state on an entity during phased execution — lives in `deadcode-sim/entity.rs` |
 | `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands) — lives in `deadcode-sim/action.rs` |
 | `SpriteData` | Loaded PNG bytes + JSON metadata string |
 | `LoadedMod` | Fully resolved mod with sprite/pivot/config/command registries |
@@ -414,18 +580,19 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 2. Each manifest is parsed, sprite files are read from disk
 3. Registries (sprites, pivots, entity configs) are merged into `App`, with collision warnings on duplicates
 4. `modding::validate_spawns()` checks all spawn entity types and spawn effects against known types
-5. `modding::validate_command_defs()` checks stat names, target references, and `use_resource` amounts in custom command definitions
+5. `modding::validate_command_defs()` checks stat names, target references, `use_resource` amounts, phase ticks > 0, effects/phases mutual exclusivity, and effects within phase `on_start`/`per_tick` lists
 6. `[[spawn]]` entries create both sim entities and render units
 7. `[commands].initial` entries populate `App::available_commands`
 8. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld` (effects, arg counts), with collision warnings on duplicate command names
 
 **Custom command flow:**
 1. `CommandDef` structs are parsed from TOML and collected in `App::command_defs`
-2. At sim init, each def is registered via `SimWorld::register_custom_command()`
+2. At sim init, each def is registered via `SimWorld::register_custom_command()` — stores effects, arg counts, and phases
 3. The compiler receives custom command arg counts, emits `ActionCustom(name)` IR instructions
 4. The executor pops args and yields `UnitAction::Custom { name, args }`
-5. `resolve_action()` looks up effects in `SimWorld::custom_commands` and applies them in order; `use_resource` effects abort the command early if the resource check fails
-6. Custom command metadata (name, description, args) is sent to the frontend via `AvailableCommands` IPC for autocomplete
+5. `resolve_action()` checks if the command has phases: if yes, creates a `ChannelState` on the entity (effects start next tick); if no, resolves instant effects in order; `use_resource` effects abort the command early if the resource check fails
+6. **Phased commands:** each tick, the tick loop processes active channels before script execution — runs `on_start`/`per_tick` effects, handles interruption for interruptible phases, advances phase counters
+7. Custom command metadata (name, description, args) is sent to the frontend via `AvailableCommands` IPC for autocomplete
 
 **Reserved schema fields** (parsed but not enforced):
 - `depends_on: Vec<String>` — mod IDs this mod requires

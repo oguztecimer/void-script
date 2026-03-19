@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::action::PhaseDef;
 use crate::ir::CompiledScript;
 use crate::value::SimValue;
 
@@ -52,6 +53,16 @@ impl ScriptState {
     }
 }
 
+/// Active channel state for a multi-tick phased command.
+#[derive(Debug, Clone)]
+pub struct ChannelState {
+    pub command_name: String,
+    pub args: Vec<SimValue>,
+    pub phases: Vec<PhaseDef>,
+    pub phase_index: usize,
+    pub ticks_elapsed_in_phase: i64,
+}
+
 /// Optional stat overrides applied at spawn time.
 #[derive(Debug, Clone, Default)]
 pub struct EntityConfig {
@@ -97,6 +108,9 @@ pub struct SimEntity {
 
     // Script (None for non-scriptable entities)
     pub script_state: Option<ScriptState>,
+
+    /// Active channel for a multi-tick phased command (None when idle).
+    pub active_channel: Option<ChannelState>,
 }
 
 impl SimEntity {
@@ -121,6 +135,7 @@ impl SimEntity {
             target: None,
             alive: true,
             script_state: None,
+            active_channel: None,
         }
     }
 

@@ -852,6 +852,8 @@ impl App {
                         }
                         if let Some(entity) = sim.get_entity_mut(eid) {
                             entity.script_state = Some(state);
+                            // Clear any active channel — hot-reload resets all execution state.
+                            entity.active_channel = None;
                         }
                     }
                 }

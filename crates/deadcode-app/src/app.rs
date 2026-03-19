@@ -618,6 +618,14 @@ impl ApplicationHandler<UserEvent> for App {
             sim.entity_configs.insert(etype.clone(), config.clone());
         }
 
+        // Compute spawn animation durations from sprite atlas metadata.
+        for (etype, sprite) in &self.sprite_registry {
+            let ticks = deadcode_desktop::animation::spawn_animation_ticks(&sprite.json);
+            if ticks > 0 {
+                sim.spawn_durations.insert(etype.clone(), ticks);
+            }
+        }
+
         // Auto-start simulation — it runs continuously from game open.
         sim.start();
 

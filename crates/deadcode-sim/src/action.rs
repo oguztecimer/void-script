@@ -346,14 +346,18 @@ pub fn resolve_custom_effects(
                 let position = world.get_entity(entity_id)
                     .map(|e| e.position + offset)
                     .unwrap_or(offset);
-                let spawned = SimEntity::new(
+                let mut spawned = SimEntity::new(
                     EntityId(world.next_entity_id()),
                     entity_type.clone(),
                     format!("{}_{}", entity_type, position),
                     position,
                 );
+                // Set spawn duration so entity can't act until animation finishes.
+                spawned.spawn_ticks_remaining = world.spawn_durations
+                    .get(entity_type)
+                    .copied()
+                    .unwrap_or(0);
                 let spawned_id = spawned.id;
-                // Apply entity config if available.
                 world.queue_spawn(spawned);
                 events.push(SimEvent::EntitySpawned {
                     entity_id: spawned_id,

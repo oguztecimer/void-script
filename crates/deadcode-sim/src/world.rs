@@ -85,6 +85,8 @@ pub struct SimWorld {
     pub custom_command_phases: HashMap<String, Vec<PhaseDef>>,
     /// Entity type → stat overrides (for spawning from effects).
     pub entity_configs: HashMap<String, EntityConfig>,
+    /// Entity type → spawn animation duration in ticks (0 = no spawn animation).
+    pub spawn_durations: HashMap<String, i64>,
     /// Command display order (from available_commands insertion order).
     pub command_order: Vec<String>,
 }
@@ -106,6 +108,7 @@ impl SimWorld {
             custom_command_descriptions: HashMap::new(),
             custom_command_phases: HashMap::new(),
             entity_configs: HashMap::new(),
+            spawn_durations: HashMap::new(),
             command_order: Vec::new(),
         }
     }
@@ -253,11 +256,19 @@ impl SimWorld {
         // 2. Derive per-tick RNG.
         let mut rng = SimRng::new(self.seed ^ self.tick);
 
+        // 2b. Tick spawn timers.
+        for entity in &mut self.entities {
+            if entity.alive && entity.spawn_ticks_remaining > 0 {
+                entity.spawn_ticks_remaining -= 1;
+            }
+        }
+
         // 3. Collect scriptable entity IDs (including channeling entities), shuffle.
+        //    Skip entities that are still spawning.
         let mut scriptable_ids: Vec<EntityId> = self
             .entities
             .iter()
-            .filter(|e| e.alive && (e.script_state.is_some() || e.active_channel.is_some()))
+            .filter(|e| e.is_ready() && (e.script_state.is_some() || e.active_channel.is_some()))
             .map(|e| e.id)
             .collect();
         rng.shuffle(&mut scriptable_ids);

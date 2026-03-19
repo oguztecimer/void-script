@@ -9,7 +9,7 @@ pub fn scan(world: &SimWorld, self_id: EntityId, filter: &str) -> Vec<SimValue> 
     let filter = filter.to_lowercase();
     world
         .entities()
-        .filter(|e| e.alive && e.id != self_id)
+        .filter(|e| e.is_ready() && e.id != self_id)
         .filter(|e| filter.is_empty() || filter == "*" || filter == "all" || e.entity_type == filter)
         .map(|e| SimValue::EntityRef(e.id))
         .collect()
@@ -26,7 +26,7 @@ pub fn nearest(world: &SimWorld, self_id: EntityId, filter: &str) -> SimValue {
 
     let mut best: Option<(EntityId, i64)> = None;
     for e in world.entities() {
-        if !e.alive || e.id == self_id {
+        if !e.is_ready() || e.id == self_id {
             continue;
         }
         if !filter.is_empty() && filter != "*" && filter != "all" && e.entity_type != filter {

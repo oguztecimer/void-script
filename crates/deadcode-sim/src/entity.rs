@@ -105,6 +105,8 @@ pub struct SimEntity {
     // State
     pub target: Option<EntityId>,
     pub alive: bool,
+    /// Ticks remaining in spawn animation. While > 0, entity can't act or be targeted.
+    pub spawn_ticks_remaining: i64,
 
     // Script (None for non-scriptable entities)
     pub script_state: Option<ScriptState>,
@@ -134,9 +136,15 @@ impl SimEntity {
             cooldown_remaining: 0,
             target: None,
             alive: true,
+            spawn_ticks_remaining: 0,
             script_state: None,
             active_channel: None,
         }
+    }
+
+    /// Whether this entity is fully spawned and can act/be targeted.
+    pub fn is_ready(&self) -> bool {
+        self.alive && self.spawn_ticks_remaining <= 0
     }
 
     /// Apply optional stat overrides from an `EntityConfig`.

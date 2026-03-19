@@ -61,8 +61,9 @@ Each entity with a script has a `ScriptState`:
 - `step_limit_hit` — true if the entity hit the 10k step limit this tick (triggers warning event)
 
 Per tick, the world:
-1. Shuffles scriptable entities (seeded RNG for determinism)
-2. For each entity: takes script state out, calls `executor::execute_unit()`
+1. Decrements `spawn_ticks_remaining` on spawning entities
+2. Shuffles ready entities — excludes those still spawning (seeded RNG for determinism)
+3. For each entity: takes script state out, calls `executor::execute_unit()`
 3. Executor steps instructions until one of:
    - **Action instruction** (move, attack, etc.) → yields, tick consumed
    - **Halt** → script finished
@@ -130,7 +131,7 @@ This applies to both hardcoded game builtins and custom mod-defined commands. Cu
 - Interpreter: before `call_builtin()` and before entity method dispatch (`interpreter.rs`)
 - Compiler: before emitting Query/Action/CustomAction instructions and before method call fallback (`emit.rs`). The compiler uses `classify_with_custom()` which checks both static builtins and the `custom_commands` map.
 
-**Unlocking commands at runtime**: `App::available_commands` is a `HashSet<String>` in `deadcode-app`, initially populated from mod manifests (`[commands].initial`). Insert a command name, then call `send_available_commands()` to push the updated set to the frontend and `execution_manager.set_available_commands()` to update the interpreter gate.
+**Unlocking commands at runtime**: `App::available_commands` is a `Vec<String>` in `deadcode-app` (preserves insertion order), initially populated from mod manifests (`[commands].initial`). Push a command name, then call `send_available_commands()` to push the updated set to the frontend and `execution_manager.set_available_commands()` to update the interpreter gate. The `help()` command lists commands in this insertion order.
 
 ## Value Types (SimValue)
 

@@ -339,11 +339,31 @@ impl AnimationPlayer {
         self.frame_height
     }
 
+    /// Total ticks for a named animation, or 0 if not found.
+    pub fn animation_duration_ticks(&self, name: &str) -> u64 {
+        let Some(&idx) = self.anim_index.get(name) else { return 0 };
+        self.defs[idx].frames.iter().map(|f| f.ticks).sum()
+    }
+
     /// Whether the current animation is a resting state (idle/sleep).
     pub fn is_resting(&self) -> bool {
         let name = self.current_animation();
         name == "idle" || name == "sleep"
     }
+}
+
+/// Compute the total ticks of the "spawn" animation from atlas JSON metadata.
+/// Returns 0 if no "spawn" animation exists.
+pub fn spawn_animation_ticks(json_str: &str) -> i64 {
+    let meta: AtlasMetadata = match serde_json::from_str(json_str) {
+        Ok(m) => m,
+        Err(_) => return 0,
+    };
+    meta.animations
+        .iter()
+        .find(|a| a.name == "spawn")
+        .map(|a| a.frames.iter().map(|f| f.ticks as i64).sum())
+        .unwrap_or(0)
 }
 
 impl Default for AnimationPlayer {

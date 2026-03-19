@@ -55,7 +55,7 @@ phases = [
     { type = "spawn", entity_type = "skeleton", offset = "rand(-300,300)"},
     { type = "output", message = "[raise] A skeleton rises!" },
   ]},
-  { ticks = 9, interruptible = false, on_start = [
+  { ticks = 18, interruptible = false, on_start = [
     { type = "output", message = "[raise] Recovering..." },
   ]},
 ]

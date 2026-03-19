@@ -109,7 +109,8 @@ impl UnitManager {
         let id = self.next_id;
         self.next_id += 1;
 
-        let animation = AnimationPlayer::from_bytes(png_bytes, json_str);
+        let mut animation = AnimationPlayer::from_bytes(png_bytes, json_str);
+        animation.play("spawn");
 
         self.units.insert(id, Unit {
             id,

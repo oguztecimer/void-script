@@ -101,10 +101,10 @@ Sprites use a sprite atlas system: one PNG containing all animation frames laid 
       "name": "idle",
       "row": 0,
       "frames": [
-        { "col": 0, "duration_ms": 200 },
-        { "col": 1, "duration_ms": 200 },
-        { "col": 2, "duration_ms": 200 },
-        { "col": 3, "duration_ms": 200 }
+        { "col": 0, "ticks": 3 },
+        { "col": 1, "ticks": 3 },
+        { "col": 2, "ticks": 3 },
+        { "col": 3, "ticks": 3 }
       ],
       "loop_mode": "loop"
     },
@@ -112,10 +112,10 @@ Sprites use a sprite atlas system: one PNG containing all animation frames laid 
       "name": "walk",
       "row": 1,
       "frames": [
-        { "col": 0, "duration_ms": 100 },
-        { "col": 1, "duration_ms": 100 },
-        { "col": 2, "duration_ms": 100 },
-        { "col": 3, "duration_ms": 100 }
+        { "col": 0, "ticks": 3 },
+        { "col": 1, "ticks": 3 },
+        { "col": 2, "ticks": 3 },
+        { "col": 3, "ticks": 3 }
       ],
       "loop_mode": "loop"
     },
@@ -123,9 +123,9 @@ Sprites use a sprite atlas system: one PNG containing all animation frames laid 
       "name": "attack",
       "row": 2,
       "frames": [
-        { "col": 0, "duration_ms": 80 },
-        { "col": 1, "duration_ms": 80 },
-        { "col": 2, "duration_ms": 80 }
+        { "col": 0, "ticks": 2 },
+        { "col": 1, "ticks": 2 },
+        { "col": 2, "ticks": 2 }
       ],
       "loop_mode": "play_once"
     }
@@ -137,7 +137,11 @@ Sprites use a sprite atlas system: one PNG containing all animation frames laid 
 - An `idle` animation must exist (the engine starts on it and transitions back to it after `play_once` animations finish)
 - `frame_width` and `frame_height` must match the grid cell size in the PNG
 - `row` is the 0-indexed row in the atlas, `col` is the 0-indexed column
+- `ticks` is how many sim ticks (at 30 TPS, 1 tick ≈ 33ms) each frame lasts
 - `loop_mode`: `"loop"` repeats forever, `"play_once"` plays through then returns to idle
+- Animations are sim-driven and deterministic — they advance exactly once per sim tick
+- A `spawn` animation (if present) plays automatically when an entity is spawned; the entity can't act or be targeted until it finishes
+- Unknown animation names in `play()` calls are logged as warnings, not crashes
 
 **Pivot point:** The `pivot` field in `[[entities]]` controls where the sprite's anchor point is. `[x, y]` offsets from the top-left corner of the frame. The sprite is positioned so the pivot sits at the entity's world position.
 
@@ -235,13 +239,21 @@ Effects are resolved in order when the command executes.
 
 | Effect | Fields | Description |
 |--------|--------|-------------|
-| `output` | `message` | Print a message to the console |
+| `output` | `message` | Print a message to the console. Supports `<hl>text</hl>` for highlighted text. |
 | `damage` | `target`, `amount` | Deal damage (shield absorbs first) |
 | `heal` | `target`, `amount` | Restore health (capped at max) |
-| `spawn` | `entity_type`, `offset` | Spawn entity at self.position + offset |
+| `spawn` | `entity_type`, `offset` | Spawn entity at self.position + offset. Entity plays spawn animation and can't act until it finishes. |
 | `modify_stat` | `target`, `stat`, `amount` | Add to a stat (can be negative) |
 | `use_resource` | `stat`, `amount` | Check and deduct a resource from self; aborts remaining effects if insufficient |
-| `list_commands` | *(none)* | List all registered commands and their descriptions |
+| `list_commands` | *(none)* | List all registered commands and descriptions (in unlock order) |
+| `animate` | `target`, `animation` | Trigger a sprite animation on the target entity (e.g., `"cast"`, `"attack"`) |
+
+**DynInt fields:** The `amount` and `offset` fields accept either a plain integer or `"rand(min,max)"` for a random value in [min, max] inclusive. Randomness is deterministic (seeded from tick + entity ID).
+
+```toml
+{ type = "spawn", entity_type = "skeleton", offset = "rand(50, 150)" }
+{ type = "damage", target = "arg:0", amount = "rand(5, 15)" }
+```
 
 ### Target Resolution
 
@@ -275,6 +287,8 @@ After all mods are loaded, the engine validates:
 ## Runtime Entity Spawning
 
 When the simulation spawns new entities at runtime (e.g., the `raise` command creates a skeleton), the engine looks up the entity type in the sprite registry to create a render unit. This means a mod only needs to define the entity type in `[[entities]]` once — it will be used both for initial spawns and for runtime spawns.
+
+Dynamically spawned entities have a **spawn state**: they play their `spawn` animation (if the atlas has one) and can't act or be targeted by queries (`scan`, `nearest`) until the animation finishes. The duration is computed from the atlas JSON's spawn animation total ticks. Entities without a `spawn` animation are immediately ready.
 
 If no sprite data is found for a runtime-spawned entity type, the sim entity is still created but won't have a visible sprite.
 
@@ -394,7 +408,7 @@ phases = [
 | `on_start` | No | `[]` | Effects that run on the first tick of the phase |
 | `per_tick` | No | `[]` | Effects that run every tick of the phase (including the first) |
 
-Effects inside `on_start` and `per_tick` use the same effect types as instant commands (output, damage, heal, spawn, modify_stat, use_resource, list_commands).
+Effects inside `on_start` and `per_tick` use the same effect types as instant commands (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate).
 
 ### Execution Model
 
@@ -569,7 +583,8 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `CommandDef` | Custom command definition (name, description, args, effects, phases) — lives in `deadcode-sim/action.rs` |
 | `PhaseDef` | Single phase in a multi-tick phased command (ticks, interruptible, on_start, per_tick) — lives in `deadcode-sim/action.rs` |
 | `ChannelState` | Active channel state on an entity during phased execution — lives in `deadcode-sim/entity.rs` |
-| `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands) — lives in `deadcode-sim/action.rs` |
+| `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate) — lives in `deadcode-sim/action.rs` |
+| `DynInt` | Integer value: fixed or `rand(min,max)` — deserialized from TOML, resolved at effect execution time — lives in `deadcode-sim/action.rs` |
 | `SpriteData` | Loaded PNG bytes + JSON metadata string |
 | `LoadedMod` | Fully resolved mod with sprite/pivot/config/command registries |
 | `ModMeta` | Mod metadata: id, name, version, reserved dependency fields |

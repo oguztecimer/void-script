@@ -48,7 +48,7 @@ Editor UI is embedded into the Rust binary via `rust-embed` in `deadcode-editor/
 ## Testing
 
 ```bash
-cargo test                          # All Rust tests (128 tests)
+cargo test                          # All Rust tests (132 tests)
 cargo test -p deadcode-sim          # Sim engine + compiler tests
 cargo test -p grimscript-lang       # Language crate only
 cargo test -p deadcode-app --test interpreter_compiler_parity  # Parity tests
@@ -72,11 +72,11 @@ src/
   rng.rs          — SplitMix64 PRNG + Fisher-Yates shuffle (deterministic)
   value.rs        — SimValue: Int, Bool, Str, None, List, Dict(IndexMap), EntityRef (no floats)
   error.rs        — SimError types
-  entity.rs       — SimEntity, EntityId, EntityType, ScriptState (incl. step_limit_hit), CallFrame
+  entity.rs       — SimEntity, EntityId, EntityType, ScriptState (incl. step_limit_hit), CallFrame, spawn_ticks_remaining
   ir.rs           — 57+ stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
   world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots
-  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect types for mod-defined commands
+  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/DynInt types for mod-defined commands
   query.rs        — scan(), nearest(), distance() — linear scan over entities
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
     mod.rs        — compile(), compile_source(), compile_source_with(), compile_source_full(), initial_variables()
@@ -97,19 +97,24 @@ src/
 
 **Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available. Game commands (queries/actions) and custom mod commands are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set: `consult`, `raise`, `harvest`, `pact` (core starters). In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set + command info received via IPC.
 
-**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, use_resource, output). These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, then effects are resolved in order against world state. The `use_resource` effect checks and deducts a resource, aborting remaining effects if insufficient. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
+**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, use_resource, output, animate, list_commands). Integer fields in effects use `DynInt`: plain integers or `"rand(min,max)"` for deterministic randomness. These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, then effects are resolved in order against world state. The `use_resource` effect checks and deducts a resource, aborting remaining effects if insufficient. The `animate` effect triggers sprite animations on target entities via `PlayAnimation` sim events. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
 
 **Phased commands:** Commands can use `phases` instead of `effects` for multi-tick abilities (mutually exclusive, validated at load). Each `PhaseDef` has `ticks`, `interruptible`, `on_start`, and `per_tick` effect lists. On initiation, a `ChannelState` is stored on the entity. The tick loop processes channels before script execution: interruptible phases run the script and cancel if it yields a real action; non-interruptible phases skip script execution. `use_resource` failure mid-phase cancels the channel. Hot-reload clears active channels.
 
 **Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
 
+**Spawn state:** Dynamically spawned entities (from effects) have `spawn_ticks_remaining > 0` — they play their spawn animation and can't act or be targeted by queries until the timer reaches 0. Duration is computed from the entity type's atlas JSON spawn animation. Initial mod spawns start ready (`spawn_ticks_remaining = 0`).
+
+**Fixed timestep:** The sim runs at exactly 30 TPS via an accumulator in `do_tick()`. Wall-clock delta is accumulated; `sim.tick()` fires once per 33ms. Capped at 4 sim ticks per frame to prevent spiral of death. Animations are sim-driven (advanced once per sim tick via `UnitManager::tick_animations()`), movement interpolation remains render-driven.
+
 **Tick loop** (`SimWorld::tick()`):
 1. Derive per-tick RNG: `SimRng::new(seed ^ tick)`
-2. Shuffle scriptable entity IDs (includes entities with active channels)
-3. For each: process active channel if present (phase effects, interruption check), otherwise take script state out, execute, collect action, put state back
-4. Resolve all actions against world state
-5. Tick passive systems (cooldowns)
-6. Flush pending spawns/despawns
+2. Decrement spawn timers on spawning entities
+3. Shuffle ready entity IDs (excludes spawning entities, includes entities with active channels)
+4. For each: process active channel if present (phase effects, interruption check), otherwise take script state out, execute, collect action, put state back
+5. Resolve all actions against world state
+6. Tick passive systems (cooldowns)
+7. Flush pending spawns/despawns
 
 ### IPC
 
@@ -126,15 +131,15 @@ Message categories:
 ### Game Loop
 
 `App::do_tick()` in `deadcode-app/src/app.rs`:
-1. Unit system tick (animations, movement)
-2. Simulation tick (if running) → snapshot → sync to UnitManager → forward events to editor
+1. Unit movement tick (render-driven, uses wall-clock delta)
+2. Simulation tick (fixed 30 TPS via accumulator) → animations tick → snapshot → sync positions to UnitManager → forward events (spawn, output, animation) to editor
 3. Auto-save timer
 4. Fullscreen detection
 5. Per-pixel hit testing
 6. Editor IPC polling
 7. Script execution polling
 
-30 FPS active / 10 FPS idle.
+Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate.
 
 ## Key Conventions
 
@@ -142,7 +147,7 @@ Message categories:
 - Platform code uses `#[cfg(target_os = "...")]`
 - Editor UI uses CSS modules
 - IPC enums use `#[serde(tag = "type")]`
-- Sprite atlases are JSON + PNG pairs in `deadcode-desktop/src/assets/`
+- Sprite atlases are JSON + PNG pairs; frame durations use `ticks` (sim ticks at 30 TPS, not milliseconds)
 - Simulation uses only `i64` (no floats) for determinism; `Dict` uses `IndexMap<String, SimValue>` for deterministic insertion-order iteration with O(1) lookup
 - Compiler is feature-gated: `deadcode-sim` stays independent without `grimscript-lang`
 - Theme-agnostic sim: no baked-in entity type constants, entity types are runtime strings

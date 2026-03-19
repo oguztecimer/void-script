@@ -15,6 +15,11 @@
 - **S-09: Fixed-point arithmetic helpers** — New stdlib builtins `percent(value, pct)` and `scale(value, num, den)` for integer-safe fractional math with banker's rounding. Avoids manual `value * 150 / 100` patterns and integer division pitfalls.
 - **S-01: Interpreter/compiler parity test suite** — Integration tests in `crates/deadcode-app/tests/interpreter_compiler_parity.rs` that run identical GrimScript through both the tree-walking interpreter and the compiler/executor paths, comparing outputs. Documents known intentional divergences (float(), game builtin stubs, string display in lists).
 
+### Interpreter
+
+#### Added
+- **Custom mod commands in interpreter** — Custom commands defined in mods (via `mod.toml`) now work in the interpreter path (console one-liners, Run/Debug via interpreter). Previously, custom command names like `smite()` would fail with "object is not callable" or "Entity has no method 'smite'" because the interpreter only checked a hardcoded builtin list. The interpreter now accepts a `custom_commands` set, wired through from loaded mod definitions, and dispatches custom commands via `call_builtin_with_custom()`. Command availability gating also applies to custom commands.
+
 ### Modding System
 
 #### Fixed

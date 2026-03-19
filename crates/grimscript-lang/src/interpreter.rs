@@ -29,6 +29,7 @@ pub struct Interpreter {
     call_stack: Vec<String>,
     stopped: bool,
     available_commands: Option<HashSet<String>>,
+    custom_commands: HashSet<String>,
 }
 
 impl Interpreter {
@@ -66,6 +67,7 @@ impl Interpreter {
             call_stack: vec!["<module>".to_string()],
             stopped: false,
             available_commands: None,
+            custom_commands: HashSet::new(),
         }
     }
 
@@ -73,16 +75,22 @@ impl Interpreter {
         self.available_commands = Some(cmds);
     }
 
+    pub fn set_custom_commands(&mut self, cmds: HashSet<String>) {
+        self.custom_commands = cmds;
+    }
+
     fn check_command_available(&self, name: &str, line: u32) -> Result<(), GrimScriptError> {
-        if !builtins::is_game_builtin(name) {
+        if builtins::is_stdlib(name) {
             return Ok(());
         }
-        if let Some(ref set) = self.available_commands {
-            if !set.contains(name) {
-                return Err(GrimScriptError::runtime(
-                    line,
-                    format!("'{name}' is not available yet"),
-                ));
+        if builtins::is_game_builtin(name) || self.custom_commands.contains(name) {
+            if let Some(ref set) = self.available_commands {
+                if !set.contains(name) {
+                    return Err(GrimScriptError::runtime(
+                        line,
+                        format!("'{name}' is not available yet"),
+                    ));
+                }
             }
         }
         Ok(())
@@ -639,12 +647,13 @@ impl Interpreter {
                     if self.functions.contains_key(name.as_str()) {
                         return self.call_function(name, eval_args, expr.line);
                     }
-                    if builtins::is_builtin(name) {
+                    if builtins::is_builtin_with_custom(name, &self.custom_commands) {
                         self.check_command_available(name, expr.line)?;
-                        return builtins::call_builtin(
+                        return builtins::call_builtin_with_custom(
                             name,
                             eval_args,
                             &self.output_tx,
+                            &self.custom_commands,
                         );
                     }
                 }
@@ -1010,9 +1019,9 @@ impl Interpreter {
             (Value::Entity { .. }, _) => {
                 let mut full_args = vec![obj.clone()];
                 full_args.extend(args);
-                if builtins::is_builtin(method) {
+                if builtins::is_builtin_with_custom(method, &self.custom_commands) {
                     self.check_command_available(method, line)?;
-                    builtins::call_builtin(method, full_args, &self.output_tx)
+                    builtins::call_builtin_with_custom(method, full_args, &self.output_tx, &self.custom_commands)
                 } else {
                     Err(GrimScriptError::runtime(
                         line,

@@ -5,7 +5,7 @@ use grimscript_lang::{ScriptEvent, run_script};
 fn run(source: &str) -> Vec<ScriptEvent> {
     let (event_tx, event_rx) = unbounded();
     let (_cmd_tx, cmd_rx) = unbounded();
-    run_script(source, event_tx, cmd_rx, None);
+    run_script(source, event_tx, cmd_rx, None, None);
     event_rx.try_iter().collect()
 }
 
@@ -13,7 +13,7 @@ fn run(source: &str) -> Vec<ScriptEvent> {
 fn run_with_commands(source: &str, available: std::collections::HashSet<String>) -> Vec<ScriptEvent> {
     let (event_tx, event_rx) = unbounded();
     let (_cmd_tx, cmd_rx) = unbounded();
-    run_script(source, event_tx, cmd_rx, Some(available));
+    run_script(source, event_tx, cmd_rx, Some(available), None);
     event_rx.try_iter().collect()
 }
 

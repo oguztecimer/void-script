@@ -29,7 +29,7 @@ fn interpreter_outputs(source: &str) -> Vec<String> {
     let (output_tx, output_rx) = unbounded();
     let (_cmd_tx, cmd_rx) = unbounded::<DebugCommand>();
 
-    grimscript_lang::run_script(source, output_tx, cmd_rx, None);
+    grimscript_lang::run_script(source, output_tx, cmd_rx, None, None);
 
     let mut outputs = Vec::new();
     while let Ok(event) = output_rx.try_recv() {

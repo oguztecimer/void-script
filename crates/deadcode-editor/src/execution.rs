@@ -31,11 +31,16 @@ pub struct ScriptExecutionManager {
     terminal: Option<RunningTerminalCommand>,
     breakpoints: HashMap<String, HashSet<u32>>,
     available_commands: Option<Arc<HashSet<String>>>,
+    custom_commands: Option<Arc<HashSet<String>>>,
 }
 
 impl ScriptExecutionManager {
     pub fn set_available_commands(&mut self, cmds: Option<HashSet<String>>) {
         self.available_commands = cmds.map(Arc::new);
+    }
+
+    pub fn set_custom_commands(&mut self, cmds: Option<HashSet<String>>) {
+        self.custom_commands = cmds.map(Arc::new);
     }
 
     pub fn handle_run_script(
@@ -58,9 +63,10 @@ impl ScriptExecutionManager {
         let (event_tx, event_rx) = unbounded();
         let (command_tx, command_rx) = unbounded();
         let avail = self.available_commands.clone().map(|a| (*a).clone());
+        let custom = self.custom_commands.clone().map(|a| (*a).clone());
 
         let handle = std::thread::spawn(move || {
-            grimscript_lang::run_script(&source, event_tx, command_rx, avail);
+            grimscript_lang::run_script(&source, event_tx, command_rx, avail, custom);
         });
 
         self.active = Some(RunningScript {
@@ -100,9 +106,10 @@ impl ScriptExecutionManager {
         let (event_tx, event_rx) = unbounded();
         let (command_tx, command_rx) = unbounded();
         let avail = self.available_commands.clone().map(|a| (*a).clone());
+        let custom = self.custom_commands.clone().map(|a| (*a).clone());
 
         let handle = std::thread::spawn(move || {
-            grimscript_lang::debug_script(&source, event_tx, command_rx, breakpoints, avail);
+            grimscript_lang::debug_script(&source, event_tx, command_rx, breakpoints, avail, custom);
         });
 
         self.active = Some(RunningScript {
@@ -161,9 +168,10 @@ impl ScriptExecutionManager {
         let (event_tx, event_rx) = unbounded();
         let (_, command_rx) = unbounded();
         let avail = self.available_commands.clone().map(|a| (*a).clone());
+        let custom = self.custom_commands.clone().map(|a| (*a).clone());
 
         let handle = std::thread::spawn(move || {
-            grimscript_lang::run_script(&source, event_tx, command_rx, avail);
+            grimscript_lang::run_script(&source, event_tx, command_rx, avail, custom);
         });
 
         self.terminal = Some(RunningTerminalCommand {

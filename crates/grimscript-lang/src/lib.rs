@@ -20,6 +20,7 @@ pub fn run_script(
     output_tx: crossbeam_channel::Sender<ScriptEvent>,
     command_rx: crossbeam_channel::Receiver<DebugCommand>,
     available_commands: Option<std::collections::HashSet<String>>,
+    custom_commands: Option<std::collections::HashSet<String>>,
 ) {
     let tokens = lexer::Lexer::new(source).tokenize();
     match parser::Parser::new(tokens).parse() {
@@ -27,6 +28,9 @@ pub fn run_script(
             let mut interp = Interpreter::new(output_tx.clone(), command_rx, false);
             if let Some(cmds) = available_commands {
                 interp.set_available_commands(cmds);
+            }
+            if let Some(custom) = custom_commands {
+                interp.set_custom_commands(custom);
             }
             if let Err(e) = interp.execute(&program) {
                 let _ = output_tx.send(ScriptEvent::Output {
@@ -64,6 +68,7 @@ pub fn debug_script(
     command_rx: crossbeam_channel::Receiver<DebugCommand>,
     breakpoints: std::collections::HashSet<u32>,
     available_commands: Option<std::collections::HashSet<String>>,
+    custom_commands: Option<std::collections::HashSet<String>>,
 ) {
     let tokens = lexer::Lexer::new(source).tokenize();
     match parser::Parser::new(tokens).parse() {
@@ -72,6 +77,9 @@ pub fn debug_script(
             interp.set_breakpoints(breakpoints);
             if let Some(cmds) = available_commands {
                 interp.set_available_commands(cmds);
+            }
+            if let Some(custom) = custom_commands {
+                interp.set_custom_commands(custom);
             }
             if let Err(e) = interp.execute(&program) {
                 let _ = output_tx.send(ScriptEvent::Output {

@@ -911,6 +911,9 @@ impl App {
                     self.execution_manager.set_available_commands(
                         self.available_commands_for_interpreter(),
                     );
+                    self.execution_manager.set_custom_commands(
+                        Some(self.command_defs.keys().cloned().collect()),
+                    );
                     self.send_available_commands();
                 }
                 JsToRust::ScriptSave { script_id, content } => {

@@ -403,13 +403,13 @@ mod tests {
 
     #[test]
     fn print_builtin() {
-        let (state, action) = compile_and_run("print(\"hello\")");
+        let (_state, action) = compile_and_run("print(\"hello\")");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "hello"));
     }
 
     #[test]
     fn print_multi_arg() {
-        let (state, action) = compile_and_run("print(\"x\", 42)");
+        let (_state, action) = compile_and_run("print(\"x\", 42)");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "x 42"));
     }
 

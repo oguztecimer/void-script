@@ -163,12 +163,6 @@ pub fn query_expected_args(q: &QueryBuiltin) -> usize {
     }
 }
 
-/// Whether an action is a "yields" action that the expression statement
-/// should NOT emit Pop after (the action instruction already consumed the args).
-pub fn action_is_void(_a: &ActionBuiltin) -> bool {
-    true // All actions yield and don't push a result.
-}
-
 /// Expected number of arguments for an action.
 pub fn action_expected_args(a: &ActionBuiltin) -> usize {
     match a {

@@ -59,6 +59,19 @@ Custom commands now support resource costs (`cost` field in `CommandDef`), but t
 
 ---
 
+## C-01: Removed Compiler Scaffolding — Re-add When Needed
+
+**Priority: Low**
+
+Several compiler scaffolding items were removed to eliminate warnings. Re-add them when their features are implemented:
+
+- **`action_is_void()` in `builtins.rs`** — Indicated whether an action is void (all actions are). Useful if non-void actions are added (e.g., queries that also consume a tick).
+- **`FuncDef.line` field in `emit.rs`** — Stored the source line of function definitions. Needed for compiler error messages that reference function definition locations.
+- **`Scope.local_base` field in `symbol_table.rs`** — Tracked the offset base for local variable numbering in function scopes. Needed for nested function scopes or closure support.
+- **`SymbolTable::in_function()` in `symbol_table.rs`** — Checked whether the compiler is currently inside a function scope. Useful for scope-dependent compilation logic (e.g., disallowing certain statements at module level vs function level).
+
+---
+
 ## S-08: No Coroutine or Multi-Tick Planning Primitive
 
 **Priority: Low — Deferred**

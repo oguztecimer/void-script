@@ -20,7 +20,6 @@ struct FuncDef<'a> {
     name: String,
     params: Vec<String>,
     body: &'a [Statement],
-    line: u32,
 }
 
 pub struct Compiler<'a> {
@@ -79,7 +78,6 @@ impl<'a> Compiler<'a> {
                     name: name.clone(),
                     params: params.clone(),
                     body,
-                    line: stmt.line,
                 });
             }
         }
@@ -939,7 +937,7 @@ impl<'a> Compiler<'a> {
         var: &str,
         iter: &Expr,
         condition: Option<&Expr>,
-        line: u32,
+        _line: u32,
     ) -> Result<(), CompileError> {
         let result_name = self.temp_name("__comp_result");
         let iter_name = self.temp_name("__comp_iter");

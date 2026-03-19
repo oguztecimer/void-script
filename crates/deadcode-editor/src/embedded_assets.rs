@@ -21,8 +21,6 @@ pub fn get_asset(path: &str) -> Option<(Vec<u8>, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn woff2_mime_type_is_correct() {
         // Verify mime_guess resolves .woff2 to font/woff2.

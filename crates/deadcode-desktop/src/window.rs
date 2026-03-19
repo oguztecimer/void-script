@@ -195,7 +195,7 @@ fn get_dock_height_macos() -> Option<u32> {
 }
 
 #[cfg(target_os = "windows")]
-fn get_dock_height_windows(monitor_height: u32, scale_factor: f64) -> Option<u32> {
+fn get_dock_height_windows(_monitor_height: u32, scale_factor: f64) -> Option<u32> {
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
     };

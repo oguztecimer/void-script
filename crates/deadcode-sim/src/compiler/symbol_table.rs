@@ -12,8 +12,6 @@ struct Scope {
     vars: HashMap<String, usize>,
     /// Whether this is a function scope (uses local offsets).
     is_function: bool,
-    /// For function scopes: offset base for local numbering.
-    local_base: usize,
     /// Next local offset within this function scope.
     next_local: usize,
 }
@@ -38,7 +36,6 @@ impl SymbolTable {
         st.scopes.push(Scope {
             vars: HashMap::new(),
             is_function: false,
-            local_base: 0,
             next_local: 0,
         });
         // Pre-allocate `self` at slot 0.
@@ -59,7 +56,6 @@ impl SymbolTable {
         self.scopes.push(Scope {
             vars: HashMap::new(),
             is_function: true,
-            local_base: 0,
             next_local: 0,
         });
     }
@@ -112,11 +108,6 @@ impl SymbolTable {
         }
         // Not found — declare in current scope.
         self.declare(name)
-    }
-
-    /// Whether we're currently inside a function scope.
-    pub fn in_function(&self) -> bool {
-        self.scopes.len() > 1 && self.scopes.last().map_or(false, |s| s.is_function)
     }
 
     /// Total number of global slots allocated.

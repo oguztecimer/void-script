@@ -85,7 +85,7 @@ impl WebViewManager {
                 use windows::Win32::Foundation::HWND;
                 unsafe {
                     let h = HWND(hwnd as *mut _);
-                    ShowWindow(h, SW_SHOW);
+                    let _ = ShowWindow(h, SW_SHOW);
                     let _ = SetForegroundWindow(h);
                 }
             }
@@ -197,7 +197,7 @@ impl WebViewManager {
                 use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
                 use windows::Win32::Foundation::HWND;
                 unsafe {
-                    ShowWindow(HWND(hwnd as *mut _), SW_HIDE);
+                    let _ = ShowWindow(HWND(hwnd as *mut _), SW_HIDE);
                 }
             }
         }
@@ -232,16 +232,16 @@ impl WebViewManager {
             let h = HWND(hwnd as *mut _);
             match event {
                 WindowControlEvent::Minimize => unsafe {
-                    ShowWindow(h, SW_MINIMIZE);
+                    let _ = ShowWindow(h, SW_MINIMIZE);
                 },
                 WindowControlEvent::Maximize => unsafe {
                     *maximized = !*maximized;
-                    ShowWindow(h, if *maximized { SW_MAXIMIZE } else { SW_RESTORE });
+                    let _ = ShowWindow(h, if *maximized { SW_MAXIMIZE } else { SW_RESTORE });
                 },
                 WindowControlEvent::Close => {
                     self.webview = None;
                     self.shown_once = false;
-                    unsafe { ShowWindow(h, SW_HIDE); }
+                    unsafe { let _ = ShowWindow(h, SW_HIDE); }
                     self.hwnd = None;
                 },
             }
@@ -747,14 +747,12 @@ fn open_editor_windows(
         // Request rounded corners on Windows 11.
         use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE};
         let preference = 2u32; // DWMWCP_ROUND
-        let _ = unsafe {
-            DwmSetWindowAttribute(
+        let _ = DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_WINDOW_CORNER_PREFERENCE,
                 &preference as *const u32 as *const _,
                 std::mem::size_of::<u32>() as u32,
-            )
-        };
+            );
 
         let hwnd_val = hwnd.0 as isize;
         let handle = HwndHandle {
@@ -815,7 +813,7 @@ unsafe extern "system" fn wndproc(
             // Hide instead of destroy so the editor HWND stays alive as the
             // app's "main window", preventing strip windows from appearing
             // in the taskbar. The IPC channel will handle full cleanup.
-            unsafe { ShowWindow(hwnd, SW_HIDE); }
+            unsafe { let _ = ShowWindow(hwnd, SW_HIDE); }
             LRESULT(0)
         }
         WM_DESTROY => {

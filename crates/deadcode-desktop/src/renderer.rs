@@ -152,7 +152,7 @@ impl Renderer {
             let hdc_mem = CreateCompatibleDC(hdc_screen);
 
             // Create a 32-bit ARGB DIB section.
-            let mut bmi = BITMAPINFO {
+            let bmi = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
                     biWidth: w,
@@ -207,7 +207,7 @@ impl Renderer {
 
             SelectObject(hdc_mem, old_bmp);
             let _ = DeleteObject(HGDIOBJ(hbmp.0));
-            DeleteDC(hdc_mem);
+            let _ = DeleteDC(hdc_mem);
             ReleaseDC(HWND::default(), hdc_screen);
         }
     }

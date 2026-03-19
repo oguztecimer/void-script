@@ -86,7 +86,7 @@ pub struct App {
     execution_manager: ScriptExecutionManager,
     maximized_state: MaximizedState,
     settings: Settings,
-    available_commands: HashSet<String>,
+    available_commands: Vec<String>,
     /// Custom command definitions from mods.
     command_defs: HashMap<String, CommandDef>,
     /// Effects to run when the game opens (from [initial] sections in mods).
@@ -141,7 +141,7 @@ impl App {
             execution_manager: ScriptExecutionManager::default(),
             maximized_state: MaximizedState::default(),
             settings: Settings::default(),
-            available_commands: HashSet::new(),
+            available_commands: Vec::new(),
             command_defs: HashMap::new(),
             initial_effects: Vec::new(),
             initial_effects_pending: true,
@@ -580,6 +580,9 @@ impl ApplicationHandler<UserEvent> for App {
             sim.register_custom_command(def);
         }
 
+        // Set command display order to match available_commands insertion order.
+        sim.command_order = self.available_commands.clone();
+
         // Copy entity configs to sim for spawn effects.
         for (etype, config) in &self.entity_configs {
             sim.entity_configs.insert(etype.clone(), config.clone());
@@ -770,7 +773,7 @@ impl ApplicationHandler<UserEvent> for App {
 
 impl App {
     fn send_available_commands(&self) {
-        let mut commands: Vec<String> = if deadcode_desktop::is_dev_mode() {
+        let commands: Vec<String> = if deadcode_desktop::is_dev_mode() {
             // In dev mode, send all game builtins as available
             let mut cmds: Vec<String> = vec![
                 "move", "get_pos", "scan", "nearest", "distance", "attack",
@@ -785,10 +788,8 @@ impl App {
             cmds.extend(self.command_defs.keys().cloned());
             cmds
         } else {
-            self.available_commands.iter().cloned().collect()
+            self.available_commands.clone()
         };
-        commands.sort();
-        commands.dedup();
 
         // Build command info for custom commands (for editor autocomplete).
         let command_info: Vec<CommandInfo> = self.command_defs.values().map(|def| {
@@ -983,7 +984,7 @@ impl App {
         if deadcode_desktop::is_dev_mode() {
             None // all commands available
         } else {
-            Some(self.available_commands.clone())
+            Some(self.available_commands.iter().cloned().collect())
         }
     }
 

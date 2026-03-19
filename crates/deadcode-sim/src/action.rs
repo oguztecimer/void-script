@@ -329,18 +329,21 @@ pub fn resolve_custom_effects(
                 }
             }
             CommandEffect::ListCommands => {
-                let mut commands: Vec<(&String, &String)> =
-                    world.custom_command_descriptions.iter().collect();
-                commands.sort_by_key(|(name, _)| (*name).clone());
-                events.push(SimEvent::ScriptOutput {
-                    entity_id,
-                    text: "The bones speak... they reveal known commands:".into(),
-                });
-                for (name, description) in commands {
-                    events.push(SimEvent::ScriptOutput {
-                        entity_id,
-                        text: format!("  {name} — {description}"),
-                    });
+                // Use command_order to respect the order commands were made available.
+                // Compute max width for aligned output.
+                let max_width = world.command_order.iter()
+                    .filter(|n| world.custom_command_descriptions.contains_key(*n))
+                    .map(|n| n.len() + 2) // +2 for "()"
+                    .max()
+                    .unwrap_or(0);
+                for name in &world.command_order {
+                    if let Some(description) = world.custom_command_descriptions.get(name) {
+                        let padded = format!("{name}()");
+                        events.push(SimEvent::ScriptOutput {
+                            entity_id,
+                            text: format!("{padded:<width$} — {description}", width = max_width + 1),
+                        });
+                    }
                 }
             }
         }

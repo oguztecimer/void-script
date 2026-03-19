@@ -81,6 +81,8 @@ pub struct SimWorld {
     pub custom_command_phases: HashMap<String, Vec<PhaseDef>>,
     /// Entity type → stat overrides (for spawning from effects).
     pub entity_configs: HashMap<String, EntityConfig>,
+    /// Command display order (from available_commands insertion order).
+    pub command_order: Vec<String>,
 }
 
 impl SimWorld {
@@ -100,6 +102,7 @@ impl SimWorld {
             custom_command_descriptions: HashMap::new(),
             custom_command_phases: HashMap::new(),
             entity_configs: HashMap::new(),
+            command_order: Vec::new(),
         }
     }
 

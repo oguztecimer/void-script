@@ -496,12 +496,17 @@ fn validate_target(target: &str, args: &[String], cmd_name: &str, mod_id: &str) 
     );
 }
 
-/// Collect initial commands from all loaded mods.
-pub fn collect_initial_commands(mods: &[LoadedMod]) -> HashSet<String> {
-    let mut commands = HashSet::new();
+/// Collect initial commands from all loaded mods, preserving insertion order.
+pub fn collect_initial_commands(mods: &[LoadedMod]) -> Vec<String> {
+    let mut commands = Vec::new();
+    let mut seen = HashSet::new();
     for m in mods {
         if let Some(cmds) = &m.manifest.commands {
-            commands.extend(cmds.initial.iter().cloned());
+            for cmd in &cmds.initial {
+                if seen.insert(cmd.clone()) {
+                    commands.push(cmd.clone());
+                }
+            }
         }
     }
     if commands.is_empty() {

@@ -34,7 +34,7 @@
 - **M-05: Phase 2 library API design sketch** — Reserved `libraries` field in `[commands]` schema. Design sketch for `.grim` library files added to `docs/modding.md` covering namespace strategy, gating, and compilation order.
 
 #### Fixed
-- **BUG-001: Base commands no longer shadow custom definitions** — Removed hardcoded `ActionConsult/Raise/Harvest/Pact` IR instructions, executor handlers, and `UnitAction` variants. The four base necromancer commands (`consult`, `raise`, `harvest`, `pact`) now use the data-driven custom command path, meaning their mod.toml effects (spawn, energy cost, stat changes) and costs are actually executed.
+- **BUG-001: Base commands no longer shadow custom definitions** — Removed hardcoded `ActionConsult/Raise/Harvest/Pact` IR instructions, executor handlers, and `UnitAction` variants. The four base commands (`consult`, `raise`, `harvest`, `pact`) now use the data-driven custom command path, meaning their mod.toml effects (spawn, energy cost, stat changes) and costs are actually executed.
 
 ### Not Changed
 - **S-03 (Print consuming tick):** Investigation confirmed this is already handled correctly — `world.rs` processes Print actions without consuming the tick, re-entering the executor loop.

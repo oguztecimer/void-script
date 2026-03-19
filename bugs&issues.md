@@ -8,7 +8,7 @@
 
 ### Description
 
-The four base necromancer commands (`consult`, `raise`, `harvest`, `pact`) are hardcoded as `ActionBuiltin` variants in `crates/deadcode-sim/src/compiler/builtins.rs:94-97`. The compiler's `classify_with_custom()` function (`builtins.rs:62-70`) checks hardcoded builtins **first** — only if a name is `NotBuiltin` does it check custom commands. This means custom command definitions for these names in `mod.toml` are parsed, validated, and registered but **never executed**.
+The four base commands (`consult`, `raise`, `harvest`, `pact`) are hardcoded as `ActionBuiltin` variants in `crates/deadcode-sim/src/compiler/builtins.rs:94-97`. The compiler's `classify_with_custom()` function (`builtins.rs:62-70`) checks hardcoded builtins **first** — only if a name is `NotBuiltin` does it check custom commands. This means custom command definitions for these names in `mod.toml` are parsed, validated, and registered but **never executed**.
 
 ### Execution path (current, broken)
 
@@ -23,7 +23,7 @@ When a player writes `raise()`:
 
 ### What should happen
 
-`raise` is defined in `mods/necromancer/mod.toml` as:
+`raise` is defined in `mods/core/mod.toml` as:
 
 ```toml
 [[commands.definitions]]

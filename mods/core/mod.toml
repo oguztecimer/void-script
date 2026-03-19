@@ -1,6 +1,6 @@
 [mod]
-id = "necromancer"
-name = "Necromancer"
+id = "core"
+name = "Core"
 version = "0.1.0"
 
 [[entities]]

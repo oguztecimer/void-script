@@ -118,7 +118,7 @@ Not every GrimScript builtin is available from the start. The game progressively
 
 This applies to both hardcoded game builtins and custom mod-defined commands. Custom commands not in the `initial` set cannot be used until unlocked at runtime.
 
-**Initial available set**: Defined in the mod's `[commands].initial` field (see `mods/necromancer/mod.toml`). The base game starts with `consult`, `raise`, `harvest`, `pact`. Multiple mods' command sets are merged.
+**Initial available set**: Defined in the mod's `[commands].initial` field (see `mods/core/mod.toml`). The base game starts with `consult`, `raise`, `harvest`, `pact`. Multiple mods' command sets are merged.
 
 **Dev mode**: When compiled with `--features dev-mode`, the gate is bypassed entirely (`None` passed to interpreter/compiler, all game builtins + custom commands sent to frontend as available).
 
@@ -304,7 +304,7 @@ ActionBuiltin::Summon => 1,
 'summon',
 ```
 
-To make the command initially available, add `"summon"` to the `[commands].initial` list in the mod's `mod.toml` (e.g., `mods/necromancer/mod.toml`). Or at runtime: insert it into `App::available_commands` and call `send_available_commands()`.
+To make the command initially available, add `"summon"` to the `[commands].initial` list in the mod's `mod.toml` (e.g., `mods/core/mod.toml`). Or at runtime: insert it into `App::available_commands` and call `send_available_commands()`.
 
 ## Adding a New Entity Attribute
 
@@ -360,7 +360,7 @@ Events are how the sim communicates state changes to the rendering layer.
 | Compiler | `crates/deadcode-sim/src/compiler/symbol_table.rs` | Variable scope tracking |
 | App | `crates/deadcode-app/src/app.rs` | Game loop, sim integration, IPC dispatch, available commands state, RunScript→sim compile+assign |
 | Modding | `crates/deadcode-app/src/modding.rs` | Mod manifest types, loading, sprite/command registries, embedded fallback |
-| Mod manifest | `mods/necromancer/mod.toml` | Base game mod: entity defs, spawns, initial commands, command definitions with effects |
+| Mod manifest | `mods/core/mod.toml` | Base game mod: entity defs, spawns, initial commands, command definitions with effects |
 | Entity config | `crates/deadcode-sim/src/entity.rs` | `EntityConfig` for stat overrides at spawn |
 | Execution | `crates/deadcode-editor/src/execution.rs` | Script execution manager, threads available commands to interpreter |
 | IPC | `crates/deadcode-editor/src/ipc.rs` | Rust-side message enums |

@@ -1,6 +1,6 @@
 # Modding Guide
 
-How to create mods for VOID//SCRIPT. The base game ("Necromancer") is itself a mod — the same system that loads it can load custom content.
+How to create mods for VOID//SCRIPT. The base game ("Core") is itself a mod — the same system that loads it can load custom content.
 
 ## Mod Structure
 
@@ -245,7 +245,7 @@ For `modify_stat`, valid stat names are: `health`, `energy`, `shield`, `speed`.
 
 ### Base Game Commands as Effects
 
-The base game commands (`consult`, `raise`, `harvest`, `pact`) are defined as `[[commands.definitions]]` in `mods/necromancer/mod.toml` with data-driven effects. They use the same custom command path as any mod-defined command — their effects and costs are fully executed by the data-driven system.
+The base game commands (`consult`, `raise`, `harvest`, `pact`) are defined as `[[commands.definitions]]` in `mods/core/mod.toml` with data-driven effects. They use the same custom command path as any mod-defined command — their effects and costs are fully executed by the data-driven system.
 
 ## Multiple Mods
 
@@ -270,14 +270,14 @@ If no sprite data is found for a runtime-spawned entity type, the sim entity is 
 
 ## Fallback Behavior
 
-If the `mods/` directory doesn't exist or contains no valid mods, the game falls back to compile-time embedded assets. This ensures `cargo run` works without a `mods/` directory. The fallback provides the same content as the `necromancer` mod: summoner entity at position 500 with `consult`, `raise`, `harvest`, `pact` commands.
+If the `mods/` directory doesn't exist or contains no valid mods, the game falls back to compile-time embedded assets. This ensures `cargo run` works without a `mods/` directory. The fallback provides the same content as the `core` mod: summoner entity at position 500 with `consult`, `raise`, `harvest`, `pact` commands.
 
 ## The Base Game Mod
 
-The `mods/necromancer/` directory is the base game, structured as a mod:
+The `mods/core/` directory is the base game, structured as a mod:
 
 ```
-mods/necromancer/
+mods/core/
   mod.toml
   sprites/
     summoner_atlas.png
@@ -288,7 +288,7 @@ mods/necromancer/
     merchant_atlas.json
 ```
 
-Its `mod.toml` defines three entity types (summoner, skeleton, merchant), spawns one summoner at position 500, and unlocks the four necromancer starter commands. You can edit this file to change the starting configuration without recompiling.
+Its `mod.toml` defines three entity types (summoner, skeleton, merchant), spawns one summoner at position 500, and unlocks the four starter commands. You can edit this file to change the starting configuration without recompiling.
 
 ## Creating a New Mod
 

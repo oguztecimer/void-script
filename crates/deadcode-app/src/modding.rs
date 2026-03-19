@@ -2,7 +2,7 @@
 //!
 //! Loads `mod.toml` manifests from the `mods/` directory. Each mod defines
 //! entity types (with sprites and stats), initial spawn definitions, and
-//! available commands. The base game ("necromancer") is itself a mod.
+//! available commands. The base game ("core") is itself a mod.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -241,8 +241,8 @@ fn embedded_fallback() -> LoadedMod {
 
     let manifest = ModManifest {
         meta: ModMeta {
-            id: "necromancer".into(),
-            name: "Necromancer".into(),
+            id: "core".into(),
+            name: "Core".into(),
             version: "0.1.0".into(),
             depends_on: vec![],
             conflicts_with: vec![],

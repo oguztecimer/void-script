@@ -14,7 +14,7 @@ use deadcode_desktop::animation::{
     SKELETON_ATLAS_PNG, skeleton_atlas_json,
     MERCHANT_ATLAS_PNG, merchant_atlas_json,
 };
-use deadcode_sim::action::CommandDef;
+use deadcode_sim::action::{CommandCost, CommandDef, CommandEffect};
 use deadcode_sim::entity::EntityConfig;
 
 // ---------------------------------------------------------------------------
@@ -93,6 +93,10 @@ pub struct CommandsDef {
     pub initial: Vec<String>,
     #[serde(default)]
     pub definitions: Vec<CommandDef>,
+    /// Reserved: paths to .grim library files (Phase 2, not yet loaded).
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub libraries: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +262,7 @@ fn embedded_fallback() -> LoadedMod {
                 "pact".into(),
             ],
             definitions: vec![],
+            libraries: vec![],
         }),
     };
 
@@ -317,7 +322,7 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
         if let Some(cmds) = &m.manifest.commands {
             for def in &cmds.definitions {
                 for effect in &def.effects {
-                    if let deadcode_sim::action::CommandEffect::Spawn { entity_type, .. } = effect {
+                    if let CommandEffect::Spawn { entity_type, .. } = effect {
                         if !known_types.contains(entity_type) {
                             eprintln!(
                                 "[mod:{}] warning: command '{}' spawns unknown entity type '{}'",
@@ -329,6 +334,86 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
             }
         }
     }
+}
+
+/// Validate custom command definitions at load time.
+///
+/// Checks stat names in `ModifyStat` effects, `arg:` target references,
+/// and cost amounts/types.
+pub fn validate_command_defs(mods: &[LoadedMod]) {
+    let valid_stats: HashSet<&str> = ["health", "energy", "shield", "speed"].into_iter().collect();
+
+    for m in mods {
+        let Some(cmds) = &m.manifest.commands else { continue };
+        let mod_id = &m.manifest.meta.id;
+        for def in &cmds.definitions {
+            for effect in &def.effects {
+                // Validate stat names in ModifyStat effects.
+                if let CommandEffect::ModifyStat { stat, .. } = effect {
+                    if !valid_stats.contains(stat.as_str()) {
+                        eprintln!(
+                            "[mod:{mod_id}] warning: command '{}' references unknown stat '{stat}' \
+                             (valid: health, energy, shield, speed)",
+                            def.name
+                        );
+                    }
+                }
+                // Validate target strings in effects that have them.
+                let target_str = match effect {
+                    CommandEffect::Damage { target, .. }
+                    | CommandEffect::Heal { target, .. }
+                    | CommandEffect::ModifyStat { target, .. } => Some(target.as_str()),
+                    _ => None,
+                };
+                if let Some(target) = target_str {
+                    validate_target(target, &def.args, &def.name, mod_id);
+                }
+            }
+            // Validate cost amounts.
+            for cost in &def.cost {
+                let (label, amount) = match cost {
+                    CommandCost::Energy { amount } => ("energy", *amount),
+                    CommandCost::Health { amount } => ("health", *amount),
+                };
+                if amount <= 0 {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: command '{}' has non-positive {label} cost {amount}",
+                        def.name
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn validate_target(target: &str, args: &[String], cmd_name: &str, mod_id: &str) {
+    if target == "self" {
+        return;
+    }
+    if let Some(arg_ref) = target.strip_prefix("arg:") {
+        // Numeric index.
+        if let Ok(idx) = arg_ref.parse::<usize>() {
+            if idx >= args.len() {
+                eprintln!(
+                    "[mod:{}] warning: command '{}' effect references arg index {} but only {} args defined",
+                    mod_id, cmd_name, idx, args.len()
+                );
+            }
+            return;
+        }
+        // Named arg.
+        if !args.contains(&arg_ref.to_string()) {
+            eprintln!(
+                "[mod:{}] warning: command '{}' effect references unknown arg '{}' (available: {:?})",
+                mod_id, cmd_name, arg_ref, args
+            );
+        }
+        return;
+    }
+    eprintln!(
+        "[mod:{}] warning: command '{}' effect has invalid target '{}' (expected 'self' or 'arg:<name>')",
+        mod_id, cmd_name, target
+    );
 }
 
 /// Collect initial commands from all loaded mods.

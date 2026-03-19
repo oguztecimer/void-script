@@ -29,8 +29,14 @@
 #### Added
 - **M-02: Mod collision warnings** — When multiple mods define the same entity type or command name, a warning is logged identifying both the collision and which mod's definition was kept.
 - **M-02: Reserved dependency fields in mod.toml** — `depends_on`, `conflicts_with`, and `min_game_version` fields added to `[mod]` section schema. Parsed but not enforced yet — reserves schema space for future dependency resolution.
+- **M-03: Custom command definition validation** — Stat names in `modify_stat` effects and `arg:` target references are now validated at mod load time. Unknown stat names, out-of-range arg indices, and unrecognized arg names produce clear warnings.
+- **M-06: Command cost system** — Custom commands can now specify resource costs via `cost = [{ type = "energy", amount = 30 }]` in `mod.toml`. Costs are aggregated per resource type, checked for affordability, and deducted before effects resolve. Insufficient resources skip the command with a console warning.
+- **M-05: Phase 2 library API design sketch** — Reserved `libraries` field in `[commands]` schema. Design sketch for `.grim` library files added to `docs/modding.md` covering namespace strategy, gating, and compilation order.
+
+#### Known Issues
+- **BUG-001: Base commands shadow custom command definitions** — The four base commands (`consult`, `raise`, `harvest`, `pact`) have hardcoded `ActionBuiltin` entries that take priority over their `[[commands.definitions]]` in mod.toml. Their custom effects and costs are registered but never executed. See `bugs&issues.md` for full analysis and fix options.
 
 ### Not Changed
 - **S-03 (Print consuming tick):** Investigation confirmed this is already handled correctly — `world.rs` processes Print actions without consuming the tick, re-entering the executor loop.
 - **S-08 (Coroutines):** Design exploration only, deferred to future work.
-- **M-06 (Phase 2/3 API):** Covered by reserved fields added in M-02.
+- **Phase 2/3 API:** Covered by reserved fields added in M-02 and design sketch in M-05.

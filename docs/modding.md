@@ -245,7 +245,9 @@ For `modify_stat`, valid stat names are: `health`, `energy`, `shield`, `speed`.
 
 ### Base Game Commands as Effects
 
-The base game commands (`consult`, `raise`, `harvest`, `pact`) are also defined as `[[commands.definitions]]` in `mods/necromancer/mod.toml` with real effects. For example, `raise()` actually spawns a skeleton entity and costs energy, rather than just printing a message.
+The base game commands (`consult`, `raise`, `harvest`, `pact`) are defined as `[[commands.definitions]]` in `mods/necromancer/mod.toml` with data-driven effects (e.g., `raise` specifies spawn + energy cost).
+
+> **Known issue (BUG-001):** These four commands are currently shadowed by hardcoded `ActionBuiltin` entries in the compiler. The compiler matches the hardcoded path before checking custom commands, so the mod.toml definitions (effects and costs) are registered but never executed. The hardcoded path only prints a message. See `bugs&issues.md` for details and fix options.
 
 ## Multiple Mods
 
@@ -258,6 +260,9 @@ Each mod's `[[spawn]]` entries all execute, and each mod's `[commands].initial` 
 After all mods are loaded, the engine validates:
 - **Spawn entity types**: every `[[spawn]]` entry's `entity_type` must match a registered entity type. Unknown types produce a warning: `[mod:<id>] warning: spawn '<name>' references unknown entity type '<type>'`.
 - **Spawn effects in custom commands**: `spawn` effects in `[[commands.definitions]]` are also checked against known entity types.
+- **Stat names in `modify_stat` effects**: must be one of `health`, `energy`, `shield`, `speed`. Unknown stat names produce a warning.
+- **Target references in effects**: `target` fields must be `"self"` or `"arg:<ref>"` where `<ref>` is a valid numeric index or a name matching one of the command's `args` entries. Invalid references produce a warning.
+- **Cost amounts**: each cost entry must have a positive `amount`. Non-positive values produce a warning.
 
 ## Runtime Entity Spawning
 
@@ -313,6 +318,64 @@ Its `mod.toml` defines three entity types (summoner, skeleton, merchant), spawns
 
 6. Run the game — your mod will be loaded automatically.
 
+## Command Costs
+
+Custom commands can specify resource costs that are checked and deducted before effects resolve. If the caster doesn't have enough of a resource, the command is skipped and a warning is printed to the console.
+
+```toml
+[[commands.definitions]]
+name = "raise"
+description = "Raise the dead"
+args = []
+cost = [{ type = "energy", amount = 30 }]
+effects = [
+  { type = "spawn", entity_type = "skeleton", offset = 1 },
+  { type = "output", message = "[raise] A skeleton rises!" },
+]
+```
+
+### Cost Types
+
+| Type | Field | Description |
+|------|-------|-------------|
+| `energy` | `amount` | Deduct energy from the caster |
+| `health` | `amount` | Deduct health from the caster |
+
+Multiple costs can be specified — all are checked before any are deducted. If any cost cannot be paid, the entire command is skipped.
+
+## Phase 2: Library Files (Future)
+
+> **Status:** Design sketch. The `libraries` field is reserved in the schema but not yet loaded or compiled.
+
+Mods will be able to provide `.grim` library files whose functions are compiled and merged into player scripts. This allows mods to ship reusable GrimScript utilities alongside their custom commands and entity types.
+
+### Schema
+
+```toml
+[commands]
+initial = ["raise", "drain"]
+libraries = ["lib/utils.grim", "lib/combat.grim"]
+```
+
+### Namespace Strategy
+
+Flat namespace with first-loaded-wins, consistent with entity types and custom commands. No mod-prefixed namespaces yet — adds complexity with minimal benefit at current scale. If collisions become a problem, namespacing can be added later.
+
+### Gating
+
+Library functions inherit the mod's available commands set. If a library function calls `raise()`, the `raise` command must be in the available set. The compiler validates this at compile time, not at runtime.
+
+### Compilation Order
+
+1. Load all mods, register custom commands and entity types
+2. Compile library `.grim` files (they can reference custom commands from the same mod)
+3. Library functions are injected into the player's script as additional function definitions before compilation
+4. The player's script is compiled with all library functions available
+
+### Interaction with Custom Commands
+
+Library functions can call custom commands from the same mod. Cross-mod library-to-custom-command calls work if the target command is in the available set (i.e., in `initial` or unlocked at runtime).
+
 ## Internals
 
 The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
@@ -323,8 +386,9 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `EntityDef` | Entity type definition (type, sprite path, pivot, stats) |
 | `SpawnDef` | Initial spawn definition (type, name, position) |
 | `CommandsDef` | Available command list + command definitions |
-| `CommandDef` | Custom command definition (name, description, args, effects) — lives in `deadcode-sim/action.rs` |
+| `CommandDef` | Custom command definition (name, description, args, effects, cost) — lives in `deadcode-sim/action.rs` |
 | `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat) — lives in `deadcode-sim/action.rs` |
+| `CommandCost` | Cost type enum (energy, health) — lives in `deadcode-sim/action.rs` |
 | `SpriteData` | Loaded PNG bytes + JSON metadata string |
 | `LoadedMod` | Fully resolved mod with sprite/pivot/config/command registries |
 | `ModMeta` | Mod metadata: id, name, version, reserved dependency fields |
@@ -335,22 +399,24 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 2. Each manifest is parsed, sprite files are read from disk
 3. Registries (sprites, pivots, entity configs) are merged into `App`, with collision warnings on duplicates
 4. `modding::validate_spawns()` checks all spawn entity types and spawn effects against known types
-5. `[[spawn]]` entries create both sim entities and render units
-6. `[commands].initial` entries populate `App::available_commands`
-7. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld`, with collision warnings on duplicate command names
+5. `modding::validate_command_defs()` checks stat names, target references, and cost amounts in custom command definitions
+6. `[[spawn]]` entries create both sim entities and render units
+7. `[commands].initial` entries populate `App::available_commands`
+8. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld` (effects, arg counts, costs), with collision warnings on duplicate command names
 
 **Custom command flow:**
 1. `CommandDef` structs are parsed from TOML and collected in `App::command_defs`
 2. At sim init, each def is registered via `SimWorld::register_custom_command()`
 3. The compiler receives custom command arg counts, emits `ActionCustom(name)` IR instructions
 4. The executor pops args and yields `UnitAction::Custom { name, args }`
-5. `resolve_action()` looks up the command's effects in `SimWorld::custom_commands` and applies them
+5. `resolve_action()` checks costs from `SimWorld::custom_command_costs` (aggregated per resource, fails if insufficient), deducts them, then looks up effects in `SimWorld::custom_commands` and applies them
 6. Custom command metadata (name, description, args) is sent to the frontend via `AvailableCommands` IPC for autocomplete
 
 **Reserved schema fields** (parsed but not enforced):
 - `depends_on: Vec<String>` — mod IDs this mod requires
 - `conflicts_with: Vec<String>` — mod IDs this mod conflicts with
 - `min_game_version: Option<String>` — minimum game version required
+- `libraries: Vec<String>` — paths to `.grim` library files (Phase 2)
 
 **Future phases** (not yet implemented):
 - **Phase 2**: Mods provide `.grim` library files whose functions are compiled and merged into player scripts

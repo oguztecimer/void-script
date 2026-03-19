@@ -1,6 +1,6 @@
 # TODO
 
-> **Resolved items** are tracked in `CHANGELOG.md`. Completed: S-01 (parity tests), S-02 (IndexMap), S-03 (print tick — already correct), S-05 (step limit warning), S-06 (hot-reload surface), S-09 (percent/scale), M-01 (deterministic load order), M-02 (collision warnings + reserved fields), M-04 (spawn validation).
+> **Resolved items** are tracked in `CHANGELOG.md`. Completed: S-01 (parity tests), S-02 (IndexMap), S-03 (print tick — already correct), S-05 (step limit warning), S-06 (hot-reload surface), S-09 (percent/scale), M-01 (deterministic load order), M-02 (collision warnings + reserved fields), M-03 (command def validation), M-04 (spawn validation). Partially resolved: M-05 (Phase 2 design sketch + reserved field), M-06 (command cost system — conditional effects deferred).
 
 ## S-04: No Error Recovery in Scripts
 
@@ -8,7 +8,7 @@
 
 When a script hits a runtime error (type mismatch, invalid operation, accessing a dead entity), the script halts permanently. The entity stands there doing nothing for the rest of the run. In a game where coding is the core loop, one unhandled edge case can brick a minion. This is especially bad in an idle game where the player might not be watching when it happens.
 
-### Suggested fix (pick one or layer them)
+### Suggested fix (pick one or layer them) WARDING
 
 - **try/except blocks in GrimScript** — let players write defensive code: `try: attack(target) except: wait()`. Requires new AST nodes, compiler support for exception tables or jump-on-error, and executor support for catching errors and jumping to handler blocks.
 - **Implicit fallback behavior** — on error, the entity performs `wait()` instead of halting, and an error indicator appears in the editor UI (red badge on the script tab, error log in the output panel). The script resets to `pc = 0` next tick and tries again. This is the more forgiving option and works even for players who don't know about try/except.
@@ -27,6 +27,35 @@ The interpreter has basic debug infrastructure (breakpoints, step over/into/out 
 - **Phase 1:** On error, display the full variable state and call stack in the editor output panel. This is relatively cheap — the interpreter already has this data, it just needs to be serialized and sent via IPC.
 - **Phase 2:** Breakpoints. The interpreter checks a breakpoint set (line numbers) before executing each AST node. When hit, it pauses and sends current state to the editor. The editor highlights the line and shows a variable inspector panel. Resume/step buttons send IPC messages back.
 - **Phase 3:** Sim-side debugging. The executor emits a trace log of actions and queries per tick, viewable in the editor as a "tick replay" timeline. This bridges the gap between the interpreter (where you debug logic) and the sim (where the logic actually runs).
+
+---
+
+## M-05: Phase 2 Mod API Design Needs Early Planning
+
+**Priority: Medium**
+
+The `.grim` library file system (Phase 2) has architectural implications for namespace strategy, compilation order, and how library functions interact with custom commands. A design sketch has been written in `docs/modding.md` and the `libraries` field reserved in `CommandsDef`, but the actual loading and compilation of `.grim` files is not yet implemented.
+
+### Remaining work
+
+- Parse and load `.grim` files listed in `commands.libraries`
+- Compile library functions before player scripts
+- Inject library function definitions into player script compilation
+- Handle cross-mod library function collisions
+
+---
+
+## M-06: Custom Command Effect System Is Fixed and Non-Composable
+
+**Priority: Medium**
+
+Custom commands now support resource costs (`cost` field in `CommandDef`), but the effect system is still limited to 5 fixed types. More advanced modding needs:
+
+### Remaining work
+
+- **Conditional effects** — effects that only trigger if a condition is met (e.g., "if target health < 50%, deal double damage")
+- **Custom queries** — mod-defined queries that return values (not just actions that consume a tick)
+- **Composable effects** — reference other commands or chain effects dynamically
 
 ---
 

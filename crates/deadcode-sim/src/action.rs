@@ -52,6 +52,18 @@ pub enum CommandEffect {
     ModifyStat { target: String, stat: String, amount: i64 },
 }
 
+/// A resource cost required to execute a custom command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum CommandCost {
+    /// Deduct energy from the caster.
+    #[serde(rename = "energy")]
+    Energy { amount: i64 },
+    /// Deduct health from the caster.
+    #[serde(rename = "health")]
+    Health { amount: i64 },
+}
+
 /// Definition of a custom command (parsed from mod.toml).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandDef {
@@ -62,6 +74,8 @@ pub struct CommandDef {
     pub args: Vec<String>,
     #[serde(default)]
     pub effects: Vec<CommandEffect>,
+    #[serde(default)]
+    pub cost: Vec<CommandCost>,
 }
 
 /// Resolve a unit's action against the world state.
@@ -183,6 +197,47 @@ pub fn resolve_action(
         }
 
         UnitAction::Custom { name, args } => {
+            // Check and deduct costs before resolving effects.
+            // Aggregate totals per resource to avoid cloning the costs vec.
+            let (energy_cost, health_cost) = if let Some(costs) = world.custom_command_costs.get(&name) {
+                let mut energy_total: i64 = 0;
+                let mut health_total: i64 = 0;
+                for cost in costs {
+                    match cost {
+                        CommandCost::Energy { amount } => energy_total += amount,
+                        CommandCost::Health { amount } => health_total += amount,
+                    }
+                }
+                if let Some(caster) = world.get_entity(entity_id) {
+                    if caster.energy < energy_total {
+                        events.push(SimEvent::ScriptOutput {
+                            entity_id,
+                            text: format!("[{name}] not enough energy ({} < {energy_total})", caster.energy),
+                        });
+                        return events;
+                    }
+                    if caster.health < health_total {
+                        events.push(SimEvent::ScriptOutput {
+                            entity_id,
+                            text: format!("[{name}] not enough health ({} < {health_total})", caster.health),
+                        });
+                        return events;
+                    }
+                } else {
+                    return events;
+                }
+                (energy_total, health_total)
+            } else {
+                (0, 0)
+            };
+            // Deduct aggregated costs (immutable borrow above is now dropped).
+            if energy_cost > 0 || health_cost > 0 {
+                if let Some(caster) = world.get_entity_mut(entity_id) {
+                    caster.energy -= energy_cost;
+                    caster.health -= health_cost;
+                }
+            }
+
             if let Some(effects) = world.custom_commands.get(&name).cloned() {
                 resolve_custom_effects(world, entity_id, &effects, &args, &mut events);
             } else {

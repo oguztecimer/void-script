@@ -48,9 +48,9 @@ effects = [
 name = "raise"
 description = "Raise the dead"
 args = []
+cost = [{ type = "energy", amount = 30 }]
 effects = [
   { type = "spawn", entity_type = "skeleton", offset = 1 },
-  { type = "modify_stat", target = "self", stat = "energy", amount = -30 },
   { type = "output", message = "[raise] A skeleton rises!" },
 ]
 

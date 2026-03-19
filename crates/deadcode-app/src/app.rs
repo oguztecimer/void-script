@@ -532,6 +532,7 @@ impl ApplicationHandler<UserEvent> for App {
         // Validate spawn entity type references.
         let known_types: HashSet<String> = self.entity_configs.keys().cloned().collect();
         modding::validate_spawns(&mods, &known_types);
+        modding::validate_command_defs(&mods);
 
         // --- Unit system init ---
         let mut um = UnitManager::new();

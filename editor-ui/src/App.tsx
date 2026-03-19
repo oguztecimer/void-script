@@ -65,6 +65,7 @@ export function App() {
   const toggleRightPanel = useStore((s) => s.toggleRightPanel);
   const toggleBottomPanel = useStore((s) => s.toggleBottomPanel);
   const setBottomPanelOpen = useStore((s) => s.setBottomPanelOpen);
+  const bottomPanelTab = useStore((s) => s.bottomPanelTab);
 
   const rightPanelRef = useRef<PanelImperativeHandle | null>(null);
   const bottomPanelRef = useRef<PanelImperativeHandle | null>(null);
@@ -136,13 +137,15 @@ export function App() {
         rightPanelOpen: false,
         bottomPanelOpen: true,
       });
-      if (store.consoleOutput.length === 0) {
-        store.addConsoleOutput('The dead stir beneath your feet', 'info');
-        store.addConsoleOutput('Type consult() to hear the bones speak', 'info');
+      if (store.terminalOutput.length === 0) {
+        store.addTerminalOutput('The dead stir beneath your feet', 'info');
+        store.addTerminalOutput('Type consult() to hear the bones speak', 'info');
       }
-      sendToRust({ type: 'window_set_size', width: 500, height: 250, resizable: false });
+      const h = Math.round(window.screen.height * 0.25);
+      sendToRust({ type: 'window_set_size', width: h * 2, height: h, resizable: false });
     } else {
-      sendToRust({ type: 'window_set_size', width: 800, height: 600, resizable: true });
+      const h = Math.round(window.screen.height * 0.7);
+      sendToRust({ type: 'window_set_size', width: Math.round(h * (4 / 3)), height: h, resizable: true });
     }
   }, [tier]);
 
@@ -157,7 +160,7 @@ export function App() {
         // Apply tier change during the white line hold
         setTimeout(() => {
           const current = useStore.getState().tier;
-          setTier((current + 1) % 3);
+          setTier((current + 1) % 2);
         }, 400);
         setTimeout(() => setTierTransition(false), 900);
       }
@@ -336,7 +339,7 @@ export function App() {
                 >
                   <div className={styles.bottomPanel}>
                     {tv.showBottomTabStrip && <BottomTabStrip />}
-                    <Console />
+                    <Console variant={bottomPanelTab === 'terminal' ? 'terminal' : 'console'} />
                   </div>
                 </Panel>
               </Group>

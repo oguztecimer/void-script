@@ -41,11 +41,11 @@
 }
 
 .code {
-  color: var(--syntax-function);
+  color: #ffb347;
 }
 
 .codeGlow {
-  color: var(--syntax-function);
+  color: #ffb347;
   animation: codeGlow 2s ease-in-out infinite;
 }
 
@@ -83,7 +83,7 @@
 }
 
 .promptChar {
-  color: var(--text-secondary);
+  color: var(--text-primary);
   margin-right: 4px;
   flex-shrink: 0;
 }

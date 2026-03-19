@@ -20,14 +20,18 @@ const levelClass: Record<string, string> = {
   info: styles.info,
 };
 
-export function Console() {
+export function Console({ variant = 'console' }: { variant?: 'console' | 'terminal' }) {
   const consoleOutput = useStore((s) => s.consoleOutput);
-  const addConsoleOutput = useStore((s) => s.addConsoleOutput);
+  const terminalOutput = useStore((s) => s.terminalOutput);
+  const addTerminalOutput = useStore((s) => s.addTerminalOutput);
   const tier = useStore((s) => s.tier);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [command, setCommand] = useState('');
+
+  const isTerminal = variant === 'terminal' || tier === 0;
+  const output = isTerminal ? terminalOutput : consoleOutput;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -36,39 +40,38 @@ export function Console() {
     } else {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [consoleOutput.length]);
+  }, [output.length]);
 
-  // Auto-focus the input in T0
+  // Auto-focus the input in terminal mode
   useEffect(() => {
-    if (tier === 0) {
+    if (isTerminal) {
       inputRef.current?.focus();
     }
-  }, [tier]);
+  }, [isTerminal]);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = command.trim();
     if (!trimmed) return;
-    addConsoleOutput(`> ${trimmed}`, 'info');
+    addTerminalOutput(`> ${trimmed}`, 'info');
     sendToRust({ type: 'console_command', command: trimmed });
     setCommand('');
-  }, [command, addConsoleOutput]);
+  }, [command, addTerminalOutput]);
 
-  // Keep focus on input when clicking anywhere in T0 console
   const handleConsoleClick = useCallback(() => {
-    if (tier === 0) {
+    if (isTerminal) {
       inputRef.current?.focus();
     }
-  }, [tier]);
+  }, [isTerminal]);
 
-  if (tier === 0) {
+  if (isTerminal) {
     return (
       <div className={styles.consoleTier0} onClick={handleConsoleClick}>
         <div ref={scrollRef} className={styles.tier0Scroll}>
           <div className={styles.tier0Spacer} />
-          {consoleOutput.map((entry, i) => (
+          {output.map((entry, i) => (
             <div key={i} className={`${styles.entry} ${levelClass[entry.level] || styles.info}`}>
-              {highlightCode(entry.text, i === 1)}
+              {highlightCode(entry.text, tier === 0 && i === 1)}
             </div>
           ))}
           <div ref={bottomRef} />
@@ -90,12 +93,12 @@ export function Console() {
 
   return (
     <div className={styles.console}>
-      {consoleOutput.map((entry, i) => (
+      {output.map((entry, i) => (
         <div key={i} className={`${styles.entry} ${levelClass[entry.level] || styles.info}`}>
           {entry.text}
         </div>
       ))}
-      {consoleOutput.length === 0 && (
+      {output.length === 0 && (
         <div className={styles.emptyState}>
           Run a script to see output here
         </div>

@@ -17,7 +17,7 @@ export function getTierVisibility(tier: number): TierVisibility {
     showTabBar: tier >= 1,
     showBottomTabStrip: tier >= 1,
     showStatusBar: tier >= 1,
-    showRightToolStrip: tier >= 2,
+    showRightToolStrip: tier >= 1,
     showCrtEffects: tier === 0,
   };
 }

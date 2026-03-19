@@ -24,6 +24,7 @@ interface EditorState {
   cursorLine: number;
   cursorCol: number;
   consoleOutput: ConsoleEntry[];
+  terminalOutput: ConsoleEntry[];
   leftPanelOpen: boolean;
   bottomPanelOpen: boolean;
   rightPanelOpen: boolean;
@@ -49,6 +50,8 @@ interface EditorState {
   setCursor: (line: number, col: number) => void;
   addConsoleOutput: (text: string, level: 'info' | 'warn' | 'error') => void;
   clearConsole: () => void;
+  addTerminalOutput: (text: string, level: 'info' | 'warn' | 'error') => void;
+  clearTerminal: () => void;
   toggleLeftPanel: () => void;
   toggleBottomPanel: () => void;
   toggleRightPanel: () => void;
@@ -72,10 +75,11 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   cursorLine: 1,
   cursorCol: 1,
   consoleOutput: [],
+  terminalOutput: [],
   leftPanelOpen: true,
   bottomPanelOpen: true,
   rightPanelOpen: false,
-  bottomPanelTab: 'console',
+  bottomPanelTab: 'terminal',
   isRunning: false,
   isDebugging: false,
   isPaused: false,
@@ -147,6 +151,13 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
     })),
 
   clearConsole: () => set({ consoleOutput: [] }),
+
+  addTerminalOutput: (text, level) =>
+    set((state) => ({
+      terminalOutput: [...state.terminalOutput, { text, level }],
+    })),
+
+  clearTerminal: () => set({ terminalOutput: [] }),
 
   toggleLeftPanel: () => set((state) => ({ leftPanelOpen: !state.leftPanelOpen })),
   toggleBottomPanel: () => set((state) => ({ bottomPanelOpen: !state.bottomPanelOpen })),

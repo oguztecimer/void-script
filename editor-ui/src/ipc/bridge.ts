@@ -34,7 +34,7 @@ export function initIpcBridge(): void {
         store.closeTab(msg.script_id);
         break;
       case 'console_output':
-        store.addConsoleOutput(msg.text, msg.level);
+        store.addTerminalOutput(msg.text, msg.level);
         break;
       case 'script_started':
         store.setRunning(true);
@@ -44,7 +44,7 @@ export function initIpcBridge(): void {
         store.setRunning(false);
         store.setDebugging(false);
         store.setPaused(false);
-        store.addConsoleOutput(
+        store.addTerminalOutput(
           msg.success ? '--- Script finished ---' : `--- Script failed: ${msg.error} ---`,
           msg.success ? 'info' : 'error'
         );
@@ -60,10 +60,10 @@ export function initIpcBridge(): void {
         store.setPaused(false);
         break;
       case 'simulation_started':
-        store.addConsoleOutput('--- Simulation started ---', 'info');
+        store.addTerminalOutput('--- Simulation started ---', 'info');
         break;
       case 'simulation_stopped':
-        store.addConsoleOutput('--- Simulation stopped ---', 'info');
+        store.addTerminalOutput('--- Simulation stopped ---', 'info');
         break;
       case 'simulation_tick':
         // Tick updates can be used by UI components if needed.

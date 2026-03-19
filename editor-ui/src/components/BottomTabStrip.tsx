@@ -3,6 +3,7 @@ import { ToolBtn } from '../primitives/ToolBtn';
 import styles from './BottomTabStrip.module.css';
 
 const BOTTOM_TABS = [
+  { id: 'terminal', label: 'Terminal' },
   { id: 'console', label: 'Console' },
 ];
 
@@ -10,7 +11,9 @@ export function BottomTabStrip() {
   const activeTab = useStore((s) => s.bottomPanelTab);
   const setTab = useStore((s) => s.setBottomPanelTab);
   const clearConsole = useStore((s) => s.clearConsole);
+  const clearTerminal = useStore((s) => s.clearTerminal);
   const toggleBottomPanel = useStore((s) => s.toggleBottomPanel);
+  const handleClear = activeTab === 'terminal' ? clearTerminal : clearConsole;
 
   return (
     <div className={styles.strip}>
@@ -26,7 +29,7 @@ export function BottomTabStrip() {
         ))}
       </div>
       <div className={styles.actions}>
-        <ToolBtn size="small" onClick={clearConsole} title="Clear Console">
+        <ToolBtn size="small" onClick={handleClear} title="Clear">
           <svg width="12" height="12" viewBox="0 0 16 16">
             <path d="M2 2h12M4 6h8M6 10h4M8 14" stroke="currentColor" strokeWidth="1.5" fill="none"/>
           </svg>

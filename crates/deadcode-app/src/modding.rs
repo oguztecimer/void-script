@@ -12,7 +12,6 @@ use serde::Deserialize;
 use deadcode_desktop::animation::{
     SUMMONER_ATLAS_PNG, summoner_atlas_json,
     SKELETON_ATLAS_PNG, skeleton_atlas_json,
-    MERCHANT_ATLAS_PNG, merchant_atlas_json,
 };
 use deadcode_sim::action::{CommandCost, CommandDef, CommandEffect};
 use deadcode_sim::entity::EntityConfig;
@@ -230,14 +229,8 @@ fn embedded_fallback() -> LoadedMod {
         png: SKELETON_ATLAS_PNG.to_vec(),
         json: skeleton_atlas_json(),
     });
-    sprites.insert("merchant".into(), SpriteData {
-        png: MERCHANT_ATLAS_PNG.to_vec(),
-        json: merchant_atlas_json(),
-    });
-
     pivots.insert("summoner".into(), [49.0, 2.0]);
     pivots.insert("skeleton".into(), [24.0, 0.0]);
-    pivots.insert("merchant".into(), [24.0, 0.0]);
 
     let manifest = ModManifest {
         meta: ModMeta {

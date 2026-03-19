@@ -284,11 +284,9 @@ mods/core/
     summoner_atlas.json
     skeleton_atlas.png
     skeleton_atlas.json
-    merchant_atlas.png
-    merchant_atlas.json
 ```
 
-Its `mod.toml` defines three entity types (summoner, skeleton, merchant), spawns one summoner at position 500, and unlocks the four starter commands. You can edit this file to change the starting configuration without recompiling.
+Its `mod.toml` defines two entity types (summoner, skeleton), spawns one summoner at position 500, and unlocks the four starter commands. You can edit this file to change the starting configuration without recompiling.
 
 ## Creating a New Mod
 

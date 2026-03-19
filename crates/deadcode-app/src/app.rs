@@ -10,7 +10,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 use deadcode_desktop::UserEvent;
-use deadcode_desktop::animation::{SKELETON_ATLAS_PNG, skeleton_atlas_json, SUMMONER_ATLAS_PNG, summoner_atlas_json};
+use deadcode_desktop::animation::{SUMMONER_ATLAS_PNG, summoner_atlas_json};
 use deadcode_desktop::fullscreen;
 use deadcode_desktop::renderer::Renderer;
 use deadcode_desktop::save;
@@ -20,7 +20,7 @@ use deadcode_desktop::unit::{UnitManager, WORLD_WIDTH};
 use deadcode_desktop::window::{StripInfo, enumerate_monitors};
 
 use deadcode_editor::ipc::{JsToRust, RustToJs, WindowControlEvent};
-use deadcode_sim::SimWorld;
+use deadcode_sim::{EntityType, SimWorld};
 use deadcode_editor::window::{WebViewManager, MaximizedState, open_editor, get_window_geometry};
 use deadcode_editor::scripts::ScriptStore;
 use deadcode_editor::tabs::EditorWindowState;
@@ -147,18 +147,6 @@ impl App {
         // --- Unit system tick ---
         if let Some(um) = &mut self.unit_manager {
             um.tick(delta);
-            // Random wandering: pick a new target when idle.
-            let idle: Vec<_> = um.iter()
-                .filter(|u| u.movement.is_none() && u.name == "skeleton")
-                .map(|u| u.id)
-                .collect();
-            for id in idle {
-                let seed = now.elapsed().as_nanos() as u32;
-                let target = (seed % 1000) as f32;
-                let speed = 10.0 + (seed % 20) as f32;
-                um.move_to(id, target, speed);
-            }
-            self.active_until = Some(Instant::now() + Duration::from_secs(1));
         }
 
         // --- Simulation tick ---
@@ -462,19 +450,16 @@ impl ApplicationHandler<UserEvent> for App {
         // --- Unit system init ---
         let mut um = UnitManager::new();
 
-        // Skeleton.
-        let skeleton_json = skeleton_atlas_json();
-        let id = um.spawn("skeleton", SKELETON_ATLAS_PNG, &skeleton_json, 500.0,23.0,0.0);
-        um.move_to(id, 600.0, 30.0);
-
-        // Summoner (behind skeletons).
+        // Summoner — render unit, driven by sim.
         let summoner_json = summoner_atlas_json();
-        let summoner_id = um.spawn("summoner", SUMMONER_ATLAS_PNG, &summoner_json, 500.0,49.0,2.0);
-        if let Some(s) = um.get_mut(summoner_id) {
-            s.z_order = -1;
-        }
+        um.spawn("summoner", SUMMONER_ATLAS_PNG, &summoner_json, 500.0, 49.0, 2.0);
 
         self.unit_manager = Some(um);
+
+        // --- Simulation init ---
+        let mut sim = SimWorld::new(42);
+        sim.spawn_entity(EntityType::Mothership, "summoner".into(), 500);
+        self.sim_world = Some(sim);
 
         let tray_icon = tray::create_tray(self.proxy.clone());
         let context_menu = tray::create_context_menu();

@@ -8,6 +8,13 @@ use crate::ipc::{JsToRust, RustToJs, WindowControlEvent};
 pub const MIN_WINDOW_WIDTH: i32 = 400;
 pub const MIN_WINDOW_HEIGHT: i32 = 400;
 
+/// When non-zero, the window is locked to this exact size (not resizable).
+/// The wndproc reads these to clamp WM_GETMINMAXINFO on Windows.
+#[cfg(target_os = "windows")]
+static LOCKED_WIDTH: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+#[cfg(target_os = "windows")]
+static LOCKED_HEIGHT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
 #[cfg(target_os = "macos")]
 use objc2::{rc::Retained, MainThreadOnly};
 #[cfg(target_os = "macos")]
@@ -146,6 +153,14 @@ impl WebViewManager {
         }
         #[cfg(target_os = "windows")]
         {
+            use std::sync::atomic::Ordering::Relaxed;
+            if resizable {
+                LOCKED_WIDTH.store(0, Relaxed);
+                LOCKED_HEIGHT.store(0, Relaxed);
+            } else {
+                LOCKED_WIDTH.store(width as i32, Relaxed);
+                LOCKED_HEIGHT.store(height as i32, Relaxed);
+            }
             if let Some(hwnd) = self.hwnd {
                 use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN, SWP_NOZORDER, SWP_NOACTIVATE};
                 use windows::Win32::Foundation::HWND;
@@ -163,8 +178,6 @@ impl WebViewManager {
                         SWP_NOZORDER | SWP_NOACTIVATE,
                     );
                 }
-                // Note: On Windows, min/max size is enforced via WM_GETMINMAXINFO in wndproc.
-                // A full implementation would store resizable state and use it there.
             }
         }
     }
@@ -784,8 +797,18 @@ unsafe extern "system" fn wndproc(
         }
         WM_GETMINMAXINFO => {
             let info = unsafe { &mut *(lparam.0 as *mut MINMAXINFO) };
-            info.ptMinTrackSize.x = MIN_WINDOW_WIDTH;
-            info.ptMinTrackSize.y = MIN_WINDOW_HEIGHT;
+            let lw = LOCKED_WIDTH.load(std::sync::atomic::Ordering::Relaxed);
+            let lh = LOCKED_HEIGHT.load(std::sync::atomic::Ordering::Relaxed);
+            if lw > 0 && lh > 0 {
+                // Window is locked (not resizable) — clamp min and max to the same size
+                info.ptMinTrackSize.x = lw;
+                info.ptMinTrackSize.y = lh;
+                info.ptMaxTrackSize.x = lw;
+                info.ptMaxTrackSize.y = lh;
+            } else {
+                info.ptMinTrackSize.x = MIN_WINDOW_WIDTH;
+                info.ptMinTrackSize.y = MIN_WINDOW_HEIGHT;
+            }
             LRESULT(0)
         }
         WM_CLOSE => {

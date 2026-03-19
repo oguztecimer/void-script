@@ -109,7 +109,7 @@ Not every GrimScript builtin is available from the start. The game progressively
 - `None` → all commands available (used in dev mode and tests)
 - `Some(set)` → only game builtins in the set are allowed; others produce `"'name' is not available yet"` error
 
-**Initial available set**: `consult`, `raise`, `harvest`, `pact` (necromancer starter commands).
+**Initial available set**: Defined in the mod's `[commands].initial` field (see `mods/necromancer/mod.toml`). The base game starts with `consult`, `raise`, `harvest`, `pact`. Multiple mods' command sets are merged.
 
 **Dev mode**: When compiled with `--features dev-mode`, the gate is bypassed entirely (`None` passed to interpreter/compiler, all game builtins sent to frontend as available).
 
@@ -121,7 +121,7 @@ Not every GrimScript builtin is available from the start. The game progressively
 - Interpreter: before `call_builtin()` and before entity method dispatch (`interpreter.rs`)
 - Compiler: before emitting Query/Action instructions and before method call fallback (`emit.rs`)
 
-**Unlocking commands at runtime**: `App::available_commands` is a `HashSet<String>` in `deadcode-app`. Insert a command name, then call `send_available_commands()` to push the updated set to the frontend and `execution_manager.set_available_commands()` to update the interpreter gate.
+**Unlocking commands at runtime**: `App::available_commands` is a `HashSet<String>` in `deadcode-app`, initially populated from mod manifests (`[commands].initial`). Insert a command name, then call `send_available_commands()` to push the updated set to the frontend and `execution_manager.set_available_commands()` to update the interpreter gate.
 
 ## Value Types (SimValue)
 
@@ -266,7 +266,7 @@ ActionBuiltin::Summon => 1,
 'summon',
 ```
 
-To make the command initially available, add `"summon"` to the `available_commands` set in `App::new()` (`deadcode-app/src/app.rs`).
+To make the command initially available, add `"summon"` to the `[commands].initial` list in the mod's `mod.toml` (e.g., `mods/necromancer/mod.toml`). Or at runtime: insert it into `App::available_commands` and call `send_available_commands()`.
 
 ## Adding a New Entity Attribute
 
@@ -321,6 +321,9 @@ Events are how the sim communicates state changes to the rendering layer.
 | Compiler | `crates/deadcode-sim/src/compiler/emit.rs` | AST → IR emission, available commands gate |
 | Compiler | `crates/deadcode-sim/src/compiler/symbol_table.rs` | Variable scope tracking |
 | App | `crates/deadcode-app/src/app.rs` | Game loop, sim integration, IPC dispatch, available commands state |
+| Modding | `crates/deadcode-app/src/modding.rs` | Mod manifest types, loading, sprite registry, embedded fallback |
+| Mod manifest | `mods/necromancer/mod.toml` | Base game mod: entity defs, spawns, initial commands |
+| Entity config | `crates/deadcode-sim/src/entity.rs` | `EntityConfig` for stat overrides at spawn |
 | Execution | `crates/deadcode-editor/src/execution.rs` | Script execution manager, threads available commands to interpreter |
 | IPC | `crates/deadcode-editor/src/ipc.rs` | Rust-side message enums |
 | IPC | `editor-ui/src/ipc/types.ts` | TypeScript message types |

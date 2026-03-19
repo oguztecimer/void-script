@@ -1,0 +1,25 @@
+{
+  "frame_width": 199,
+  "frame_height": 106,
+  "animations": [
+    {
+      "name": "idle",
+      "row": 0,
+      "frames": [
+        {"col": 0, "duration_ms": 120},
+        {"col": 1, "duration_ms": 120},
+        {"col": 2, "duration_ms": 120},
+        {"col": 3, "duration_ms": 120},
+        {"col": 4, "duration_ms": 120},
+        {"col": 5, "duration_ms": 120},
+        {"col": 6, "duration_ms": 120},
+        {"col": 7, "duration_ms": 120},
+        {"col": 8, "duration_ms": 120},
+        {"col": 9, "duration_ms": 120},
+        {"col": 10, "duration_ms": 120},
+        {"col": 11, "duration_ms": 120}
+      ],
+      "loop_mode": "loop"
+    }
+  ]
+}

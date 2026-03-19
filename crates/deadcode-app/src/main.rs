@@ -1,4 +1,5 @@
 mod app;
+mod modding;
 
 use winit::event_loop::EventLoop;
 

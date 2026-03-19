@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::action::{UnitAction, resolve_action};
-use crate::entity::{EntityId, SimEntity};
+use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
 
@@ -109,9 +109,23 @@ impl SimWorld {
         name: String,
         position: i64,
     ) -> EntityId {
+        self.spawn_entity_with_config(entity_type, name, position, None)
+    }
+
+    /// Spawn an entity with optional stat overrides and return its ID.
+    pub fn spawn_entity_with_config(
+        &mut self,
+        entity_type: String,
+        name: String,
+        position: i64,
+        config: Option<&EntityConfig>,
+    ) -> EntityId {
         let id = EntityId(self.next_entity_id);
         self.next_entity_id += 1;
-        let entity = SimEntity::new(id, entity_type, name, position);
+        let mut entity = SimEntity::new(id, entity_type, name, position);
+        if let Some(cfg) = config {
+            entity.apply_config(cfg);
+        }
         let index = self.entities.len();
         self.entities.push(entity);
         self.entity_index.insert(id, index);

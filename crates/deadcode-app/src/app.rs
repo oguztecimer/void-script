@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -11,7 +11,6 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 use deadcode_desktop::UserEvent;
-use deadcode_desktop::animation::{SUMMONER_ATLAS_PNG, summoner_atlas_json};
 use deadcode_desktop::fullscreen;
 use deadcode_desktop::renderer::Renderer;
 use deadcode_desktop::save;
@@ -27,6 +26,8 @@ use deadcode_editor::scripts::ScriptStore;
 use deadcode_editor::tabs::EditorWindowState;
 use deadcode_editor::execution::ScriptExecutionManager;
 use grimscript_lang::DebugCommand;
+
+use crate::modding::{self, SpriteData};
 
 // ---------------------------------------------------------------------------
 // MonitorSlot
@@ -63,6 +64,14 @@ pub struct App {
     cursor_position: winit::dpi::PhysicalPosition<f64>,
     save_timer: Duration,
     unit_manager: Option<UnitManager>,
+
+    // --- Modding system ---
+    /// Entity type → sprite data (PNG bytes + JSON metadata).
+    sprite_registry: HashMap<String, SpriteData>,
+    /// Entity type → pivot [x, y].
+    pivot_registry: HashMap<String, [f32; 2]>,
+    /// Entity type → stat overrides.
+    entity_configs: HashMap<String, deadcode_sim::entity::EntityConfig>,
 
     // --- Simulation system ---
     sim_world: Option<SimWorld>,
@@ -108,6 +117,11 @@ impl App {
             save_timer: Duration::ZERO,
             unit_manager: None,
 
+            // Modding system
+            sprite_registry: HashMap::new(),
+            pivot_registry: HashMap::new(),
+            entity_configs: HashMap::new(),
+
             // Simulation system
             sim_world: None,
 
@@ -120,10 +134,7 @@ impl App {
             execution_manager: ScriptExecutionManager::default(),
             maximized_state: MaximizedState::default(),
             settings: Settings::default(),
-            available_commands: ["consult", "raise", "harvest", "pact"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
+            available_commands: HashSet::new(),
 
             #[cfg(target_os = "windows")]
             tick_thread_started: false,
@@ -176,10 +187,32 @@ impl App {
                     }
                 }
 
-                // Forward script output events to editor console.
+                // Forward script output events to editor console and
+                // spawn render units for newly-spawned sim entities.
                 let events = sim.take_events();
                 for event in &events {
                     match event {
+                        deadcode_sim::SimEvent::EntitySpawned { entity_type, position, .. } => {
+                            // Look up sprite in registry and spawn a render unit.
+                            if let Some(sprite) = self.sprite_registry.get(entity_type) {
+                                if let Some(um) = &mut self.unit_manager {
+                                    let [px, py] = self.pivot_registry
+                                        .get(entity_type)
+                                        .copied()
+                                        .unwrap_or([24.0, 0.0]);
+                                    // Use entity_type as the render unit name for new spawns.
+                                    let name = format!("{}_{}", entity_type, position);
+                                    um.spawn(
+                                        &name,
+                                        &sprite.png,
+                                        &sprite.json,
+                                        *position as f32,
+                                        px,
+                                        py,
+                                    );
+                                }
+                            }
+                        }
                         deadcode_sim::SimEvent::ScriptOutput { text, .. } => {
                             let msg = RustToJs::ConsoleOutput {
                                 text: text.clone(),
@@ -454,18 +487,62 @@ impl ApplicationHandler<UserEvent> for App {
             self.settings = save_data.settings;
         }
 
+        // --- Mod loading ---
+        let mods = modding::load_mods(&modding::mods_dir());
+        self.available_commands = modding::collect_initial_commands(&mods);
+
+        // Merge sprite/pivot/config registries from all loaded mods.
+        for loaded_mod in &mods {
+            for (etype, sprite) in &loaded_mod.sprites {
+                self.sprite_registry.entry(etype.clone())
+                    .or_insert_with(|| SpriteData {
+                        png: sprite.png.clone(),
+                        json: sprite.json.clone(),
+                    });
+            }
+            for (etype, pivot) in &loaded_mod.pivots {
+                self.pivot_registry.entry(etype.clone()).or_insert(*pivot);
+            }
+            for (etype, config) in &loaded_mod.entity_configs {
+                self.entity_configs.entry(etype.clone()).or_insert_with(|| config.clone());
+            }
+        }
+
         // --- Unit system init ---
         let mut um = UnitManager::new();
+        let mut sim = SimWorld::new(42);
 
-        // Summoner — render unit, driven by sim.
-        let summoner_json = summoner_atlas_json();
-        um.spawn("summoner", SUMMONER_ATLAS_PNG, &summoner_json, 500.0, 49.0, 2.0);
+        // Spawn entities defined in mod manifests.
+        for loaded_mod in &mods {
+            for spawn_def in &loaded_mod.manifest.spawn {
+                // Spawn render unit if sprite data is available.
+                if let Some(sprite) = self.sprite_registry.get(&spawn_def.entity_type) {
+                    let [px, py] = self.pivot_registry
+                        .get(&spawn_def.entity_type)
+                        .copied()
+                        .unwrap_or([24.0, 0.0]);
+                    um.spawn(
+                        &spawn_def.name,
+                        &sprite.png,
+                        &sprite.json,
+                        spawn_def.position as f32,
+                        px,
+                        py,
+                    );
+                }
+
+                // Spawn sim entity with optional stat overrides.
+                let config = self.entity_configs.get(&spawn_def.entity_type);
+                sim.spawn_entity_with_config(
+                    spawn_def.entity_type.clone(),
+                    spawn_def.name.clone(),
+                    spawn_def.position,
+                    config,
+                );
+            }
+        }
 
         self.unit_manager = Some(um);
-
-        // --- Simulation init ---
-        let mut sim = SimWorld::new(42);
-        sim.spawn_entity("summoner".into(), "summoner".into(), 500);
         self.sim_world = Some(sim);
 
         let tray_icon = tray::create_tray(self.proxy.clone());

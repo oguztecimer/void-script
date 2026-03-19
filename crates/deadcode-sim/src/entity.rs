@@ -49,6 +49,18 @@ impl ScriptState {
     }
 }
 
+/// Optional stat overrides applied at spawn time.
+#[derive(Debug, Clone, Default)]
+pub struct EntityConfig {
+    pub health: Option<i64>,
+    pub energy: Option<i64>,
+    pub speed: Option<i64>,
+    pub attack_damage: Option<i64>,
+    pub attack_range: Option<i64>,
+    pub attack_cooldown: Option<i64>,
+    pub shield: Option<i64>,
+}
+
 /// A game entity — theme-agnostic. Entity type is a free-form string.
 #[derive(Debug, Clone)]
 pub struct SimEntity {
@@ -106,6 +118,34 @@ impl SimEntity {
             target: None,
             alive: true,
             script_state: None,
+        }
+    }
+
+    /// Apply optional stat overrides from an `EntityConfig`.
+    pub fn apply_config(&mut self, config: &EntityConfig) {
+        if let Some(h) = config.health {
+            self.health = h;
+            self.max_health = h;
+        }
+        if let Some(e) = config.energy {
+            self.energy = e;
+            self.max_energy = e;
+        }
+        if let Some(s) = config.speed {
+            self.speed = s;
+        }
+        if let Some(d) = config.attack_damage {
+            self.attack_damage = d;
+        }
+        if let Some(r) = config.attack_range {
+            self.attack_range = r;
+        }
+        if let Some(c) = config.attack_cooldown {
+            self.attack_cooldown = c;
+        }
+        if let Some(s) = config.shield {
+            self.shield = s;
+            self.max_shield = s;
         }
     }
 }

@@ -1,0 +1,272 @@
+//! Mod loading system.
+//!
+//! Loads `mod.toml` manifests from the `mods/` directory. Each mod defines
+//! entity types (with sprites and stats), initial spawn definitions, and
+//! available commands. The base game ("necromancer") is itself a mod.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+
+use deadcode_desktop::animation::{
+    SUMMONER_ATLAS_PNG, summoner_atlas_json,
+    SKELETON_ATLAS_PNG, skeleton_atlas_json,
+    MERCHANT_ATLAS_PNG, merchant_atlas_json,
+};
+use deadcode_sim::entity::EntityConfig;
+
+// ---------------------------------------------------------------------------
+// Manifest types (deserialized from mod.toml)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct ModManifest {
+    #[serde(rename = "mod")]
+    pub meta: ModMeta,
+    #[serde(default)]
+    pub entities: Vec<EntityDef>,
+    #[serde(default)]
+    pub spawn: Vec<SpawnDef>,
+    #[serde(default)]
+    pub commands: Option<CommandsDef>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct ModMeta {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EntityDef {
+    #[serde(rename = "type")]
+    pub entity_type: String,
+    /// Sprite path relative to mod dir (without extension). Expects .png + .json pair.
+    pub sprite: Option<String>,
+    /// Sprite pivot [x, y].
+    #[serde(default)]
+    pub pivot: Option<[f32; 2]>,
+    pub health: Option<i64>,
+    pub energy: Option<i64>,
+    pub speed: Option<i64>,
+    pub attack_damage: Option<i64>,
+    pub attack_range: Option<i64>,
+    pub attack_cooldown: Option<i64>,
+    pub shield: Option<i64>,
+}
+
+impl EntityDef {
+    /// Convert to a sim `EntityConfig` for stat overrides.
+    pub fn to_entity_config(&self) -> EntityConfig {
+        EntityConfig {
+            health: self.health,
+            energy: self.energy,
+            speed: self.speed,
+            attack_damage: self.attack_damage,
+            attack_range: self.attack_range,
+            attack_cooldown: self.attack_cooldown,
+            shield: self.shield,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SpawnDef {
+    pub entity_type: String,
+    pub name: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommandsDef {
+    #[serde(default)]
+    pub initial: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Sprite data: PNG bytes + JSON metadata string
+// ---------------------------------------------------------------------------
+
+pub struct SpriteData {
+    pub png: Vec<u8>,
+    pub json: String,
+}
+
+// ---------------------------------------------------------------------------
+// Loaded mod: manifest + resolved sprite data
+// ---------------------------------------------------------------------------
+
+pub struct LoadedMod {
+    pub manifest: ModManifest,
+    /// Entity type → sprite data (PNG bytes + JSON string).
+    pub sprites: HashMap<String, SpriteData>,
+    /// Entity type → pivot [x, y].
+    pub pivots: HashMap<String, [f32; 2]>,
+    /// Entity type → entity config (stat overrides).
+    pub entity_configs: HashMap<String, EntityConfig>,
+}
+
+// ---------------------------------------------------------------------------
+// Loading
+// ---------------------------------------------------------------------------
+
+/// Try to load the mod at `mod_dir`. Returns `None` if `mod.toml` doesn't exist.
+fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
+    let manifest_path = mod_dir.join("mod.toml");
+    let toml_str = std::fs::read_to_string(&manifest_path).ok()?;
+    let manifest: ModManifest = toml::from_str(&toml_str)
+        .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", manifest_path.display()));
+
+    let mut sprites = HashMap::new();
+    let mut pivots = HashMap::new();
+    let mut entity_configs = HashMap::new();
+
+    for entity_def in &manifest.entities {
+        // Load sprite files if a sprite path is specified.
+        if let Some(sprite_path) = &entity_def.sprite {
+            let png_path = mod_dir.join(format!("{sprite_path}.png"));
+            let json_path = mod_dir.join(format!("{sprite_path}.json"));
+
+            if png_path.exists() && json_path.exists() {
+                let png = std::fs::read(&png_path)
+                    .unwrap_or_else(|e| panic!("Failed to read {}: {e}", png_path.display()));
+                let json = std::fs::read_to_string(&json_path)
+                    .unwrap_or_else(|e| panic!("Failed to read {}: {e}", json_path.display()));
+                sprites.insert(entity_def.entity_type.clone(), SpriteData { png, json });
+            } else {
+                eprintln!(
+                    "[mod] warning: sprite files not found for '{}': {} / {}",
+                    entity_def.entity_type,
+                    png_path.display(),
+                    json_path.display()
+                );
+            }
+        }
+
+        if let Some(pivot) = entity_def.pivot {
+            pivots.insert(entity_def.entity_type.clone(), pivot);
+        }
+
+        entity_configs.insert(entity_def.entity_type.clone(), entity_def.to_entity_config());
+    }
+
+    Some(LoadedMod {
+        manifest,
+        sprites,
+        pivots,
+        entity_configs,
+    })
+}
+
+/// Load mods from the `mods/` directory. Falls back to embedded assets if
+/// the directory doesn't exist or contains no valid mods.
+pub fn load_mods(mods_dir: &Path) -> Vec<LoadedMod> {
+    let mut loaded = Vec::new();
+
+    if mods_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(mods_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(m) = load_mod_from_dir(&path) {
+                        eprintln!("[mod] loaded: {} v{}", m.manifest.meta.name, m.manifest.meta.version);
+                        loaded.push(m);
+                    }
+                }
+            }
+        }
+    }
+
+    if loaded.is_empty() {
+        eprintln!("[mod] no mods found, using embedded fallback");
+        loaded.push(embedded_fallback());
+    }
+
+    loaded
+}
+
+/// Build a `LoadedMod` from the compile-time embedded assets (the same
+/// behavior as before modding support was added).
+fn embedded_fallback() -> LoadedMod {
+    let mut sprites = HashMap::new();
+    let mut pivots = HashMap::new();
+    let mut entity_configs = HashMap::new();
+
+    sprites.insert("summoner".into(), SpriteData {
+        png: SUMMONER_ATLAS_PNG.to_vec(),
+        json: summoner_atlas_json(),
+    });
+    sprites.insert("skeleton".into(), SpriteData {
+        png: SKELETON_ATLAS_PNG.to_vec(),
+        json: skeleton_atlas_json(),
+    });
+    sprites.insert("merchant".into(), SpriteData {
+        png: MERCHANT_ATLAS_PNG.to_vec(),
+        json: merchant_atlas_json(),
+    });
+
+    pivots.insert("summoner".into(), [49.0, 2.0]);
+    pivots.insert("skeleton".into(), [24.0, 0.0]);
+    pivots.insert("merchant".into(), [24.0, 0.0]);
+
+    let manifest = ModManifest {
+        meta: ModMeta {
+            id: "necromancer".into(),
+            name: "Necromancer".into(),
+            version: "0.1.0".into(),
+        },
+        entities: vec![],
+        spawn: vec![SpawnDef {
+            entity_type: "summoner".into(),
+            name: "summoner".into(),
+            position: 500,
+        }],
+        commands: Some(CommandsDef {
+            initial: vec![
+                "consult".into(),
+                "raise".into(),
+                "harvest".into(),
+                "pact".into(),
+            ],
+        }),
+    };
+
+    entity_configs.insert("summoner".into(), EntityConfig {
+        health: Some(100),
+        energy: Some(100),
+        speed: Some(1),
+        ..Default::default()
+    });
+
+    LoadedMod {
+        manifest,
+        sprites,
+        pivots,
+        entity_configs,
+    }
+}
+
+/// Resolve the mods directory path (next to the executable's working dir).
+pub fn mods_dir() -> PathBuf {
+    std::env::current_dir()
+        .unwrap_or_default()
+        .join("mods")
+}
+
+/// Collect initial commands from all loaded mods.
+pub fn collect_initial_commands(mods: &[LoadedMod]) -> HashSet<String> {
+    let mut commands = HashSet::new();
+    for m in mods {
+        if let Some(cmds) = &m.manifest.commands {
+            commands.extend(cmds.initial.iter().cloned());
+        }
+    }
+    if commands.is_empty() {
+        // Default fallback
+        commands.extend(["consult", "raise", "harvest", "pact"].iter().map(|s| s.to_string()));
+    }
+    commands
+}

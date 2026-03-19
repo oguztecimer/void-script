@@ -66,7 +66,7 @@ export function Console({ variant = 'console' }: { variant?: 'console' | 'termin
 
   if (isTerminal) {
     return (
-      <div className={styles.consoleTier0} onClick={handleConsoleClick}>
+      <div className={`${styles.consoleTier0} ${variant === 'terminal' ? styles.editorTerminal : ''}`} onClick={handleConsoleClick}>
         <div ref={scrollRef} className={styles.tier0Scroll}>
           <div className={styles.tier0Spacer} />
           {output.map((entry, i) => (

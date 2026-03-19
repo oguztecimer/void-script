@@ -2,7 +2,7 @@
   flex: 1;
   overflow: auto;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-editor);
   line-height: 1.6;
   font-family: var(--font-mono);
   background-color: var(--bg-editor);
@@ -20,6 +20,10 @@
   cursor: text;
   position: relative;
   z-index: 1;
+}
+
+.editorTerminal {
+  font-size: var(--font-size-editor);
 }
 
 .tier0Scroll {
@@ -95,7 +99,7 @@
   outline: none;
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: inherit;
   line-height: 1.6;
   padding: 0;
   caret-color: var(--text-primary);

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -92,6 +92,8 @@ pub struct SimWorld {
     pub command_order: Vec<String>,
     /// Global resources shared across all entities.
     pub resources: IndexMap<String, i64>,
+    /// Available resource names. None = all available (dev mode).
+    pub available_resources: Option<HashSet<String>>,
 }
 
 impl SimWorld {
@@ -114,7 +116,21 @@ impl SimWorld {
             spawn_durations: HashMap::new(),
             command_order: Vec::new(),
             resources: IndexMap::new(),
+            available_resources: None,
         }
+    }
+
+    /// Check if a resource is available for use. Returns Err if not available.
+    pub fn check_resource_available(&self, name: &str) -> Result<(), crate::error::SimError> {
+        if let Some(ref set) = self.available_resources {
+            if !set.contains(name) {
+                return Err(crate::error::SimError::new(
+                    crate::error::SimErrorKind::Runtime,
+                    format!("resource '{}' is not available yet", name),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Get a global resource value (0 if not defined).
@@ -1157,5 +1173,114 @@ mod tests {
         let texts = output_texts(&world.take_events());
         assert!(texts.contains(&"spent".to_string()), "Should have spent: {:?}", texts);
         assert_eq!(world.get_resource("souls"), 2);
+    }
+
+    // --- Resource availability tests ---
+
+    #[test]
+    fn resource_available_when_no_restriction() {
+        let world = SimWorld::new(42);
+        // available_resources is None by default → all resources available.
+        assert!(world.check_resource_available("anything").is_ok());
+    }
+
+    #[test]
+    fn resource_available_when_in_set() {
+        let mut world = SimWorld::new(42);
+        world.available_resources = Some(["bones".to_string()].into_iter().collect());
+        assert!(world.check_resource_available("bones").is_ok());
+    }
+
+    #[test]
+    fn resource_unavailable_when_not_in_set() {
+        let mut world = SimWorld::new(42);
+        world.available_resources = Some(["bones".to_string()].into_iter().collect());
+        assert!(world.check_resource_available("souls").is_err());
+    }
+
+    #[test]
+    fn unavailable_resource_get_errors_in_script() {
+        let mut world = SimWorld::new(42);
+        world.resources.insert("souls".into(), 42);
+        world.available_resources = Some(["bones".to_string()].into_iter().collect());
+        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+
+        // Script: get_resource("souls"); halt — should error because "souls" is not available.
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::Str("souls".into())),
+                Instruction::QueryGetResource,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let events = world.take_events();
+        assert!(events.iter().any(|e| matches!(e, SimEvent::ScriptError { .. })));
+    }
+
+    #[test]
+    fn unavailable_resource_gain_errors_in_script() {
+        let mut world = SimWorld::new(42);
+        world.resources.insert("souls".into(), 10);
+        world.available_resources = Some(["bones".to_string()].into_iter().collect());
+        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+
+        // Script: gain_resource("souls", 5); wait — should error.
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::Str("souls".into())),
+                Instruction::LoadConst(SimValue::Int(5)),
+                Instruction::InstantGainResource,
+                Instruction::ActionWait,
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let events = world.take_events();
+        assert!(events.iter().any(|e| matches!(e, SimEvent::ScriptError { .. })));
+        assert_eq!(world.get_resource("souls"), 10); // unchanged
+    }
+
+    #[test]
+    fn available_resource_works_normally() {
+        let mut world = SimWorld::new(42);
+        world.resources.insert("bones".into(), 0);
+        world.available_resources = Some(["bones".to_string()].into_iter().collect());
+        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+
+        // Script: gain_resource("bones", 5); print(get_resource("bones")); wait
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::Str("bones".into())),
+                Instruction::LoadConst(SimValue::Int(5)),
+                Instruction::InstantGainResource,
+                Instruction::Pop, // discard return value
+                Instruction::LoadConst(SimValue::Str("bones".into())),
+                Instruction::QueryGetResource,
+                Instruction::Print,
+                Instruction::ActionWait,
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert_eq!(texts, vec!["5"]);
+        assert_eq!(world.get_resource("bones"), 5);
     }
 }

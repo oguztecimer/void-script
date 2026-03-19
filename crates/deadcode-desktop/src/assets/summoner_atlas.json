@@ -41,7 +41,7 @@
       "loop_mode": "loop"
     },
     {
-      "name": "attack",
+      "name": "cast",
       "row": 2,
       "frames": [
         {"col": 0, "ticks": 2},
@@ -59,15 +59,12 @@
         {"col": 12, "ticks": 2},
         {"col": 13, "ticks": 2},
         {"col": 14, "ticks": 2},
-        {"col": 15, "ticks": 2},
-        {"col": 16, "ticks": 2},
-        {"col": 17, "ticks": 2},
-        {"col": 18, "ticks": 2}
+        {"col": 15, "ticks": 2}
       ],
       "loop_mode": "play_once"
     },
     {
-      "name": "death",
+      "name": "attack",
       "row": 3,
       "frames": [
         {"col": 0, "ticks": 3},
@@ -86,12 +83,14 @@
         {"col": 13, "ticks": 3},
         {"col": 14, "ticks": 3},
         {"col": 15, "ticks": 3},
-        {"col": 16, "ticks": 3}
+        {"col": 16, "ticks": 3},
+        {"col": 17, "ticks": 3},
+        {"col": 18, "ticks": 3}
       ],
       "loop_mode": "play_once"
     },
     {
-      "name": "summon",
+      "name": "death",
       "row": 4,
       "frames": [
         {"col": 0, "ticks": 3},
@@ -103,13 +102,7 @@
         {"col": 6, "ticks": 3},
         {"col": 7, "ticks": 3},
         {"col": 8, "ticks": 3},
-        {"col": 9, "ticks": 3},
-        {"col": 10, "ticks": 3},
-        {"col": 11, "ticks": 3},
-        {"col": 12, "ticks": 3},
-        {"col": 13, "ticks": 3},
-        {"col": 14, "ticks": 3},
-        {"col": 15, "ticks": 3}
+        {"col": 9, "ticks": 3}
       ],
       "loop_mode": "play_once"
     }

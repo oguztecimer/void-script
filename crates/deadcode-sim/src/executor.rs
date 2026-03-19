@@ -595,6 +595,7 @@ pub fn execute_unit(
             }
             Instruction::QueryGetResource => {
                 let name = pop_str(&mut state.stack)?;
+                world.check_resource_available(&name)?;
                 let val = world.get_resource(&name);
                 state.stack.push(SimValue::Int(val));
             }
@@ -642,11 +643,13 @@ pub fn execute_unit(
             Instruction::InstantGainResource => {
                 let amount = pop_int(&mut state.stack)?;
                 let name = pop_str(&mut state.stack)?;
+                world.check_resource_available(&name)?;
                 return Ok(Some(UnitAction::GainResource { name, amount }));
             }
             Instruction::InstantTrySpendResource => {
                 let amount = pop_int(&mut state.stack)?;
                 let name = pop_str(&mut state.stack)?;
+                world.check_resource_available(&name)?;
                 return Ok(Some(UnitAction::TrySpendResource { name, amount }));
             }
 

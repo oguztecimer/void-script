@@ -28,6 +28,9 @@ use deadcode_editor::tabs::EditorWindowState;
 use deadcode_editor::execution::ScriptExecutionManager;
 use grimscript_lang::DebugCommand;
 
+use deadcode_desktop::animation::{SUMMONER_ATLAS_PNG, summoner_atlas_json};
+use deadcode_sim::entity::EntityConfig;
+
 use crate::modding::{self, SpriteData};
 
 // ---------------------------------------------------------------------------
@@ -88,6 +91,8 @@ pub struct App {
     maximized_state: MaximizedState,
     settings: Settings,
     available_commands: Vec<String>,
+    /// Available resource names (gated like commands).
+    available_resources: Vec<String>,
     /// Custom command definitions from mods.
     command_defs: HashMap<String, CommandDef>,
     /// Effects to run when the game opens (from [initial] sections in mods).
@@ -144,6 +149,7 @@ impl App {
             maximized_state: MaximizedState::default(),
             settings: Settings::default(),
             available_commands: Vec::new(),
+            available_resources: Vec::new(),
             command_defs: HashMap::new(),
             initial_effects: Vec::new(),
             initial_effects_pending: true,
@@ -540,8 +546,22 @@ impl ApplicationHandler<UserEvent> for App {
         // --- Mod loading ---
         let mods = modding::load_mods(&modding::mods_dir());
         self.available_commands = modding::collect_initial_commands(&mods);
+        self.available_resources = modding::collect_available_resources(&mods);
         self.command_defs = modding::collect_command_defs(&mods);
         self.initial_effects = modding::collect_initial_effects(&mods);
+
+        // --- Hardcoded summoner (core game entity, not moddable) ---
+        self.sprite_registry.insert("summoner".into(), SpriteData {
+            png: SUMMONER_ATLAS_PNG.to_vec(),
+            json: summoner_atlas_json(),
+        });
+        self.pivot_registry.insert("summoner".into(), [49.0, 2.0]);
+        self.entity_configs.insert("summoner".into(), EntityConfig {
+            health: Some(100),
+            energy: Some(100),
+            speed: Some(1),
+            ..Default::default()
+        });
 
         // Merge sprite/pivot/config registries from all loaded mods.
         for loaded_mod in &mods {
@@ -574,6 +594,14 @@ impl ApplicationHandler<UserEvent> for App {
         // --- Unit system init ---
         let mut um = UnitManager::new();
         let mut sim = SimWorld::new(42);
+
+        // Spawn the summoner (hardcoded core entity, always first).
+        {
+            let sprite = self.sprite_registry.get("summoner").unwrap();
+            um.spawn("summoner", &sprite.png, &sprite.json, 500.0, 49.0, 2.0);
+            let config = self.entity_configs.get("summoner");
+            sim.spawn_entity_with_config("summoner".into(), "summoner".into(), 500, config);
+        }
 
         // Spawn entities defined in mod manifests.
         for loaded_mod in &mods {
@@ -615,6 +643,13 @@ impl ApplicationHandler<UserEvent> for App {
 
         // Initialize global resources from mod definitions.
         sim.resources = modding::collect_initial_resources(&mods);
+
+        // Set available resources (None = all available in dev mode).
+        sim.available_resources = if deadcode_desktop::is_dev_mode() {
+            None
+        } else {
+            Some(self.available_resources.iter().cloned().collect())
+        };
 
         // Copy entity configs to sim for spawn effects.
         for (etype, config) in &self.entity_configs {
@@ -833,6 +868,15 @@ impl App {
             self.available_commands.clone()
         };
 
+        let resources: Vec<String> = if deadcode_desktop::is_dev_mode() {
+            // In dev mode, all defined resources are available.
+            self.sim_world.as_ref()
+                .map(|sim| sim.resources.keys().cloned().collect())
+                .unwrap_or_default()
+        } else {
+            self.available_resources.clone()
+        };
+
         // Build command info for custom commands (for editor autocomplete).
         let command_info: Vec<CommandInfo> = self.command_defs.values().map(|def| {
             CommandInfo {
@@ -846,6 +890,7 @@ impl App {
             commands,
             dev_mode: deadcode_desktop::is_dev_mode(),
             command_info,
+            resources,
         };
         self.webview_manager.send_to_all(&msg);
     }

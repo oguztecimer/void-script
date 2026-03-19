@@ -65,6 +65,9 @@ effects = [
 # World-level integer resources shared across all entities.
 
 [resources]
+initial = ["souls"]          # Which resources are available at game start
+
+[resources.pool]
 souls = 0
 gold = 100
 
@@ -76,6 +79,8 @@ initial = ["consult", "raise", "harvest", "pact"]
 ```
 
 All fields in `[[entities]]` except `type` are optional. Omitted stats use engine defaults (health=100, energy=100, speed=1, etc.). Omitted `sprite` means the entity won't have a render unit.
+
+**Reserved entity type:** The `"summoner"` entity type is hardcoded by the game engine and cannot be defined or overridden by mods. It is always spawned at position 500 with fixed stats. Mods that define an entity with `type = "summoner"` will see a warning and their definition will be ignored.
 
 ## Entity Definitions
 
@@ -211,15 +216,28 @@ In dev mode (`--features dev-mode`), all commands (including custom) are availab
 
 ## Global Resources
 
-Mods define world-level integer resources in a `[resources]` table in `mod.toml`. Resources are shared across all entities — they are not per-entity stats like health or energy.
+Mods define world-level integer resources in a `[resources]` section in `mod.toml`. Resources are shared across all entities — they are not per-entity stats like health or energy.
 
 ```toml
 [resources]
+initial = ["souls"]          # Which resources are available at game start
+
+[resources.pool]
 souls = 0
 gold = 100
 ```
 
-Each key is the resource name, and the value is the initial amount. Resources from all mods are merged at load time (first-defined wins for duplicates, with a warning).
+The `[resources.pool]` table maps resource names to their initial values. Resources from all mods are merged at load time (first-defined wins for duplicates, with a warning).
+
+### Resource Availability
+
+Resources have an available/unavailable mechanic mirroring the command availability system. The `[resources].initial` list controls which resources are usable from game start. Calling `get_resource()`, `gain_resource()`, or `try_spend_resource()` on an unavailable resource produces a runtime error.
+
+If `initial` is omitted or empty, **all pool resources are available by default** (backward compatible with mods that don't use gating).
+
+In dev mode (`--features dev-mode`), all resources are available regardless of the `initial` setting.
+
+Available resource names are sent to the frontend via IPC alongside available commands.
 
 ### Script API
 
@@ -231,7 +249,7 @@ Three GrimScript builtins interact with global resources:
 | `gain_resource("name", amount)` | `Int` | Add `amount` to a resource, returns the new total |
 | `try_spend_resource("name", amount)` | `Bool` | If the resource has at least `amount`, deduct it and return `True`; otherwise return `False` (no deduction) |
 
-These builtins are gated by the `[commands].initial` list like other game commands. In dev mode, they are always available.
+The resource builtin *function names* (`get_resource`, `gain_resource`, `try_spend_resource`) are gated by the `[commands].initial` list like other game commands. The *resource names* passed as arguments are gated by `[resources].initial` at runtime.
 
 `get_resource` is a query (instant, like `get_health`). `gain_resource` and `try_spend_resource` are instant effects — they mutate world state without consuming the tick. The script continues executing after calling them.
 
@@ -649,7 +667,8 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 6. `[[spawn]]` entries create both sim entities and render units
 7. `[commands].initial` entries populate `App::available_commands`
 8. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld` (effects, arg counts), with collision warnings on duplicate command names
-9. `[resources]` entries are collected via `collect_initial_resources()` and stored in `SimWorld.resources`
+9. `[resources.pool]` entries are collected via `collect_initial_resources()` and stored in `SimWorld.resources`
+10. `[resources].initial` entries are collected via `collect_available_resources()` and stored in `SimWorld.available_resources`
 
 **Custom command flow:**
 1. `CommandDef` structs are parsed from TOML and collected in `App::command_defs`

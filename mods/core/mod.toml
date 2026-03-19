@@ -4,14 +4,6 @@ name = "Core"
 version = "0.1.0"
 
 [[entities]]
-type = "summoner"
-sprite = "sprites/summoner_atlas"
-pivot = [49.0, 2.0]
-health = 100
-energy = 100
-speed = 1
-
-[[entities]]
 type = "skeleton"
 sprite = "sprites/skeleton_atlas"
 pivot = [24.0, 0.0]
@@ -19,12 +11,10 @@ health = 50
 energy = 50
 speed = 2
 
-[[spawn]]
-entity_type = "summoner"
-name = "summoner"
-position = 500
-
 [resources]
+initial = ["bones"]
+
+[resources.pool]
 bones = 0
 
 [initial]

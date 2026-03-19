@@ -71,6 +71,8 @@ pub enum RustToJs {
         dev_mode: bool,
         #[serde(default)]
         command_info: Vec<CommandInfo>,
+        #[serde(default)]
+        resources: Vec<String>,
     },
 }
 

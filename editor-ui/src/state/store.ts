@@ -40,6 +40,7 @@ interface EditorState {
   tier: number;
   foldedLines: Record<string, number[]>;
   availableCommands: string[];
+  availableResources: string[];
   commandInfo: CommandInfo[];
   devMode: boolean;
 
@@ -72,6 +73,7 @@ interface EditorState {
   getBreakpoints: (scriptId: string) => number[];
   setFoldedLines: (scriptId: string, lines: number[]) => void;
   setAvailableCommands: (commands: string[]) => void;
+  setAvailableResources: (resources: string[]) => void;
   setCommandInfo: (info: CommandInfo[]) => void;
   setDevMode: (devMode: boolean) => void;
 }
@@ -99,6 +101,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   breakpoints: {},
   foldedLines: {},
   availableCommands: [],
+  availableResources: [],
   commandInfo: [],
   devMode: false,
 
@@ -211,6 +214,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
     })),
 
   setAvailableCommands: (commands) => set({ availableCommands: commands }),
+  setAvailableResources: (resources) => set({ availableResources: resources }),
   setCommandInfo: (info) => set({ commandInfo: info }),
   setDevMode: (devMode) => set({ devMode }),
 }), {

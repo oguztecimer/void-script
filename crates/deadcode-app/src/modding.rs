@@ -9,10 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use deadcode_desktop::animation::{
-    SUMMONER_ATLAS_PNG, summoner_atlas_json,
-    SKELETON_ATLAS_PNG, skeleton_atlas_json,
-};
+use deadcode_desktop::animation::{SKELETON_ATLAS_PNG, skeleton_atlas_json};
 use deadcode_sim::action::{CommandDef, CommandEffect};
 use deadcode_sim::entity::EntityConfig;
 
@@ -32,9 +29,19 @@ pub struct ModManifest {
     pub commands: Option<CommandsDef>,
     #[serde(default)]
     pub initial: Option<InitialDef>,
-    /// Global resources defined by this mod (name → initial value).
+    /// Global resources defined by this mod.
     #[serde(default)]
-    pub resources: HashMap<String, i64>,
+    pub resources: ResourcesDef,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ResourcesDef {
+    /// Resource pool: name → initial value.
+    #[serde(default)]
+    pub pool: HashMap<String, i64>,
+    /// Initially available resource names. If empty, all pool resources are available.
+    #[serde(default)]
+    pub initial: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,15 +239,10 @@ fn embedded_fallback() -> LoadedMod {
     let mut pivots = HashMap::new();
     let mut entity_configs = HashMap::new();
 
-    sprites.insert("summoner".into(), SpriteData {
-        png: SUMMONER_ATLAS_PNG.to_vec(),
-        json: summoner_atlas_json(),
-    });
     sprites.insert("skeleton".into(), SpriteData {
         png: SKELETON_ATLAS_PNG.to_vec(),
         json: skeleton_atlas_json(),
     });
-    pivots.insert("summoner".into(), [49.0, 2.0]);
     pivots.insert("skeleton".into(), [24.0, 0.0]);
 
     let manifest = ModManifest {
@@ -253,14 +255,10 @@ fn embedded_fallback() -> LoadedMod {
             min_game_version: None,
         },
         entities: vec![],
-        spawn: vec![SpawnDef {
-            entity_type: "summoner".into(),
-            name: "summoner".into(),
-            position: 500,
-        }],
+        spawn: vec![],
         commands: Some(CommandsDef {
             initial: vec![
-                "consult".into(),
+                "help".into(),
                 "raise".into(),
                 "harvest".into(),
                 "pact".into(),
@@ -274,17 +272,20 @@ fn embedded_fallback() -> LoadedMod {
                 CommandEffect::Output { message: "Call for <hl>help()</hl> to hear them speak".into() },
             ],
         }),
-        resources: {
-            let mut r = HashMap::new();
-            r.insert("souls".into(), 0);
-            r
+        resources: ResourcesDef {
+            pool: {
+                let mut r = HashMap::new();
+                r.insert("bones".into(), 0);
+                r
+            },
+            initial: vec!["bones".into()],
         },
     };
 
-    entity_configs.insert("summoner".into(), EntityConfig {
-        health: Some(100),
-        energy: Some(100),
-        speed: Some(1),
+    entity_configs.insert("skeleton".into(), EntityConfig {
+        health: Some(50),
+        energy: Some(50),
+        speed: Some(2),
         ..Default::default()
     });
 
@@ -533,7 +534,7 @@ pub fn collect_initial_commands(mods: &[LoadedMod]) -> Vec<String> {
 pub fn collect_initial_resources(mods: &[LoadedMod]) -> deadcode_sim::IndexMap<String, i64> {
     let mut resources = deadcode_sim::IndexMap::new();
     for m in mods {
-        for (name, &value) in &m.manifest.resources {
+        for (name, &value) in &m.manifest.resources.pool {
             if resources.contains_key(name) {
                 eprintln!(
                     "[mod] warning: resource '{}' already defined, skipping duplicate from '{}'",
@@ -545,6 +546,31 @@ pub fn collect_initial_resources(mods: &[LoadedMod]) -> deadcode_sim::IndexMap<S
         }
     }
     resources
+}
+
+/// Collect initially available resource names from all loaded mods.
+/// If a mod's `resources.initial` is empty, all of its pool resources are available.
+pub fn collect_available_resources(mods: &[LoadedMod]) -> Vec<String> {
+    let mut available = Vec::new();
+    let mut seen = HashSet::new();
+    for m in mods {
+        let res = &m.manifest.resources;
+        if res.initial.is_empty() {
+            // No explicit initial list → all pool resources are available.
+            for name in res.pool.keys() {
+                if seen.insert(name.clone()) {
+                    available.push(name.clone());
+                }
+            }
+        } else {
+            for name in &res.initial {
+                if seen.insert(name.clone()) {
+                    available.push(name.clone());
+                }
+            }
+        }
+    }
+    available
 }
 
 /// Collect initial effects from all loaded mods (in load order).

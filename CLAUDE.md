@@ -102,7 +102,7 @@ src/
 
 **Phased commands:** Commands can use `phases` instead of `effects` for multi-tick abilities (mutually exclusive, validated at load). Each `PhaseDef` has `ticks`, `interruptible`, `on_start`, and `per_tick` effect lists. On initiation, a `ChannelState` is stored on the entity. The tick loop processes channels before script execution: interruptible phases run the script and cancel if it yields a real action; non-interruptible phases skip script execution. `use_resource` failure mid-phase cancels the channel. Hot-reload clears active channels.
 
-**Global resources:** World-level integer resources (e.g. `souls`, `gold`) stored in `SimWorld.resources: IndexMap<String, i64>`. Defined by mods via `[resources]` table in `mod.toml`, merged at load time (first-defined wins). Three builtins: `get_resource(name)` → Int (query, instant), `gain_resource(name, amount)` → Int (instant effect), `try_spend_resource(name, amount)` → Bool (instant effect). Instant effects use the `try_handle_instant()` pattern: the executor returns a `UnitAction` variant without yielding, the tick loop handles mutation and pushes the return value onto the stack before re-entering the executor.
+**Global resources:** World-level integer resources (e.g. `souls`, `gold`) stored in `SimWorld.resources: IndexMap<String, i64>`. Defined by mods via `[resources.pool]` table in `mod.toml`, merged at load time (first-defined wins). Three builtins: `get_resource(name)` → Int (query, instant), `gain_resource(name, amount)` → Int (instant effect), `try_spend_resource(name, amount)` → Bool (instant effect). Instant effects use the `try_handle_instant()` pattern: the executor returns a `UnitAction` variant without yielding, the tick loop handles mutation and pushes the return value onto the stack before re-entering the executor. **Resource availability:** Resources have an available/unavailable mechanic mirroring commands. `[resources].initial` in `mod.toml` lists initially available resource names; if omitted, all pool resources are available. The executor checks `SimWorld.available_resources: Option<HashSet<String>>` at runtime — unavailable resources produce a runtime error. In dev mode, `available_resources` is `None` (all available).
 
 **Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
 
@@ -129,7 +129,7 @@ Message categories:
 - **Simulation:** StartSimulation, StopSimulation, PauseSimulation → SimulationStarted, SimulationStopped, SimulationTick
 - **Window:** Minimize, Maximize, Close, DragStart, ResizeStart, Shake, SetSize
 - **Console:** ConsoleOutput, ConsoleCommand
-- **Game state:** AvailableCommands (Rust→JS, sent on EditorReady)
+- **Game state:** AvailableCommands (Rust→JS, sent on EditorReady; includes commands, resources, command_info, dev_mode)
 
 ### Game Loop
 
@@ -153,7 +153,8 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 - Sprite atlases are JSON + PNG pairs; frame durations use `ticks` (sim ticks at 30 TPS, not milliseconds)
 - Simulation uses only `i64` (no floats) for determinism; `Dict` uses `IndexMap<String, SimValue>` for deterministic insertion-order iteration with O(1) lookup
 - Compiler is feature-gated: `deadcode-sim` stays independent without `grimscript-lang`
-- Theme-agnostic sim: no baked-in entity type constants, entity types are runtime strings
+- The summoner is a hardcoded core entity — always spawned by `app.rs` at position 500 using embedded assets, not defined by mods
+- Theme-agnostic sim: no baked-in entity type constants, entity types are runtime strings (except summoner, hardcoded in `app.rs`)
 
 ## Common Tasks
 
@@ -178,7 +179,7 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 | Add phased mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, phases (see `docs/modding.md`) |
 | Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + handler in `resolve_custom_effects()` |
 | Add instant effect builtin | `ir.rs` (InstantXxx) + `executor.rs` + `action.rs` (UnitAction) + `builtins.rs` (InstantEffectBuiltin) + `world.rs` (try_handle_instant) |
-| Define mod resources | `mods/<mod>/mod.toml` → `[resources]` table (name = initial_value) |
+| Define mod resources | `mods/<mod>/mod.toml` → `[resources.pool]` table (name = initial_value), `[resources] initial` list for availability |
 
 ## Documentation Maintenance
 

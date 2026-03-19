@@ -613,6 +613,9 @@ impl ApplicationHandler<UserEvent> for App {
         // Set command display order to match available_commands insertion order.
         sim.command_order = self.available_commands.clone();
 
+        // Initialize global resources from mod definitions.
+        sim.resources = modding::collect_initial_resources(&mods);
+
         // Copy entity configs to sim for spawn effects.
         for (etype, config) in &self.entity_configs {
             sim.entity_configs.insert(etype.clone(), config.clone());
@@ -818,6 +821,7 @@ impl App {
                 "flee", "wait", "set_target", "get_target", "has_target",
                 "get_health", "get_energy", "get_shield", "get_type",
                 "get_name", "get_owner",
+                "get_resource", "gain_resource", "try_spend_resource",
             ]
             .into_iter()
             .map(|s| s.to_string())

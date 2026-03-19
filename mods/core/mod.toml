@@ -24,6 +24,9 @@ entity_type = "summoner"
 name = "summoner"
 position = 500
 
+[resources]
+bones = 0
+
 [initial]
 effects = [
   { type = "output", message = "The dead stir beneath your feet" },

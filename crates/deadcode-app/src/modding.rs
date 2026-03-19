@@ -32,6 +32,9 @@ pub struct ModManifest {
     pub commands: Option<CommandsDef>,
     #[serde(default)]
     pub initial: Option<InitialDef>,
+    /// Global resources defined by this mod (name → initial value).
+    #[serde(default)]
+    pub resources: HashMap<String, i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -271,6 +274,11 @@ fn embedded_fallback() -> LoadedMod {
                 CommandEffect::Output { message: "Call for <hl>help()</hl> to hear them speak".into() },
             ],
         }),
+        resources: {
+            let mut r = HashMap::new();
+            r.insert("souls".into(), 0);
+            r
+        },
     };
 
     entity_configs.insert("summoner".into(), EntityConfig {
@@ -518,6 +526,25 @@ pub fn collect_initial_commands(mods: &[LoadedMod]) -> Vec<String> {
         commands.extend(["consult", "raise", "harvest", "pact"].iter().map(|s| s.to_string()));
     }
     commands
+}
+
+/// Collect global resources from all loaded mods, merging them.
+/// Duplicate resource names: first-defined wins (with a warning).
+pub fn collect_initial_resources(mods: &[LoadedMod]) -> deadcode_sim::IndexMap<String, i64> {
+    let mut resources = deadcode_sim::IndexMap::new();
+    for m in mods {
+        for (name, &value) in &m.manifest.resources {
+            if resources.contains_key(name) {
+                eprintln!(
+                    "[mod] warning: resource '{}' already defined, skipping duplicate from '{}'",
+                    name, m.manifest.meta.id
+                );
+            } else {
+                resources.insert(name.clone(), value);
+            }
+        }
+    }
+    resources
 }
 
 /// Collect initial effects from all loaded mods (in load order).

@@ -445,4 +445,30 @@ mod tests {
         let vars = run_to_completion("x = 0 or 42");
         assert_eq!(vars.get(1), Some(&SimValue::Int(42)));
     }
+
+    #[test]
+    fn get_resource_emits_query_instruction() {
+        let script = compile_source("x = get_resource(\"souls\")").unwrap();
+        assert!(script.instructions.iter().any(|i| matches!(i, Instruction::QueryGetResource)));
+    }
+
+    #[test]
+    fn gain_resource_emits_instant_instruction() {
+        let script = compile_source("x = gain_resource(\"souls\", 5)").unwrap();
+        assert!(script.instructions.iter().any(|i| matches!(i, Instruction::InstantGainResource)));
+    }
+
+    #[test]
+    fn try_spend_resource_emits_instant_instruction() {
+        let script = compile_source("x = try_spend_resource(\"souls\", 3)").unwrap();
+        assert!(script.instructions.iter().any(|i| matches!(i, Instruction::InstantTrySpendResource)));
+    }
+
+    #[test]
+    fn resource_builtins_gated_by_available_commands() {
+        let available: HashSet<String> = ["move"].iter().map(|s| s.to_string()).collect();
+        let result = compile_source_with("get_resource(\"souls\")", Some(available));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not available"));
+    }
 }

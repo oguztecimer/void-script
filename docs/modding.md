@@ -61,6 +61,13 @@ effects = [
   { type = "output", message = "Welcome..." },
 ]
 
+# --- Global Resources ---
+# World-level integer resources shared across all entities.
+
+[resources]
+souls = 0
+gold = 100
+
 # --- Available Commands ---
 # GrimScript commands unlocked at game start.
 
@@ -194,10 +201,53 @@ Game commands that can be gated:
 | `set_target` | Set combat target |
 | `get_target` | Get current target |
 | `has_target` | Check if target is set |
+| `get_resource` | Get a global resource value |
+| `gain_resource` | Add to a global resource |
+| `try_spend_resource` | Spend a global resource if sufficient |
 
 Custom commands defined via `[[commands.definitions]]` are also gated by the `initial` list. If a command is defined but not in `initial`, players can't use it until it's unlocked at runtime.
 
 In dev mode (`--features dev-mode`), all commands (including custom) are available regardless of the `[commands]` setting.
+
+## Global Resources
+
+Mods define world-level integer resources in a `[resources]` table in `mod.toml`. Resources are shared across all entities — they are not per-entity stats like health or energy.
+
+```toml
+[resources]
+souls = 0
+gold = 100
+```
+
+Each key is the resource name, and the value is the initial amount. Resources from all mods are merged at load time (first-defined wins for duplicates, with a warning).
+
+### Script API
+
+Three GrimScript builtins interact with global resources:
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `get_resource("name")` | `Int` | Get the current value of a resource (0 if undefined) |
+| `gain_resource("name", amount)` | `Int` | Add `amount` to a resource, returns the new total |
+| `try_spend_resource("name", amount)` | `Bool` | If the resource has at least `amount`, deduct it and return `True`; otherwise return `False` (no deduction) |
+
+These builtins are gated by the `[commands].initial` list like other game commands. In dev mode, they are always available.
+
+`get_resource` is a query (instant, like `get_health`). `gain_resource` and `try_spend_resource` are instant effects — they mutate world state without consuming the tick. The script continues executing after calling them.
+
+### Example
+
+```python
+# Check if we can afford to raise a skeleton
+if try_spend_resource("souls", 3):
+    raise()
+    print("Skeleton raised! Souls remaining:", get_resource("souls"))
+else:
+    print("Not enough souls!")
+
+# Gain souls from harvesting
+gain_resource("souls", 1)
+```
 
 ## Custom Command Definitions
 
@@ -599,6 +649,7 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 6. `[[spawn]]` entries create both sim entities and render units
 7. `[commands].initial` entries populate `App::available_commands`
 8. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld` (effects, arg counts), with collision warnings on duplicate command names
+9. `[resources]` entries are collected via `collect_initial_resources()` and stored in `SimWorld.resources`
 
 **Custom command flow:**
 1. `CommandDef` structs are parsed from TOML and collected in `App::command_defs`

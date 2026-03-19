@@ -5,7 +5,7 @@ use grimscript_lang::ast::*;
 use crate::ir::{CompiledScript, FunctionEntry, Instruction};
 use crate::value::SimValue;
 
-use super::builtins::{self, ActionBuiltin, BuiltinKind, QueryBuiltin, StdlibBuiltin};
+use super::builtins::{self, ActionBuiltin, BuiltinKind, InstantEffectBuiltin, QueryBuiltin, StdlibBuiltin};
 use super::error::CompileError;
 use super::symbol_table::{SymbolTable, VarLocation};
 
@@ -649,6 +649,10 @@ impl<'a> Compiler<'a> {
                     BuiltinKind::Stdlib(s) => {
                         self.compile_stdlib_call(&s, args, line)?;
                     }
+                    BuiltinKind::InstantEffect(ie) => {
+                        self.check_command_available(name, line)?;
+                        self.compile_instant_effect_call(&ie, args, line)?;
+                    }
                     BuiltinKind::CustomAction { name: cmd_name, num_args } => {
                         self.check_command_available(&cmd_name, line)?;
                         if args.len() != num_args {
@@ -752,6 +756,31 @@ impl<'a> Compiler<'a> {
             self.compile_expr(arg)?;
         }
         self.emit(builtins::action_instruction(a));
+        Ok(())
+    }
+
+    fn compile_instant_effect_call(
+        &mut self,
+        ie: &InstantEffectBuiltin,
+        args: &[Expr],
+        line: u32,
+    ) -> Result<(), CompileError> {
+        let expected = builtins::instant_effect_expected_args(ie);
+        if args.len() != expected {
+            return Err(CompileError::new(
+                line,
+                format!(
+                    "{}() takes {} argument(s), got {}",
+                    instant_effect_name(ie),
+                    expected,
+                    args.len()
+                ),
+            ));
+        }
+        for arg in args {
+            self.compile_expr(arg)?;
+        }
+        self.emit(builtins::instant_effect_instruction(ie));
         Ok(())
     }
 
@@ -1149,6 +1178,14 @@ fn query_name(q: &QueryBuiltin) -> &'static str {
         QueryBuiltin::GetType => "get_type",
         QueryBuiltin::GetName => "get_name",
         QueryBuiltin::GetOwner => "get_owner",
+        QueryBuiltin::GetResource => "get_resource",
+    }
+}
+
+fn instant_effect_name(ie: &InstantEffectBuiltin) -> &'static str {
+    match ie {
+        InstantEffectBuiltin::GainResource => "gain_resource",
+        InstantEffectBuiltin::TrySpendResource => "try_spend_resource",
     }
 }
 

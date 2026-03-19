@@ -4,6 +4,9 @@
 
 ### Simulation Engine
 
+#### Added
+- **S-10: Global resource system** — New world-level integer resources (e.g. souls, gold) shared across all entities. Three new GrimScript builtins: `get_resource(name)` returns the current value (0 if undefined), `gain_resource(name, amount)` adds to a resource and returns the new total, `try_spend_resource(name, amount)` atomically checks and deducts, returning true/false. Resources are defined by mods in `mod.toml` via a `[resources]` table and merged at load time (first-defined wins for duplicates). Mutating operations use the "instant action" pattern — the executor yields without consuming the tick, the tick loop handles mutation and pushes the return value onto the script's stack before re-entering. The tick loop's instant action handling has been refactored into `SimWorld::try_handle_instant()`, replacing the previous inline Print handling in both normal and interruptible-channel paths.
+
 #### Fixed
 - **S-05: Step limit auto-yield now warns the player** — When a script exceeds the 10,000 instruction limit per tick, a warning message is emitted to the editor console instead of silently auto-yielding with a wait action. The warning reads: "[warning] Script exceeded step limit (10000 instructions) — auto-yielded".
 

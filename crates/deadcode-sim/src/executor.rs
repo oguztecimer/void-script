@@ -593,6 +593,11 @@ pub fn execute_unit(
                 let val = query::get_owner(world, eid)?;
                 state.stack.push(SimValue::Int(val as i64));
             }
+            Instruction::QueryGetResource => {
+                let name = pop_str(&mut state.stack)?;
+                let val = world.get_resource(&name);
+                state.stack.push(SimValue::Int(val));
+            }
 
             // --- Action instructions (consume tick) ---
             Instruction::ActionMove => {
@@ -633,6 +638,18 @@ pub fn execute_unit(
                 state.yielded = true;
                 return Ok(Some(UnitAction::Custom { name, args }));
             }
+            // --- Instant effect instructions (don't consume tick) ---
+            Instruction::InstantGainResource => {
+                let amount = pop_int(&mut state.stack)?;
+                let name = pop_str(&mut state.stack)?;
+                return Ok(Some(UnitAction::GainResource { name, amount }));
+            }
+            Instruction::InstantTrySpendResource => {
+                let amount = pop_int(&mut state.stack)?;
+                let name = pop_str(&mut state.stack)?;
+                return Ok(Some(UnitAction::TrySpendResource { name, amount }));
+            }
+
             // --- Misc ---
             Instruction::Print => {
                 let val = pop(&mut state.stack)?;

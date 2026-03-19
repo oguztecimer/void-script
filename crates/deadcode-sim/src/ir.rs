@@ -90,6 +90,8 @@ pub enum Instruction {
     QueryGetName,
     /// Get entity owner ID. Pop EntityRef, push Int.
     QueryGetOwner,
+    /// Get a global resource value. Pop Str name, push Int (0 if nonexistent).
+    QueryGetResource,
 
     // --- Action instructions (consume tick — executor yields after these) ---
     /// Move toward position. Pop Int target_pos.
@@ -105,6 +107,12 @@ pub enum Instruction {
     /// Custom action defined by mods. Args are already on the stack.
     /// The String is the command name; arg count is looked up from the command registry.
     ActionCustom(String),
+
+    // --- Instant effect instructions (do not consume tick — handled in tick loop) ---
+    /// Gain a global resource. Pop Int amount, pop Str name. Returns new total via tick loop.
+    InstantGainResource,
+    /// Try to spend a global resource. Pop Int amount, pop Str name. Returns Bool via tick loop.
+    InstantTrySpendResource,
 
     // --- Local variable access (var_base-relative for function params/locals) ---
     /// Load function-local variable at var_base + offset.

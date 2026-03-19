@@ -73,9 +73,9 @@ src/
   value.rs        — SimValue: Int, Bool, Str, None, List, Dict(IndexMap), EntityRef (no floats)
   error.rs        — SimError types
   entity.rs       — SimEntity, EntityId, EntityType, ScriptState (incl. step_limit_hit), CallFrame, spawn_ticks_remaining
-  ir.rs           — 57+ stack-based Instruction variants, CompiledScript, FunctionEntry
+  ir.rs           — 60+ stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
-  world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots
+  world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots, global resources
   action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/DynInt types for mod-defined commands
   query.rs        — scan(), nearest(), distance() — linear scan over entities
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
@@ -92,7 +92,8 @@ src/
 - GrimScript source → lexer → parser → AST → compiler → `CompiledScript` (flat instruction vec + function table)
 - Each entity has a `ScriptState` (program counter, value stack, variable slots, call stack)
 - Per tick: seeded shuffle entity order, execute each until an action yields
-- Queries (scan, get_health, etc.) are instant; actions (move, attack, wait, custom mod commands) consume the tick
+- Queries (scan, get_health, get_resource, etc.) are instant; actions (move, attack, wait, custom mod commands) consume the tick
+- Instant effects (gain_resource, try_spend_resource) return to the executor without consuming the tick — the tick loop handles mutation and pushes the return value onto the script's stack
 - `self` is pre-allocated at variable slot 0 as `EntityRef` for the executing entity
 
 **Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available. Game commands (queries/actions) and custom mod commands are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set: `consult`, `raise`, `harvest`, `pact` (core starters). In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set + command info received via IPC.
@@ -100,6 +101,8 @@ src/
 **Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, use_resource, output, animate, list_commands). Integer fields in effects use `DynInt`: plain integers or `"rand(min,max)"` for deterministic randomness. These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, then effects are resolved in order against world state. The `use_resource` effect checks and deducts a resource, aborting remaining effects if insufficient. The `animate` effect triggers sprite animations on target entities via `PlayAnimation` sim events. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
 
 **Phased commands:** Commands can use `phases` instead of `effects` for multi-tick abilities (mutually exclusive, validated at load). Each `PhaseDef` has `ticks`, `interruptible`, `on_start`, and `per_tick` effect lists. On initiation, a `ChannelState` is stored on the entity. The tick loop processes channels before script execution: interruptible phases run the script and cancel if it yields a real action; non-interruptible phases skip script execution. `use_resource` failure mid-phase cancels the channel. Hot-reload clears active channels.
+
+**Global resources:** World-level integer resources (e.g. `souls`, `gold`) stored in `SimWorld.resources: IndexMap<String, i64>`. Defined by mods via `[resources]` table in `mod.toml`, merged at load time (first-defined wins). Three builtins: `get_resource(name)` → Int (query, instant), `gain_resource(name, amount)` → Int (instant effect), `try_spend_resource(name, amount)` → Bool (instant effect). Instant effects use the `try_handle_instant()` pattern: the executor returns a `UnitAction` variant without yielding, the tick loop handles mutation and pushes the return value onto the stack before re-entering the executor.
 
 **Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
 
@@ -111,7 +114,7 @@ src/
 1. Derive per-tick RNG: `SimRng::new(seed ^ tick)`
 2. Decrement spawn timers on spawning entities
 3. Shuffle ready entity IDs (excludes spawning entities, includes entities with active channels)
-4. For each: process active channel if present (phase effects, interruption check), otherwise take script state out, execute, collect action, put state back
+4. For each: process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print, resource ops — re-enter executor), collect tick-consuming action, put state back
 5. Resolve all actions against world state
 6. Tick passive systems (cooldowns)
 7. Flush pending spawns/despawns
@@ -174,6 +177,8 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 | Add custom mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, effects or phases |
 | Add phased mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, phases (see `docs/modding.md`) |
 | Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + handler in `resolve_custom_effects()` |
+| Add instant effect builtin | `ir.rs` (InstantXxx) + `executor.rs` + `action.rs` (UnitAction) + `builtins.rs` (InstantEffectBuiltin) + `world.rs` (try_handle_instant) |
+| Define mod resources | `mods/<mod>/mod.toml` → `[resources]` table (name = initial_value) |
 
 ## Documentation Maintenance
 

@@ -10,6 +10,8 @@ pub enum BuiltinKind {
     Action(ActionBuiltin),
     /// Standard library function.
     Stdlib(StdlibBuiltin),
+    /// Instant effect — does not consume tick, but mutates world state via tick loop.
+    InstantEffect(InstantEffectBuiltin),
     /// Custom mod-defined action.
     CustomAction { name: String, num_args: usize },
     /// Not a builtin.
@@ -29,6 +31,12 @@ pub enum QueryBuiltin {
     GetType,
     GetName,
     GetOwner,
+    GetResource,
+}
+
+pub enum InstantEffectBuiltin {
+    GainResource,
+    TrySpendResource,
 }
 
 pub enum ActionBuiltin {
@@ -81,6 +89,10 @@ pub fn classify(name: &str) -> BuiltinKind {
         "get_type" => BuiltinKind::Query(QueryBuiltin::GetType),
         "get_name" => BuiltinKind::Query(QueryBuiltin::GetName),
         "get_owner" => BuiltinKind::Query(QueryBuiltin::GetOwner),
+        "get_resource" => BuiltinKind::Query(QueryBuiltin::GetResource),
+        // Instant effects
+        "gain_resource" => BuiltinKind::InstantEffect(InstantEffectBuiltin::GainResource),
+        "try_spend_resource" => BuiltinKind::InstantEffect(InstantEffectBuiltin::TrySpendResource),
         // Actions
         "move" => BuiltinKind::Action(ActionBuiltin::Move),
         "attack" => BuiltinKind::Action(ActionBuiltin::Attack),
@@ -119,6 +131,7 @@ pub fn query_instruction(q: &QueryBuiltin) -> Instruction {
         QueryBuiltin::GetType => Instruction::QueryGetType,
         QueryBuiltin::GetName => Instruction::QueryGetName,
         QueryBuiltin::GetOwner => Instruction::QueryGetOwner,
+        QueryBuiltin::GetResource => Instruction::QueryGetResource,
     }
 }
 
@@ -159,7 +172,8 @@ pub fn query_expected_args(q: &QueryBuiltin) -> usize {
         | QueryBuiltin::HasTarget
         | QueryBuiltin::GetType
         | QueryBuiltin::GetName
-        | QueryBuiltin::GetOwner => 1,
+        | QueryBuiltin::GetOwner
+        | QueryBuiltin::GetResource => 1,
     }
 }
 
@@ -171,5 +185,21 @@ pub fn action_expected_args(a: &ActionBuiltin) -> usize {
         ActionBuiltin::Flee => 1,
         ActionBuiltin::Wait => 0,
         ActionBuiltin::SetTarget => 1,
+    }
+}
+
+/// Get the IR instruction for an instant effect builtin.
+pub fn instant_effect_instruction(ie: &InstantEffectBuiltin) -> Instruction {
+    match ie {
+        InstantEffectBuiltin::GainResource => Instruction::InstantGainResource,
+        InstantEffectBuiltin::TrySpendResource => Instruction::InstantTrySpendResource,
+    }
+}
+
+/// Expected number of arguments for an instant effect.
+pub fn instant_effect_expected_args(ie: &InstantEffectBuiltin) -> usize {
+    match ie {
+        InstantEffectBuiltin::GainResource => 2,
+        InstantEffectBuiltin::TrySpendResource => 2,
     }
 }

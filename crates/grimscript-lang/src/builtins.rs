@@ -61,6 +61,9 @@ pub fn is_builtin_static(name: &str) -> bool {
             | "get_type"
             | "get_name"
             | "get_owner"
+            | "get_resource"
+            | "gain_resource"
+            | "try_spend_resource"
     )
 }
 
@@ -420,6 +423,9 @@ pub fn call_builtin(
         "get_type" => Ok(Value::String("unknown".into())),
         "get_name" => Ok(Value::String("entity".into())),
         "get_owner" => Ok(Value::String("player".into())),
+        "get_resource" => Ok(Value::Int(0)),
+        "gain_resource" => Ok(Value::Int(0)),
+        "try_spend_resource" => Ok(Value::Bool(true)),
         _ => {
             // Custom command stub — just prints the command name.
             send_output(output_tx, &format!("[{name}] (custom command)"));

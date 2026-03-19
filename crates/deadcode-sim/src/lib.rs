@@ -25,3 +25,6 @@ pub use entity::{EntityId, SimEntity};
 pub use ir::{CompiledScript, Instruction};
 pub use value::SimValue;
 pub use world::{SimEvent, SimSnapshot, SimWorld};
+
+// Re-export indexmap for crates that need to work with SimWorld.resources.
+pub use indexmap::IndexMap;

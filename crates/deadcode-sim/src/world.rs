@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::action::{CommandDef, CommandEffect, DynInt, PhaseDef, UnitAction, resolve_action, resolve_custom_effects};
+use crate::action::{CommandDef, CommandEffect, PhaseDef, UnitAction, resolve_action, resolve_custom_effects};
 use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
@@ -89,6 +90,8 @@ pub struct SimWorld {
     pub spawn_durations: HashMap<String, i64>,
     /// Command display order (from available_commands insertion order).
     pub command_order: Vec<String>,
+    /// Global resources shared across all entities.
+    pub resources: IndexMap<String, i64>,
 }
 
 impl SimWorld {
@@ -110,6 +113,30 @@ impl SimWorld {
             entity_configs: HashMap::new(),
             spawn_durations: HashMap::new(),
             command_order: Vec::new(),
+            resources: IndexMap::new(),
+        }
+    }
+
+    /// Get a global resource value (0 if not defined).
+    pub fn get_resource(&self, name: &str) -> i64 {
+        self.resources.get(name).copied().unwrap_or(0)
+    }
+
+    /// Add to a global resource, returning the new total.
+    pub fn gain_resource(&mut self, name: &str, amount: i64) -> i64 {
+        let entry = self.resources.entry(name.to_string()).or_insert(0);
+        *entry += amount;
+        *entry
+    }
+
+    /// Try to spend a global resource. Returns true if successful, false if insufficient.
+    pub fn try_spend_resource(&mut self, name: &str, amount: i64) -> bool {
+        let entry = self.resources.entry(name.to_string()).or_insert(0);
+        if *entry >= amount {
+            *entry -= amount;
+            true
+        } else {
+            false
         }
     }
 
@@ -295,29 +322,24 @@ impl SimWorld {
                     if let Some(ref mut state) = script_state {
                         match executor::execute_unit(eid, state, self) {
                             Ok(Some(action)) => {
-                                // Print doesn't interrupt — handle like normal.
-                                match action {
-                                    UnitAction::Wait => {} // no interruption
-                                    UnitAction::Print { text } => {
-                                        self.events.push(SimEvent::ScriptOutput {
-                                            entity_id: eid,
-                                            text,
-                                        });
-                                        // Continue executing after print in a loop.
+                                // Instant actions don't interrupt — handle and keep going.
+                                match self.try_handle_instant(eid, action, state) {
+                                    None => {
+                                        // Was instant. Continue executing in a loop.
                                         loop {
                                             match executor::execute_unit(eid, state, self) {
-                                                Ok(Some(UnitAction::Print { text })) => {
-                                                    self.events.push(SimEvent::ScriptOutput {
-                                                        entity_id: eid,
-                                                        text,
-                                                    });
+                                                Ok(Some(action)) => {
+                                                    match self.try_handle_instant(eid, action, state) {
+                                                        None => {} // another instant, keep going
+                                                        Some(UnitAction::Wait) => break,
+                                                        Some(real_action) => {
+                                                            interrupted = true;
+                                                            actions.push((eid, real_action));
+                                                            break;
+                                                        }
+                                                    }
                                                 }
-                                                Ok(Some(UnitAction::Wait)) | Ok(None) => break,
-                                                Ok(Some(real_action)) => {
-                                                    interrupted = true;
-                                                    actions.push((eid, real_action));
-                                                    break;
-                                                }
+                                                Ok(None) => break,
                                                 Err(err) => {
                                                     state.error = Some(err.to_string());
                                                     self.events.push(SimEvent::ScriptError {
@@ -329,7 +351,8 @@ impl SimWorld {
                                             }
                                         }
                                     }
-                                    real_action => {
+                                    Some(UnitAction::Wait) => {} // no interruption
+                                    Some(real_action) => {
                                         interrupted = true;
                                         actions.push((eid, real_action));
                                     }
@@ -430,25 +453,20 @@ impl SimWorld {
             // Execute until action or halt.
             match executor::execute_unit(eid, &mut script_state, self) {
                 Ok(Some(action)) => {
-                    // Handle Print specially — it doesn't consume the tick,
-                    // so we resolve it immediately and continue execution.
-                    if matches!(action, UnitAction::Print { .. }) {
-                        let print_events = resolve_action(self, eid, action);
-                        self.events.extend(print_events);
-
-                        // Continue executing after print (don't yield).
-                        // We need to run the executor again for the rest of the tick.
+                    // Handle instant actions (Print, resource ops) — they don't
+                    // consume the tick, so we handle them and re-enter the executor.
+                    if let Some(real_action) = self.try_handle_instant(eid, action, &mut script_state) {
+                        actions.push((eid, real_action));
+                    } else {
+                        // Instant action handled. Continue executing for the rest of the tick.
                         loop {
                             match executor::execute_unit(eid, &mut script_state, self) {
-                                Ok(Some(UnitAction::Print { text })) => {
-                                    self.events.push(SimEvent::ScriptOutput {
-                                        entity_id: eid,
-                                        text,
-                                    });
-                                }
                                 Ok(Some(action)) => {
-                                    actions.push((eid, action));
-                                    break;
+                                    if let Some(real_action) = self.try_handle_instant(eid, action, &mut script_state) {
+                                        actions.push((eid, real_action));
+                                        break;
+                                    }
+                                    // else: another instant action, keep looping
                                 }
                                 Ok(None) => break,
                                 Err(err) => {
@@ -461,8 +479,6 @@ impl SimWorld {
                                 }
                             }
                         }
-                    } else {
-                        actions.push((eid, action));
                     }
                 }
                 Ok(None) => {
@@ -542,6 +558,37 @@ impl SimWorld {
         // Clean up dead entities (swap-remove for performance).
         self.entities.retain(|e| e.alive);
         self.rebuild_index();
+    }
+
+    /// Handle an instant action (Print, GainResource, TrySpendResource).
+    /// Returns `None` if the action was handled (instant), `Some(action)` if it
+    /// should be collected as a tick-consuming action.
+    fn try_handle_instant(
+        &mut self,
+        eid: EntityId,
+        action: UnitAction,
+        script_state: &mut crate::entity::ScriptState,
+    ) -> Option<UnitAction> {
+        match action {
+            UnitAction::Print { text } => {
+                self.events.push(SimEvent::ScriptOutput {
+                    entity_id: eid,
+                    text,
+                });
+                None
+            }
+            UnitAction::GainResource { name, amount } => {
+                let new_total = self.gain_resource(&name, amount);
+                script_state.stack.push(crate::value::SimValue::Int(new_total));
+                None
+            }
+            UnitAction::TrySpendResource { name, amount } => {
+                let success = self.try_spend_resource(&name, amount);
+                script_state.stack.push(crate::value::SimValue::Bool(success));
+                None
+            }
+            other => Some(other),
+        }
     }
 
     /// Rebuild the entity index after removals.
@@ -833,7 +880,7 @@ mod tests {
                     ticks: 3,
                     interruptible: false,
                     per_tick: vec![
-                        CommandEffect::UseResource { stat: "energy".into(), amount: DynInt::Fixed(10) },
+                        CommandEffect::UseResource { stat: "energy".into(), amount: crate::action::DynInt::Fixed(10) },
                         CommandEffect::Output { message: "drained".into() },
                     ],
                     on_start: vec![],
@@ -941,5 +988,174 @@ mod tests {
         world.tick();
         world.take_events();
         assert!(world.get_entity(id).unwrap().position > 0, "Script should resume and move");
+    }
+
+    // --- Global resource tests ---
+
+    #[test]
+    fn get_resource_returns_zero_for_undefined() {
+        let world = SimWorld::new(42);
+        assert_eq!(world.get_resource("souls"), 0);
+    }
+
+    #[test]
+    fn gain_resource_adds_correctly() {
+        let mut world = SimWorld::new(42);
+        world.resources.insert("souls".into(), 0);
+        assert_eq!(world.gain_resource("souls", 10), 10);
+        assert_eq!(world.gain_resource("souls", 5), 15);
+        assert_eq!(world.get_resource("souls"), 15);
+    }
+
+    #[test]
+    fn try_spend_resource_succeeds_and_fails() {
+        let mut world = SimWorld::new(42);
+        world.resources.insert("souls".into(), 10);
+        assert!(world.try_spend_resource("souls", 7));
+        assert_eq!(world.get_resource("souls"), 3);
+        assert!(!world.try_spend_resource("souls", 5)); // insufficient
+        assert_eq!(world.get_resource("souls"), 3); // unchanged
+    }
+
+    #[test]
+    fn gain_resource_creates_if_nonexistent() {
+        let mut world = SimWorld::new(42);
+        assert_eq!(world.gain_resource("gold", 5), 5);
+        assert_eq!(world.get_resource("gold"), 5);
+    }
+
+    #[test]
+    fn resource_via_script_get_resource() {
+        let mut world = SimWorld::new(42);
+        world.resources.insert("souls".into(), 42);
+        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+
+        // Script: print(get_resource("souls")); halt
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::Str("souls".into())),
+                Instruction::QueryGetResource,
+                Instruction::Print,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert_eq!(texts, vec!["42"]);
+    }
+
+    #[test]
+    fn resource_via_script_gain_and_spend() {
+        let mut world = SimWorld::new(42);
+        world.resources.insert("souls".into(), 10);
+        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+
+        // Script: gain_resource("souls", 5); try_spend_resource("souls", 20); wait
+        // gain_resource should return 15 (pushed to stack, then popped by Pop)
+        // try_spend_resource should return false (15 < 20)
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::Str("souls".into())),
+                Instruction::LoadConst(SimValue::Int(5)),
+                Instruction::InstantGainResource,
+                Instruction::Pop, // discard return value
+                Instruction::LoadConst(SimValue::Str("souls".into())),
+                Instruction::LoadConst(SimValue::Int(20)),
+                Instruction::InstantTrySpendResource,
+                Instruction::Print, // prints "false"
+                Instruction::ActionWait,
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert_eq!(texts, vec!["False"]);
+        assert_eq!(world.get_resource("souls"), 15); // gain worked, spend failed
+    }
+
+    #[test]
+    fn resource_via_script_successful_spend() {
+        let mut world = SimWorld::new(42);
+        world.resources.insert("souls".into(), 10);
+        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+
+        // Script: try_spend_resource("souls", 3); print result; wait
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::Str("souls".into())),
+                Instruction::LoadConst(SimValue::Int(3)),
+                Instruction::InstantTrySpendResource,
+                Instruction::Print, // prints "true"
+                Instruction::ActionWait,
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert_eq!(texts, vec!["True"]);
+        assert_eq!(world.get_resource("souls"), 7);
+    }
+
+    #[test]
+    fn resource_in_conditional_flow() {
+        let mut world = SimWorld::new(42);
+        world.resources.insert("souls".into(), 5);
+        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+
+        // Script:
+        //   result = try_spend_resource("souls", 3)  // true, souls -> 2
+        //   if result:
+        //     print("spent")
+        //   else:
+        //     print("broke")
+        //   wait
+        let program = CompiledScript::new(
+            vec![
+                // try_spend_resource("souls", 3)
+                Instruction::LoadConst(SimValue::Str("souls".into())),
+                Instruction::LoadConst(SimValue::Int(3)),
+                Instruction::InstantTrySpendResource,
+                // store result in var 1 (var 0 is self)
+                Instruction::StoreVar(1),
+                // if result:
+                Instruction::LoadVar(1),
+                Instruction::JumpIfFalse(9),
+                // print("spent")
+                Instruction::LoadConst(SimValue::Str("spent".into())),
+                Instruction::Print,
+                Instruction::Jump(11),
+                // else: print("broke")
+                Instruction::LoadConst(SimValue::Str("broke".into())),
+                Instruction::Print,
+                // wait
+                Instruction::ActionWait,
+            ],
+            2,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 2));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"spent".to_string()), "Should have spent: {:?}", texts);
+        assert_eq!(world.get_resource("souls"), 2);
     }
 }

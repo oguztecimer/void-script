@@ -93,6 +93,10 @@ pub enum UnitAction {
     SetTarget { target: EntityId },
     /// Print a value (not really a game action, but uses the same yield path).
     Print { text: String },
+    /// Gain a global resource (instant — handled in tick loop, not resolve_action).
+    GainResource { name: String, amount: i64 },
+    /// Try to spend a global resource (instant — handled in tick loop, not resolve_action).
+    TrySpendResource { name: String, amount: i64 },
     /// Custom mod-defined command with resolved arguments.
     Custom { name: String, args: Vec<SimValue> },
 }
@@ -252,6 +256,8 @@ pub fn resolve_action(
             events.push(SimEvent::ScriptOutput { entity_id, text });
         }
 
+        // Instant resource actions are handled in the tick loop, not here.
+        UnitAction::GainResource { .. } | UnitAction::TrySpendResource { .. } => {}
 
         UnitAction::Custom { name, args } => {
             // Check if this is a phased command.

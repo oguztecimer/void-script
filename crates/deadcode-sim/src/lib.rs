@@ -6,6 +6,9 @@
 //! Key design: no floats in simulation. All values are `i64`. Dicts use
 //! `Vec<(K,V)>` for deterministic iteration. World positions are 1D integers.
 
+#[cfg(feature = "compiler")]
+pub mod compiler;
+
 pub mod action;
 pub mod entity;
 pub mod error;

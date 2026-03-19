@@ -3,5 +3,10 @@ name = "deadcode-sim"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+compiler = ["grimscript-lang"]
+
 [dependencies]
 serde = { workspace = true }
+grimscript-lang = { path = "../grimscript-lang", optional = true }

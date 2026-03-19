@@ -115,6 +115,40 @@ pub enum Instruction {
     /// Transfer cargo to target. Pop String resource, Pop Int amount.
     ActionTransfer,
 
+    // --- Local variable access (var_base-relative for function params/locals) ---
+    /// Load function-local variable at var_base + offset.
+    LoadLocal(usize),
+    /// Store to function-local variable at var_base + offset.
+    StoreLocal(usize),
+
+    // --- Standard library builtins ---
+    /// Pop collection (list/str/dict), push length as Int.
+    Len,
+    /// Pop Int, push absolute value.
+    Abs,
+    /// Pop value, push Int conversion (Bool→0/1, Str→parse, Int→identity).
+    IntCast,
+    /// Pop value, push String representation.
+    StrCast,
+    /// Pop value, push type name as Str.
+    TypeOf,
+    /// Build range list. Pop `nargs` Int values, push List. nargs = 1/2/3.
+    Range(u8),
+    /// Pop value, pop list, push list with value appended.
+    ListAppend,
+    /// Pop 2 Ints, push minimum.
+    Min2,
+    /// Pop 2 Ints, push maximum.
+    Max2,
+    /// Pop dict, push list of keys.
+    DictKeys,
+    /// Pop dict, push list of values.
+    DictValues,
+    /// Pop dict, push list of [key, value] pairs (as lists).
+    DictItems,
+    /// Pop default, pop key (Str), pop dict, push value or default.
+    DictGet,
+
     // --- Misc ---
     /// Pop value, emit as script output.
     Print,

@@ -313,6 +313,209 @@ pub fn execute_unit(
                 }
             }
 
+            // --- Local variable access ---
+            Instruction::LoadLocal(offset) => {
+                let var_base = state.call_stack.last().map_or(0, |f| f.var_base);
+                let slot = var_base + offset;
+                let val = state
+                    .variables
+                    .get(slot)
+                    .cloned()
+                    .ok_or_else(|| SimError::invalid_variable(slot))?;
+                state.stack.push(val);
+            }
+            Instruction::StoreLocal(offset) => {
+                let var_base = state.call_stack.last().map_or(0, |f| f.var_base);
+                let slot = var_base + offset;
+                let val = pop(&mut state.stack)?;
+                if slot >= state.variables.len() {
+                    state.variables.resize(slot + 1, SimValue::None);
+                }
+                state.variables[slot] = val;
+            }
+
+            // --- Standard library builtins ---
+            Instruction::Len => {
+                let val = pop(&mut state.stack)?;
+                let len = match &val {
+                    SimValue::List(l) => l.len() as i64,
+                    SimValue::Str(s) => s.len() as i64,
+                    SimValue::Dict(d) => d.len() as i64,
+                    other => {
+                        return Err(SimError::type_error(format!(
+                            "object of type '{}' has no len()",
+                            other.type_name()
+                        )));
+                    }
+                };
+                state.stack.push(SimValue::Int(len));
+            }
+            Instruction::Abs => {
+                let n = pop_int(&mut state.stack)?;
+                state.stack.push(SimValue::Int(n.abs()));
+            }
+            Instruction::IntCast => {
+                let val = pop(&mut state.stack)?;
+                let result = match val {
+                    SimValue::Int(n) => n,
+                    SimValue::Bool(b) => if b { 1 } else { 0 },
+                    SimValue::Str(s) => s.parse::<i64>().map_err(|_| {
+                        SimError::type_error(format!("invalid literal for int(): '{s}'"))
+                    })?,
+                    other => {
+                        return Err(SimError::type_error(format!(
+                            "int() argument must be a string, number, or bool, not {}",
+                            other.type_name()
+                        )));
+                    }
+                };
+                state.stack.push(SimValue::Int(result));
+            }
+            Instruction::StrCast => {
+                let val = pop(&mut state.stack)?;
+                state.stack.push(SimValue::Str(val.to_string()));
+            }
+            Instruction::TypeOf => {
+                let val = pop(&mut state.stack)?;
+                state.stack.push(SimValue::Str(val.type_name().to_string()));
+            }
+            Instruction::Range(nargs) => {
+                let (start, end, step) = match nargs {
+                    1 => {
+                        let end = pop_int(&mut state.stack)?;
+                        (0i64, end, 1i64)
+                    }
+                    2 => {
+                        let end = pop_int(&mut state.stack)?;
+                        let start = pop_int(&mut state.stack)?;
+                        (start, end, 1i64)
+                    }
+                    3 => {
+                        let step = pop_int(&mut state.stack)?;
+                        let end = pop_int(&mut state.stack)?;
+                        let start = pop_int(&mut state.stack)?;
+                        if step == 0 {
+                            return Err(SimError::new(
+                                crate::error::SimErrorKind::Runtime,
+                                "range() step must not be zero",
+                            ));
+                        }
+                        (start, end, step)
+                    }
+                    _ => {
+                        return Err(SimError::type_error("range() takes 1 to 3 arguments"));
+                    }
+                };
+                let mut result = Vec::new();
+                if step > 0 {
+                    let mut i = start;
+                    while i < end {
+                        result.push(SimValue::Int(i));
+                        i += step;
+                    }
+                } else {
+                    let mut i = start;
+                    while i > end {
+                        result.push(SimValue::Int(i));
+                        i += step;
+                    }
+                }
+                state.stack.push(SimValue::List(result));
+            }
+            Instruction::ListAppend => {
+                let val = pop(&mut state.stack)?;
+                let mut list = pop(&mut state.stack)?;
+                match &mut list {
+                    SimValue::List(items) => items.push(val),
+                    other => {
+                        return Err(SimError::type_error(format!(
+                            "cannot append to {}",
+                            other.type_name()
+                        )));
+                    }
+                }
+                state.stack.push(list);
+            }
+            Instruction::Min2 => {
+                let b = pop_int(&mut state.stack)?;
+                let a = pop_int(&mut state.stack)?;
+                state.stack.push(SimValue::Int(a.min(b)));
+            }
+            Instruction::Max2 => {
+                let b = pop_int(&mut state.stack)?;
+                let a = pop_int(&mut state.stack)?;
+                state.stack.push(SimValue::Int(a.max(b)));
+            }
+            Instruction::DictKeys => {
+                let dict = pop(&mut state.stack)?;
+                match dict {
+                    SimValue::Dict(pairs) => {
+                        let keys: Vec<SimValue> = pairs.into_iter().map(|(k, _)| SimValue::Str(k)).collect();
+                        state.stack.push(SimValue::List(keys));
+                    }
+                    other => {
+                        return Err(SimError::type_error(format!(
+                            "keys() requires dict, got {}",
+                            other.type_name()
+                        )));
+                    }
+                }
+            }
+            Instruction::DictValues => {
+                let dict = pop(&mut state.stack)?;
+                match dict {
+                    SimValue::Dict(pairs) => {
+                        let values: Vec<SimValue> = pairs.into_iter().map(|(_, v)| v).collect();
+                        state.stack.push(SimValue::List(values));
+                    }
+                    other => {
+                        return Err(SimError::type_error(format!(
+                            "values() requires dict, got {}",
+                            other.type_name()
+                        )));
+                    }
+                }
+            }
+            Instruction::DictItems => {
+                let dict = pop(&mut state.stack)?;
+                match dict {
+                    SimValue::Dict(pairs) => {
+                        let items: Vec<SimValue> = pairs
+                            .into_iter()
+                            .map(|(k, v)| SimValue::List(vec![SimValue::Str(k), v]))
+                            .collect();
+                        state.stack.push(SimValue::List(items));
+                    }
+                    other => {
+                        return Err(SimError::type_error(format!(
+                            "items() requires dict, got {}",
+                            other.type_name()
+                        )));
+                    }
+                }
+            }
+            Instruction::DictGet => {
+                let default = pop(&mut state.stack)?;
+                let key = pop_str(&mut state.stack)?;
+                let dict = pop(&mut state.stack)?;
+                match dict {
+                    SimValue::Dict(pairs) => {
+                        let val = pairs
+                            .iter()
+                            .find(|(k, _)| k == &key)
+                            .map(|(_, v)| v.clone())
+                            .unwrap_or(default);
+                        state.stack.push(val);
+                    }
+                    other => {
+                        return Err(SimError::type_error(format!(
+                            "get() requires dict, got {}",
+                            other.type_name()
+                        )));
+                    }
+                }
+            }
+
             // --- Query instructions (instant) ---
             Instruction::QueryScan => {
                 let filter = pop_str(&mut state.stack)?;

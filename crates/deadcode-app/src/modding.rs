@@ -13,7 +13,7 @@ use deadcode_desktop::animation::{
     SUMMONER_ATLAS_PNG, summoner_atlas_json,
     SKELETON_ATLAS_PNG, skeleton_atlas_json,
 };
-use deadcode_sim::action::{CommandCost, CommandDef, CommandEffect};
+use deadcode_sim::action::{CommandDef, CommandEffect};
 use deadcode_sim::entity::EntityConfig;
 
 // ---------------------------------------------------------------------------
@@ -30,6 +30,14 @@ pub struct ModManifest {
     pub spawn: Vec<SpawnDef>,
     #[serde(default)]
     pub commands: Option<CommandsDef>,
+    #[serde(default)]
+    pub initial: Option<InitialDef>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InitialDef {
+    #[serde(default)]
+    pub effects: Vec<CommandEffect>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -257,6 +265,12 @@ fn embedded_fallback() -> LoadedMod {
             definitions: vec![],
             libraries: vec![],
         }),
+        initial: Some(InitialDef {
+            effects: vec![
+                CommandEffect::Output { message: "The dead stir beneath your feet".into() },
+                CommandEffect::Output { message: "Type help() to hear the bones speak".into() },
+            ],
+        }),
     };
 
     entity_configs.insert("summoner".into(), EntityConfig {
@@ -331,8 +345,7 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
 
 /// Validate custom command definitions at load time.
 ///
-/// Checks stat names in `ModifyStat` effects, `arg:` target references,
-/// and cost amounts/types.
+/// Checks stat names in `ModifyStat`/`UseResource` effects, `arg:` target references.
 pub fn validate_command_defs(mods: &[LoadedMod]) {
     let valid_stats: HashSet<&str> = ["health", "energy", "shield", "speed"].into_iter().collect();
 
@@ -341,12 +354,26 @@ pub fn validate_command_defs(mods: &[LoadedMod]) {
         let mod_id = &m.manifest.meta.id;
         for def in &cmds.definitions {
             for effect in &def.effects {
-                // Validate stat names in ModifyStat effects.
-                if let CommandEffect::ModifyStat { stat, .. } = effect {
-                    if !valid_stats.contains(stat.as_str()) {
+                // Validate stat names in ModifyStat and UseResource effects.
+                let stat_name = match effect {
+                    CommandEffect::ModifyStat { stat, .. }
+                    | CommandEffect::UseResource { stat, .. } => Some(stat.as_str()),
+                    _ => None,
+                };
+                if let Some(stat) = stat_name {
+                    if !valid_stats.contains(stat) {
                         eprintln!(
                             "[mod:{mod_id}] warning: command '{}' references unknown stat '{stat}' \
                              (valid: health, energy, shield, speed)",
+                            def.name
+                        );
+                    }
+                }
+                // Validate UseResource amounts.
+                if let CommandEffect::UseResource { stat, amount } = effect {
+                    if *amount <= 0 {
+                        eprintln!(
+                            "[mod:{mod_id}] warning: command '{}' has non-positive use_resource amount {amount} for {stat}",
                             def.name
                         );
                     }
@@ -360,19 +387,6 @@ pub fn validate_command_defs(mods: &[LoadedMod]) {
                 };
                 if let Some(target) = target_str {
                     validate_target(target, &def.args, &def.name, mod_id);
-                }
-            }
-            // Validate cost amounts.
-            for cost in &def.cost {
-                let (label, amount) = match cost {
-                    CommandCost::Energy { amount } => ("energy", *amount),
-                    CommandCost::Health { amount } => ("health", *amount),
-                };
-                if amount <= 0 {
-                    eprintln!(
-                        "[mod:{mod_id}] warning: command '{}' has non-positive {label} cost {amount}",
-                        def.name
-                    );
                 }
             }
         }
@@ -422,4 +436,15 @@ pub fn collect_initial_commands(mods: &[LoadedMod]) -> HashSet<String> {
         commands.extend(["consult", "raise", "harvest", "pact"].iter().map(|s| s.to_string()));
     }
     commands
+}
+
+/// Collect initial effects from all loaded mods (in load order).
+pub fn collect_initial_effects(mods: &[LoadedMod]) -> Vec<CommandEffect> {
+    let mut effects = Vec::new();
+    for m in mods {
+        if let Some(initial) = &m.manifest.initial {
+            effects.extend(initial.effects.iter().cloned());
+        }
+    }
+    effects
 }

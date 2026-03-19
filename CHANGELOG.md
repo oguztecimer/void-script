@@ -22,6 +22,9 @@
 
 ### Modding System
 
+#### Added
+- **M-07: `list_commands` effect type** — New `CommandEffect::ListCommands` variant that emits all registered custom commands and their descriptions as `ScriptOutput` events. Commands are sorted alphabetically for deterministic output. The `consult` command in `mods/core/mod.toml` now uses this effect instead of a static output message, making it a discovery mechanic that reveals available commands to the player.
+
 #### Fixed
 - **M-01: Deterministic mod load order** — Mods are now loaded in alphabetical order by directory name instead of filesystem iteration order. This ensures consistent behavior across platforms and runs. First-loaded-wins for entity type collisions is now predictable.
 - **M-04: Spawn entity type validation** — After all mods load, spawn definitions are validated against registered entity types. Unknown entity types produce a clear warning: "[mod:<id>] warning: spawn '<name>' references unknown entity type '<type>'". Also validates spawn effects in custom command definitions.
@@ -30,7 +33,8 @@
 - **M-02: Mod collision warnings** — When multiple mods define the same entity type or command name, a warning is logged identifying both the collision and which mod's definition was kept.
 - **M-02: Reserved dependency fields in mod.toml** — `depends_on`, `conflicts_with`, and `min_game_version` fields added to `[mod]` section schema. Parsed but not enforced yet — reserves schema space for future dependency resolution.
 - **M-03: Custom command definition validation** — Stat names in `modify_stat` effects and `arg:` target references are now validated at mod load time. Unknown stat names, out-of-range arg indices, and unrecognized arg names produce clear warnings.
-- **M-06: Command cost system** — Custom commands can now specify resource costs via `cost = [{ type = "energy", amount = 30 }]` in `mod.toml`. Costs are aggregated per resource type, checked for affordability, and deducted before effects resolve. Insufficient resources skip the command with a console warning.
+- **M-08: `[initial]` section with startup effects** — Mods can now define an `[initial]` section with an `effects` list in `mod.toml`. These effects run in order when the game opens (without loading a saved game state). The intro text ("The dead stir beneath your feet") is now data-driven via `output` effects in the core mod's `[initial]` section instead of hardcoded in the frontend.
+- **M-06: `use_resource` effect replaces cost system** — The separate `cost` field on custom commands has been removed. Resource costs are now expressed as a `use_resource` effect (e.g., `{ type = "use_resource", stat = "energy", amount = 30 }`). When a `use_resource` effect encounters insufficient resources, it aborts the command early — remaining effects are skipped and a console warning is printed. This unifies costs into the effect pipeline, giving modders precise control over when resource checks happen relative to other effects.
 - **M-05: Phase 2 library API design sketch** — Reserved `libraries` field in `[commands]` schema. Design sketch for `.grim` library files added to `docs/modding.md` covering namespace strategy, gating, and compilation order.
 
 #### Fixed

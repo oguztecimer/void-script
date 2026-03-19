@@ -76,7 +76,7 @@ src/
   ir.rs           — 57+ stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
   world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots
-  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/CommandCost types for mod-defined commands
+  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect types for mod-defined commands
   query.rs        — scan(), nearest(), distance() — linear scan over entities
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
     mod.rs        — compile(), compile_source(), compile_source_with(), compile_source_full(), initial_variables()
@@ -97,7 +97,7 @@ src/
 
 **Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available. Game commands (queries/actions) and custom mod commands are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set: `consult`, `raise`, `harvest`, `pact` (core starters). In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set + command info received via IPC.
 
-**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, output) and optional resource costs (energy, health). These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, costs are checked/deducted, then effects are resolved against world state. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
+**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, use_resource, output). These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, then effects are resolved in order against world state. The `use_resource` effect checks and deducts a resource, aborting remaining effects if insufficient. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
 
 **Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
 
@@ -165,8 +165,7 @@ Message categories:
 | Unlock a game command | `crates/deadcode-app/src/app.rs` → `available_commands` set |
 | Gate a new game builtin | Add to `is_builtin()`, `is_game_builtin()` returns true, `is_stdlib()` returns false |
 | Add custom mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, effects, cost |
-| Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + `resolve_custom_effects()` |
-| Add new cost type | `crates/deadcode-sim/src/action.rs` → `CommandCost` enum + cost deduction in `resolve_action()` |
+| Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + handler in `resolve_custom_effects()` |
 
 ## Documentation Maintenance
 

@@ -53,6 +53,14 @@ entity_type = "warrior"    # Must match a type from [[entities]] (in any loaded 
 name = "warrior"           # Instance name (used for render unit matching)
 position = 300             # 1D position on the strip
 
+# --- Initial Effects ---
+# Effects that run when the game opens (without loading a save).
+
+[initial]
+effects = [
+  { type = "output", message = "Welcome..." },
+]
+
 # --- Available Commands ---
 # GrimScript commands unlocked at game start.
 
@@ -232,6 +240,8 @@ Effects are resolved in order when the command executes.
 | `heal` | `target`, `amount` | Restore health (capped at max) |
 | `spawn` | `entity_type`, `offset` | Spawn entity at self.position + offset |
 | `modify_stat` | `target`, `stat`, `amount` | Add to a stat (can be negative) |
+| `use_resource` | `stat`, `amount` | Check and deduct a resource from self; aborts remaining effects if insufficient |
+| `list_commands` | *(none)* | List all registered commands and their descriptions |
 
 ### Target Resolution
 
@@ -245,7 +255,7 @@ For `modify_stat`, valid stat names are: `health`, `energy`, `shield`, `speed`.
 
 ### Base Game Commands as Effects
 
-The base game commands (`consult`, `raise`, `harvest`, `pact`) are defined as `[[commands.definitions]]` in `mods/core/mod.toml` with data-driven effects. They use the same custom command path as any mod-defined command — their effects and costs are fully executed by the data-driven system.
+The base game commands (`help`, `raise`, `harvest`, `pact`) are defined as `[[commands.definitions]]` in `mods/core/mod.toml` with data-driven effects. They use the same custom command path as any mod-defined command — their effects are fully executed by the data-driven system.
 
 ## Multiple Mods
 
@@ -258,9 +268,9 @@ Each mod's `[[spawn]]` entries all execute, and each mod's `[commands].initial` 
 After all mods are loaded, the engine validates:
 - **Spawn entity types**: every `[[spawn]]` entry's `entity_type` must match a registered entity type. Unknown types produce a warning: `[mod:<id>] warning: spawn '<name>' references unknown entity type '<type>'`.
 - **Spawn effects in custom commands**: `spawn` effects in `[[commands.definitions]]` are also checked against known entity types.
-- **Stat names in `modify_stat` effects**: must be one of `health`, `energy`, `shield`, `speed`. Unknown stat names produce a warning.
+- **Stat names in `modify_stat` and `use_resource` effects**: must be one of `health`, `energy`, `shield`, `speed`. Unknown stat names produce a warning.
 - **Target references in effects**: `target` fields must be `"self"` or `"arg:<ref>"` where `<ref>` is a valid numeric index or a name matching one of the command's `args` entries. Invalid references produce a warning.
-- **Cost amounts**: each cost entry must have a positive `amount`. Non-positive values produce a warning.
+- **`use_resource` amounts**: must be positive. Non-positive values produce a warning.
 
 ## Runtime Entity Spawning
 
@@ -314,30 +324,39 @@ Its `mod.toml` defines two entity types (summoner, skeleton), spawns one summone
 
 6. Run the game — your mod will be loaded automatically.
 
-## Command Costs
+## Initial Effects
 
-Custom commands can specify resource costs that are checked and deducted before effects resolve. If the caster doesn't have enough of a resource, the command is skipped and a warning is printed to the console.
+The `[initial]` section defines effects that run when the game opens without loading a saved game state. Effects from all mods are merged in load order. These effects are resolved against the first entity in the world (typically the summoner).
+
+```toml
+[initial]
+effects = [
+  { type = "output", message = "Welcome to the void..." },
+  { type = "modify_stat", target = "self", stat = "energy", amount = 10 },
+]
+```
+
+Any effect type can be used. Effects run in order; a `use_resource` effect that fails will abort the remaining initial effects.
+
+## Resource Costs via `use_resource`
+
+Resource costs are expressed as `use_resource` effects within the effects list. Place them before the effects they gate — if the caster doesn't have enough of the resource, the command ends early and remaining effects are skipped.
 
 ```toml
 [[commands.definitions]]
 name = "raise"
 description = "Raise the dead"
 args = []
-cost = [{ type = "energy", amount = 30 }]
 effects = [
+  { type = "use_resource", stat = "energy", amount = 30 },
   { type = "spawn", entity_type = "skeleton", offset = 1 },
   { type = "output", message = "[raise] A skeleton rises!" },
 ]
 ```
 
-### Cost Types
+The `use_resource` effect checks and deducts the resource atomically. Valid stats: `health`, `energy`, `shield`. If the entity's current value for that stat is less than `amount`, a warning is printed (e.g., `[raise] not enough energy`) and no further effects run.
 
-| Type | Field | Description |
-|------|-------|-------------|
-| `energy` | `amount` | Deduct energy from the caster |
-| `health` | `amount` | Deduct health from the caster |
-
-Multiple costs can be specified — all are checked before any are deducted. If any cost cannot be paid, the entire command is skipped.
+Since `use_resource` is just an effect, you can place multiple resource checks or interleave them with other effects for fine-grained control.
 
 ## Phase 2: Library Files (Future)
 
@@ -381,10 +400,10 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `ModManifest` | Deserialized `mod.toml` |
 | `EntityDef` | Entity type definition (type, sprite path, pivot, stats) |
 | `SpawnDef` | Initial spawn definition (type, name, position) |
+| `InitialDef` | Initial effects run on fresh game start |
 | `CommandsDef` | Available command list + command definitions |
-| `CommandDef` | Custom command definition (name, description, args, effects, cost) — lives in `deadcode-sim/action.rs` |
-| `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat) — lives in `deadcode-sim/action.rs` |
-| `CommandCost` | Cost type enum (energy, health) — lives in `deadcode-sim/action.rs` |
+| `CommandDef` | Custom command definition (name, description, args, effects) — lives in `deadcode-sim/action.rs` |
+| `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands) — lives in `deadcode-sim/action.rs` |
 | `SpriteData` | Loaded PNG bytes + JSON metadata string |
 | `LoadedMod` | Fully resolved mod with sprite/pivot/config/command registries |
 | `ModMeta` | Mod metadata: id, name, version, reserved dependency fields |
@@ -395,17 +414,17 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 2. Each manifest is parsed, sprite files are read from disk
 3. Registries (sprites, pivots, entity configs) are merged into `App`, with collision warnings on duplicates
 4. `modding::validate_spawns()` checks all spawn entity types and spawn effects against known types
-5. `modding::validate_command_defs()` checks stat names, target references, and cost amounts in custom command definitions
+5. `modding::validate_command_defs()` checks stat names, target references, and `use_resource` amounts in custom command definitions
 6. `[[spawn]]` entries create both sim entities and render units
 7. `[commands].initial` entries populate `App::available_commands`
-8. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld` (effects, arg counts, costs), with collision warnings on duplicate command names
+8. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld` (effects, arg counts), with collision warnings on duplicate command names
 
 **Custom command flow:**
 1. `CommandDef` structs are parsed from TOML and collected in `App::command_defs`
 2. At sim init, each def is registered via `SimWorld::register_custom_command()`
 3. The compiler receives custom command arg counts, emits `ActionCustom(name)` IR instructions
 4. The executor pops args and yields `UnitAction::Custom { name, args }`
-5. `resolve_action()` checks costs from `SimWorld::custom_command_costs` (aggregated per resource, fails if insufficient), deducts them, then looks up effects in `SimWorld::custom_commands` and applies them
+5. `resolve_action()` looks up effects in `SimWorld::custom_commands` and applies them in order; `use_resource` effects abort the command early if the resource check fails
 6. Custom command metadata (name, description, args) is sent to the frontend via `AvailableCommands` IPC for autocomplete
 
 **Reserved schema fields** (parsed but not enforced):

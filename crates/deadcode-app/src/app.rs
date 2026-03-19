@@ -89,6 +89,10 @@ pub struct App {
     available_commands: HashSet<String>,
     /// Custom command definitions from mods.
     command_defs: HashMap<String, CommandDef>,
+    /// Effects to run when the game opens (from [initial] sections in mods).
+    initial_effects: Vec<deadcode_sim::action::CommandEffect>,
+    /// Whether initial effects still need to be sent to the editor.
+    initial_effects_pending: bool,
 
     /// Whether the background tick thread has been spawned (Windows only).
     #[cfg(target_os = "windows")]
@@ -139,6 +143,8 @@ impl App {
             settings: Settings::default(),
             available_commands: HashSet::new(),
             command_defs: HashMap::new(),
+            initial_effects: Vec::new(),
+            initial_effects_pending: true,
 
             #[cfg(target_os = "windows")]
             tick_thread_started: false,
@@ -505,6 +511,7 @@ impl ApplicationHandler<UserEvent> for App {
         let mods = modding::load_mods(&modding::mods_dir());
         self.available_commands = modding::collect_initial_commands(&mods);
         self.command_defs = modding::collect_command_defs(&mods);
+        self.initial_effects = modding::collect_initial_effects(&mods);
 
         // Merge sprite/pivot/config registries from all loaded mods.
         for loaded_mod in &mods {
@@ -916,6 +923,30 @@ impl App {
                         Some(self.command_defs.keys().cloned().collect()),
                     );
                     self.send_available_commands();
+
+                    // Run [initial] effects on first editor connection (fresh game, no save loaded).
+                    if self.initial_effects_pending && !self.initial_effects.is_empty() {
+                        self.initial_effects_pending = false;
+                        let effects = self.initial_effects.clone();
+                        if let Some(sim) = &mut self.sim_world {
+                            // Find the first entity to act as the "caster" for initial effects.
+                            let caster_id = sim.entities().next().map(|e| e.id);
+                            if let Some(eid) = caster_id {
+                                let mut events = Vec::new();
+                                deadcode_sim::action::resolve_custom_effects(
+                                    sim, eid, "initial", &effects, &[], &mut events,
+                                );
+                                for event in &events {
+                                    if let deadcode_sim::SimEvent::ScriptOutput { text, .. } = event {
+                                        self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                                            text: text.clone(),
+                                            level: "info".to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 JsToRust::ScriptSave { script_id, content } => {
                     if let Some(store) = &mut self.script_store {

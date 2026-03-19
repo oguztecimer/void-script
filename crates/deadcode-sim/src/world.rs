@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::action::{CommandCost, CommandDef, CommandEffect, UnitAction, resolve_action};
+use crate::action::{CommandDef, CommandEffect, UnitAction, resolve_action};
 use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
@@ -75,8 +75,8 @@ pub struct SimWorld {
     pub custom_commands: HashMap<String, Vec<CommandEffect>>,
     /// Custom command name → arg count (for the executor to know how many args to pop).
     pub custom_command_arg_counts: HashMap<String, usize>,
-    /// Custom command name → costs (for checking/deducting before effects).
-    pub custom_command_costs: HashMap<String, Vec<CommandCost>>,
+    /// Custom command name → description (for list_commands effect).
+    pub custom_command_descriptions: HashMap<String, String>,
     /// Entity type → stat overrides (for spawning from effects).
     pub entity_configs: HashMap<String, EntityConfig>,
 }
@@ -95,17 +95,17 @@ impl SimWorld {
             running: false,
             custom_commands: HashMap::new(),
             custom_command_arg_counts: HashMap::new(),
-            custom_command_costs: HashMap::new(),
+            custom_command_descriptions: HashMap::new(),
             entity_configs: HashMap::new(),
         }
     }
 
-    /// Register a custom command with its effects, arg count, and costs.
+    /// Register a custom command with its effects, arg count, costs, and description.
     pub fn register_custom_command(&mut self, def: &CommandDef) {
         self.custom_command_arg_counts.insert(def.name.clone(), def.args.len());
         self.custom_commands.insert(def.name.clone(), def.effects.clone());
-        if !def.cost.is_empty() {
-            self.custom_command_costs.insert(def.name.clone(), def.cost.clone());
+        if !def.description.is_empty() {
+            self.custom_command_descriptions.insert(def.name.clone(), def.description.clone());
         }
     }
 

@@ -132,16 +132,11 @@ export function App() {
   // Force panel state and window size when tier changes
   useEffect(() => {
     if (tier === 0) {
-      const store = useStore.getState();
       useStore.setState({
         leftPanelOpen: false,
         rightPanelOpen: false,
         bottomPanelOpen: true,
       });
-      if (store.terminalOutput.length === 0) {
-        store.addTerminalOutput('The dead stir beneath your feet', 'info');
-        store.addTerminalOutput('Type consult() to hear the bones speak', 'info');
-      }
       const h = Math.round(window.screen.height * 0.25);
       sendToRust({ type: 'window_set_size', width: h * 2, height: h, resizable: false });
     } else {

@@ -42,18 +42,12 @@ pub enum CommandEffect {
     /// Add to a stat (health/energy/shield/speed).
     #[serde(rename = "modify_stat")]
     ModifyStat { target: String, stat: String, amount: i64 },
-}
-
-/// A resource cost required to execute a custom command.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum CommandCost {
-    /// Deduct energy from the caster.
-    #[serde(rename = "energy")]
-    Energy { amount: i64 },
-    /// Deduct health from the caster.
-    #[serde(rename = "health")]
-    Health { amount: i64 },
+    /// Check and deduct a resource; if insufficient, abort remaining effects.
+    #[serde(rename = "use_resource")]
+    UseResource { stat: String, amount: i64 },
+    /// List all registered commands and their descriptions.
+    #[serde(rename = "list_commands")]
+    ListCommands,
 }
 
 /// Definition of a custom command (parsed from mod.toml).
@@ -66,8 +60,6 @@ pub struct CommandDef {
     pub args: Vec<String>,
     #[serde(default)]
     pub effects: Vec<CommandEffect>,
-    #[serde(default)]
-    pub cost: Vec<CommandCost>,
 }
 
 /// Resolve a unit's action against the world state.
@@ -165,49 +157,8 @@ pub fn resolve_action(
 
 
         UnitAction::Custom { name, args } => {
-            // Check and deduct costs before resolving effects.
-            // Aggregate totals per resource to avoid cloning the costs vec.
-            let (energy_cost, health_cost) = if let Some(costs) = world.custom_command_costs.get(&name) {
-                let mut energy_total: i64 = 0;
-                let mut health_total: i64 = 0;
-                for cost in costs {
-                    match cost {
-                        CommandCost::Energy { amount } => energy_total += amount,
-                        CommandCost::Health { amount } => health_total += amount,
-                    }
-                }
-                if let Some(caster) = world.get_entity(entity_id) {
-                    if caster.energy < energy_total {
-                        events.push(SimEvent::ScriptOutput {
-                            entity_id,
-                            text: format!("[{name}] not enough energy ({} < {energy_total})", caster.energy),
-                        });
-                        return events;
-                    }
-                    if caster.health < health_total {
-                        events.push(SimEvent::ScriptOutput {
-                            entity_id,
-                            text: format!("[{name}] not enough health ({} < {health_total})", caster.health),
-                        });
-                        return events;
-                    }
-                } else {
-                    return events;
-                }
-                (energy_total, health_total)
-            } else {
-                (0, 0)
-            };
-            // Deduct aggregated costs (immutable borrow above is now dropped).
-            if energy_cost > 0 || health_cost > 0 {
-                if let Some(caster) = world.get_entity_mut(entity_id) {
-                    caster.energy -= energy_cost;
-                    caster.health -= health_cost;
-                }
-            }
-
             if let Some(effects) = world.custom_commands.get(&name).cloned() {
-                resolve_custom_effects(world, entity_id, &effects, &args, &mut events);
+                resolve_custom_effects(world, entity_id, &name, &effects, &args, &mut events);
             } else {
                 events.push(SimEvent::ScriptOutput {
                     entity_id,
@@ -221,9 +172,12 @@ pub fn resolve_action(
 }
 
 /// Resolve custom command effects against the world.
-fn resolve_custom_effects(
+/// Effects are resolved in order. A `UseResource` effect that fails (insufficient
+/// resource) aborts the remaining effects — the command ends early.
+pub fn resolve_custom_effects(
     world: &mut SimWorld,
     entity_id: EntityId,
+    cmd_name: &str,
     effects: &[CommandEffect],
     args: &[SimValue],
     events: &mut Vec<SimEvent>,
@@ -310,6 +264,48 @@ fn resolve_custom_effects(
                             _ => {}
                         }
                     }
+                }
+            }
+            CommandEffect::UseResource { stat, amount } => {
+                let has_enough = world.get_entity(entity_id).map_or(false, |e| {
+                    let current = match stat.as_str() {
+                        "health" => e.health,
+                        "energy" => e.energy,
+                        "shield" => e.shield,
+                        _ => return false,
+                    };
+                    current >= *amount
+                });
+                if !has_enough {
+                    events.push(SimEvent::ScriptOutput {
+                        entity_id,
+                        text: format!("[{cmd_name}] not enough {stat}"),
+                    });
+                    return; // Abort remaining effects.
+                }
+                // Deduct the resource.
+                if let Some(entity) = world.get_entity_mut(entity_id) {
+                    match stat.as_str() {
+                        "health" => entity.health = (entity.health - amount).max(0),
+                        "energy" => entity.energy = (entity.energy - amount).max(0),
+                        "shield" => entity.shield = (entity.shield - amount).max(0),
+                        _ => {}
+                    }
+                }
+            }
+            CommandEffect::ListCommands => {
+                let mut commands: Vec<(&String, &String)> =
+                    world.custom_command_descriptions.iter().collect();
+                commands.sort_by_key(|(name, _)| (*name).clone());
+                events.push(SimEvent::ScriptOutput {
+                    entity_id,
+                    text: "The bones speak... they reveal known commands:".into(),
+                });
+                for (name, description) in commands {
+                    events.push(SimEvent::ScriptOutput {
+                        entity_id,
+                        text: format!("  {name} — {description}"),
+                    });
                 }
             }
         }

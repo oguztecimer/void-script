@@ -12,6 +12,7 @@ Hybrid Rust + TypeScript/React desktop app targeting Windows, macOS, and Linux.
 - **UI:** React 19, TypeScript 5.7, Vite 6, CodeMirror 6
 - **Desktop:** winit 0.30 (windowing), wry 0.50 (webview), softbuffer 0.4 + tiny-skia 0.12 (2D CPU rendering)
 - **State:** zustand (frontend), crossbeam-channel (Rust IPC)
+- **Data:** indexmap 2 (deterministic ordered dicts in sim)
 - **Platform:** objc2 (macOS), windows crate (Windows), x11rb (Linux)
 
 ## Repository Structure
@@ -47,9 +48,10 @@ Editor UI is embedded into the Rust binary via `rust-embed` in `deadcode-editor/
 ## Testing
 
 ```bash
-cargo test                          # All Rust tests (97 tests)
+cargo test                          # All Rust tests (128 tests)
 cargo test -p deadcode-sim          # Sim engine + compiler tests
 cargo test -p grimscript-lang       # Language crate only
+cargo test -p deadcode-app --test interpreter_compiler_parity  # Parity tests
 cd editor-ui && npx tsc --noEmit    # TypeScript type check
 ```
 
@@ -68,11 +70,11 @@ cd editor-ui && npx tsc --noEmit    # TypeScript type check
 src/
   lib.rs          — Module declarations, re-exports
   rng.rs          — SplitMix64 PRNG + Fisher-Yates shuffle (deterministic)
-  value.rs        — SimValue: Int, Bool, Str, None, List, Dict, EntityRef (no floats)
+  value.rs        — SimValue: Int, Bool, Str, None, List, Dict(IndexMap), EntityRef (no floats)
   error.rs        — SimError types
-  entity.rs       — SimEntity, EntityId, EntityType, ScriptState, CallFrame
-  ir.rs           — 55+ stack-based Instruction variants, CompiledScript, FunctionEntry
-  executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick
+  entity.rs       — SimEntity, EntityId, EntityType, ScriptState (incl. step_limit_hit), CallFrame
+  ir.rs           — 57+ stack-based Instruction variants, CompiledScript, FunctionEntry
+  executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
   world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots
   action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect types for mod-defined commands
   query.rs        — scan(), nearest(), distance() — linear scan over entities
@@ -80,7 +82,7 @@ src/
     mod.rs        — compile(), compile_source(), compile_source_with(), compile_source_full(), initial_variables()
     emit.rs       — AST walk, instruction emission, jump patching, function compilation, available command gating
     symbol_table.rs — Scope tracking, global slots vs function-local offsets
-    builtins.rs   — Maps 30+ game builtins to IR instructions (queries, actions, stdlib)
+    builtins.rs   — Maps 30+ game builtins to IR instructions (queries, actions, stdlib incl. percent/scale)
     error.rs      — CompileError
 ```
 
@@ -93,11 +95,11 @@ src/
 - Queries (scan, get_health, etc.) are instant; actions (move, attack, wait, consult, raise, harvest, pact, custom mod commands) consume the tick
 - `self` is pre-allocated at variable slot 0 as `EntityRef` for the executing entity
 
-**Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`) are always available. Game commands (queries/actions) and custom mod commands are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set: `consult`, `raise`, `harvest`, `pact` (necromancer starters). In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set + command info received via IPC.
+**Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available. Game commands (queries/actions) and custom mod commands are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set: `consult`, `raise`, `harvest`, `pact` (necromancer starters). In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set + command info received via IPC.
 
-**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, output). These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, and effects are resolved against world state. See `docs/modding.md` for the full reference.
+**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, output). These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, and effects are resolved against world state. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
 
-**Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState`. The interpreter path is only used for terminal one-liners.
+**Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
 
 **Tick loop** (`SimWorld::tick()`):
 1. Derive per-tick RNG: `SimRng::new(seed ^ tick)`
@@ -139,7 +141,7 @@ Message categories:
 - Editor UI uses CSS modules
 - IPC enums use `#[serde(tag = "type")]`
 - Sprite atlases are JSON + PNG pairs in `deadcode-desktop/src/assets/`
-- Simulation uses only `i64` (no floats) for determinism; `Dict` uses `Vec<(K,V)>` for deterministic iteration
+- Simulation uses only `i64` (no floats) for determinism; `Dict` uses `IndexMap<String, SimValue>` for deterministic insertion-order iteration with O(1) lookup
 - Compiler is feature-gated: `deadcode-sim` stays independent without `grimscript-lang`
 - Theme-agnostic sim: no baked-in entity type constants, entity types are runtime strings
 

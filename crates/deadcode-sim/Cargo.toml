@@ -9,4 +9,5 @@ compiler = ["grimscript-lang"]
 
 [dependencies]
 serde = { workspace = true }
+indexmap = { workspace = true }
 grimscript-lang = { path = "../grimscript-lang", optional = true }

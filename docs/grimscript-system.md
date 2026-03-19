@@ -37,9 +37,11 @@ Two execution paths exist for the same source code:
 - **Interpreter** (`grimscript-lang`) — tree-walking, used only for **terminal one-liners**. Runs in a thread, no sim connection.
 - **Compiler + Executor** (`deadcode-sim`) — compiles AST to stack-based IR, runs deterministically inside the sim tick loop. This is the execution path for **Run/Debug buttons** and the real game.
 
-The sim runs continuously from game open. The Run button compiles the script to IR and hot-swaps the summoner's `ScriptState`. On the next tick, the executor picks up the new script. The Stop button clears the entity's script state.
+The sim runs continuously from game open. The Run button compiles the script to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position, health, world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. On the next tick, the executor picks up the new script. The Stop button clears the entity's script state.
 
 Both paths share the same parser and AST. Builtins need to be registered in both (static builtins in both, custom mod commands handled dynamically). Both paths also share the same **available commands gating** — an `Option<HashSet<String>>` that restricts which game builtins can be used (stdlib is always allowed).
+
+**Parity testing:** Integration tests in `crates/deadcode-app/tests/interpreter_compiler_parity.rs` run identical GrimScript through both paths and compare outputs. Known intentional divergences are documented there: `float()` (interpreter supports, compiler rejects), game builtin stubs (interpreter returns dummy values), and string display formatting in list contexts.
 
 ## Script Lifecycle
 
@@ -56,6 +58,7 @@ Each entity with a script has a `ScriptState`:
 - `stack` — value stack for computation
 - `variables` — slot-indexed variable storage
 - `call_stack` — function call frames
+- `step_limit_hit` — true if the entity hit the 10k step limit this tick (triggers warning event)
 
 Per tick, the world:
 1. Shuffles scriptable entities (seeded RNG for determinism)
@@ -64,7 +67,7 @@ Per tick, the world:
    - **Action instruction** (move, attack, etc.) → yields, tick consumed
    - **Halt** → script finished
    - **Error** → script stops
-   - **10,000 steps** → auto-yields with implicit `wait()`
+   - **10,000 steps** → auto-yields with implicit `wait()` and emits a warning: `[warning] Script exceeded step limit (10000 instructions) — auto-yielded`
 4. Collects actions, resolves them against world state
 5. Emits events (EntityMoved, EntityDamaged, etc.) for the rendering layer
 
@@ -79,7 +82,7 @@ Per tick, the world:
 | Control flow | No | Jump, JumpIfFalse, JumpIfTrue |
 | Functions | No | Call, Return |
 | Data structures | No | BuildList, BuildDict, Index, StoreIndex, GetAttr |
-| Stdlib | No | Len, Abs, Range, IntCast, StrCast, TypeOf, Min2, Max2, ListAppend, DictKeys/Values/Items/Get |
+| Stdlib | No | Len, Abs, Range, IntCast, StrCast, TypeOf, Min2, Max2, ListAppend, DictKeys/Values/Items/Get, Percent, Scale |
 | Locals | No | LoadLocal, StoreLocal (function-scoped variables) |
 | **Queries** | **No** | QueryScan, QueryNearest, QueryGetHealth, etc. |
 | **Actions** | **Yes** | ActionMove, ActionAttack, ActionFlee, ActionWait, ActionSetTarget, ActionConsult, ActionRaise, ActionHarvest, ActionPact, ActionCustom(name) |
@@ -105,7 +108,7 @@ Per tick, the world:
 Not every GrimScript builtin is available from the start. The game progressively unlocks commands.
 
 **Three-tier classification** (`grimscript-lang/src/builtins.rs`):
-- `is_stdlib(name)` — 10 stdlib functions: `print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`. Always available, bypass the gate entirely.
+- `is_stdlib(name)` — 12 stdlib functions: `print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`. Always available, bypass the gate entirely.
 - `is_game_builtin(name)` — all builtins that aren't stdlib: `move`, `scan`, `attack`, `consult`, etc. Subject to gating.
 - `is_builtin(name)` — both stdlib + game builtins.
 
@@ -138,7 +141,7 @@ This applies to both hardcoded game builtins and custom mod-defined commands. Cu
 | `Str(String)` | String |
 | `None` | Null value |
 | `List(Vec<SimValue>)` | Ordered list |
-| `Dict(Vec<(String, SimValue)>)` | Ordered key-value pairs (Vec, not HashMap — deterministic iteration) |
+| `Dict(IndexMap<String, SimValue>)` | Ordered key-value map (IndexMap — deterministic insertion-order iteration, O(1) lookup) |
 | `EntityRef(EntityId)` | Lightweight reference to an entity, resolved via queries |
 
 ---
@@ -367,3 +370,4 @@ Events are how the sim communicates state changes to the rendering layer.
 | Editor | `editor-ui/src/codemirror/grimscript-lang.ts` | Syntax highlighting (stdlib always, game + custom functions filtered by available set) |
 | Editor state | `editor-ui/src/state/store.ts` | `availableCommands` + `commandInfo` state (set via IPC) |
 | Scripts | `crates/deadcode-editor/src/scripts.rs` | Script types, file storage |
+| Parity tests | `crates/deadcode-app/tests/interpreter_compiler_parity.rs` | Interpreter vs compiler output comparison (31 tests) |

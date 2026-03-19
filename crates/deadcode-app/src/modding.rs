@@ -39,6 +39,12 @@ pub struct ModMeta {
     pub id: String,
     pub name: String,
     pub version: String,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(default)]
+    pub conflicts_with: Vec<String>,
+    #[serde(default)]
+    pub min_game_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -182,13 +188,16 @@ pub fn load_mods(mods_dir: &Path) -> Vec<LoadedMod> {
 
     if mods_dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(mods_dir) {
-            for entry in entries.flatten() {
+            let mut dirs: Vec<_> = entries
+                .flatten()
+                .filter(|e| e.path().is_dir())
+                .collect();
+            dirs.sort_by_key(|e| e.file_name());
+            for entry in dirs {
                 let path = entry.path();
-                if path.is_dir() {
-                    if let Some(m) = load_mod_from_dir(&path) {
-                        eprintln!("[mod] loaded: {} v{}", m.manifest.meta.name, m.manifest.meta.version);
-                        loaded.push(m);
-                    }
+                if let Some(m) = load_mod_from_dir(&path) {
+                    eprintln!("[mod] loaded: {} v{}", m.manifest.meta.name, m.manifest.meta.version);
+                    loaded.push(m);
                 }
             }
         }
@@ -231,6 +240,9 @@ fn embedded_fallback() -> LoadedMod {
             id: "necromancer".into(),
             name: "Necromancer".into(),
             version: "0.1.0".into(),
+            depends_on: vec![],
+            conflicts_with: vec![],
+            min_game_version: None,
         },
         entities: vec![],
         spawn: vec![SpawnDef {
@@ -277,10 +289,46 @@ pub fn collect_command_defs(mods: &[LoadedMod]) -> HashMap<String, CommandDef> {
     let mut defs = HashMap::new();
     for m in mods {
         for (name, def) in &m.command_defs {
-            defs.entry(name.clone()).or_insert_with(|| def.clone());
+            if defs.contains_key(name) {
+                eprintln!(
+                    "[mod] warning: command '{}' already defined, skipping duplicate from '{}'",
+                    name, m.manifest.meta.id
+                );
+            } else {
+                defs.insert(name.clone(), def.clone());
+            }
         }
     }
     defs
+}
+
+/// Validate that spawn definitions reference known entity types.
+pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
+    for m in mods {
+        for spawn in &m.manifest.spawn {
+            if !known_types.contains(&spawn.entity_type) {
+                eprintln!(
+                    "[mod:{}] warning: spawn '{}' references unknown entity type '{}'",
+                    m.manifest.meta.id, spawn.name, spawn.entity_type
+                );
+            }
+        }
+        // Also validate spawn effects in custom command definitions.
+        if let Some(cmds) = &m.manifest.commands {
+            for def in &cmds.definitions {
+                for effect in &def.effects {
+                    if let deadcode_sim::action::CommandEffect::Spawn { entity_type, .. } = effect {
+                        if !known_types.contains(entity_type) {
+                            eprintln!(
+                                "[mod:{}] warning: command '{}' spawns unknown entity type '{}'",
+                                m.manifest.meta.id, def.name, entity_type
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Collect initial commands from all loaded mods.

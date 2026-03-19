@@ -147,6 +147,10 @@ pub enum Instruction {
     DictItems,
     /// Pop default, pop key (Str), pop dict, push value or default.
     DictGet,
+    /// Pop pct (Int), pop value (Int), push `value * pct / 100` with banker's rounding.
+    Percent,
+    /// Pop den (Int), pop num (Int), pop value (Int), push `value * num / den` with banker's rounding.
+    Scale,
 
     // --- Misc ---
     /// Pop value, emit as script output.

@@ -15,7 +15,7 @@ mods/
       warrior_atlas.json    # Atlas metadata (frame layout)
 ```
 
-The game scans `mods/` at startup and loads every directory that contains a valid `mod.toml`. If no mods are found, the game falls back to embedded assets (identical to the pre-modding behavior).
+The game scans `mods/` at startup and loads every directory that contains a valid `mod.toml` **in alphabetical order by directory name** (deterministic across platforms). If no mods are found, the game falls back to embedded assets (identical to the pre-modding behavior).
 
 ## mod.toml Reference
 
@@ -24,6 +24,9 @@ The game scans `mods/` at startup and loads every directory that contains a vali
 id = "my-mod"           # Unique identifier (lowercase, no spaces)
 name = "My Mod"         # Display name
 version = "0.1.0"       # Semver version string
+depends_on = []         # Reserved: mod IDs this mod requires (not enforced yet)
+conflicts_with = []     # Reserved: mod IDs this mod conflicts with (not enforced yet)
+min_game_version = ""   # Reserved: minimum game version (not enforced yet)
 
 # --- Entity Definitions ---
 # Define entity types with sprites and stats.
@@ -156,7 +159,7 @@ position = 800
 
 The `[commands].initial` list controls which GrimScript game commands are unlocked at game start. Commands from all loaded mods are merged.
 
-Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`) are always available regardless of this setting.
+Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available regardless of this setting.
 
 Game commands that can be gated:
 
@@ -246,9 +249,15 @@ The base game commands (`consult`, `raise`, `harvest`, `pact`) are also defined 
 
 ## Multiple Mods
 
-Multiple mods can be active simultaneously. Entity types from all mods are merged into a shared registry. If two mods define the same entity type, the first one loaded wins (directory iteration order).
+Multiple mods can be active simultaneously. Entity types from all mods are merged into a shared registry. If two mods define the same entity type or command name, the first one loaded wins (alphabetical directory order). A warning is logged identifying the collision and which mod's definition was kept.
 
 Each mod's `[[spawn]]` entries all execute, and each mod's `[commands].initial` entries are merged.
+
+### Validation
+
+After all mods are loaded, the engine validates:
+- **Spawn entity types**: every `[[spawn]]` entry's `entity_type` must match a registered entity type. Unknown types produce a warning: `[mod:<id>] warning: spawn '<name>' references unknown entity type '<type>'`.
+- **Spawn effects in custom commands**: `spawn` effects in `[[commands.definitions]]` are also checked against known entity types.
 
 ## Runtime Entity Spawning
 
@@ -318,15 +327,17 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat) — lives in `deadcode-sim/action.rs` |
 | `SpriteData` | Loaded PNG bytes + JSON metadata string |
 | `LoadedMod` | Fully resolved mod with sprite/pivot/config/command registries |
+| `ModMeta` | Mod metadata: id, name, version, reserved dependency fields |
 | `EntityConfig` | Stat overrides applied at entity spawn time (in `deadcode-sim`) |
 
 **Loading flow:**
-1. `modding::load_mods()` scans `mods/` for directories containing `mod.toml`
+1. `modding::load_mods()` scans `mods/` for directories containing `mod.toml`, sorted alphabetically by directory name
 2. Each manifest is parsed, sprite files are read from disk
-3. Registries (sprites, pivots, entity configs) are merged into `App`
-4. `[[spawn]]` entries create both sim entities and render units
-5. `[commands].initial` entries populate `App::available_commands`
-6. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld`
+3. Registries (sprites, pivots, entity configs) are merged into `App`, with collision warnings on duplicates
+4. `modding::validate_spawns()` checks all spawn entity types and spawn effects against known types
+5. `[[spawn]]` entries create both sim entities and render units
+6. `[commands].initial` entries populate `App::available_commands`
+7. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld`, with collision warnings on duplicate command names
 
 **Custom command flow:**
 1. `CommandDef` structs are parsed from TOML and collected in `App::command_defs`
@@ -336,5 +347,11 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 5. `resolve_action()` looks up the command's effects in `SimWorld::custom_commands` and applies them
 6. Custom command metadata (name, description, args) is sent to the frontend via `AvailableCommands` IPC for autocomplete
 
+**Reserved schema fields** (parsed but not enforced):
+- `depends_on: Vec<String>` — mod IDs this mod requires
+- `conflicts_with: Vec<String>` — mod IDs this mod conflicts with
+- `min_game_version: Option<String>` — minimum game version required
+
 **Future phases** (not yet implemented):
 - **Phase 2**: Mods provide `.grim` library files whose functions are compiled and merged into player scripts
+- **Dependency resolution**: `depends_on` / `conflicts_with` enforcement, load order based on dependency graph

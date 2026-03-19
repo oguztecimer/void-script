@@ -509,11 +509,17 @@ impl ApplicationHandler<UserEvent> for App {
         // Merge sprite/pivot/config registries from all loaded mods.
         for loaded_mod in &mods {
             for (etype, sprite) in &loaded_mod.sprites {
-                self.sprite_registry.entry(etype.clone())
-                    .or_insert_with(|| SpriteData {
+                if self.sprite_registry.contains_key(etype) {
+                    eprintln!(
+                        "[mod] warning: entity type '{}' already defined, skipping from '{}'",
+                        etype, loaded_mod.manifest.meta.id
+                    );
+                } else {
+                    self.sprite_registry.insert(etype.clone(), SpriteData {
                         png: sprite.png.clone(),
                         json: sprite.json.clone(),
                     });
+                }
             }
             for (etype, pivot) in &loaded_mod.pivots {
                 self.pivot_registry.entry(etype.clone()).or_insert(*pivot);
@@ -522,6 +528,10 @@ impl ApplicationHandler<UserEvent> for App {
                 self.entity_configs.entry(etype.clone()).or_insert_with(|| config.clone());
             }
         }
+
+        // Validate spawn entity type references.
+        let known_types: HashSet<String> = self.entity_configs.keys().cloned().collect();
+        modding::validate_spawns(&mods, &known_types);
 
         // --- Unit system init ---
         let mut um = UnitManager::new();
@@ -797,6 +807,12 @@ impl App {
     }
 
     /// Compile script and assign to summoner's ScriptState in the sim.
+    ///
+    /// The simulation runs continuously from game open. This method recompiles
+    /// the GrimScript source to IR and replaces the summoner's `ScriptState`
+    /// entirely — the previous program counter, value stack, and variables are
+    /// discarded (full restart). The entity keeps its current position, health,
+    /// and other world state. The new script takes effect at the next tick.
     fn handle_run_script_sim(&mut self, script_id: &str) {
         let source = match self.script_store.as_ref().and_then(|s| s.scripts.get(script_id)) {
             Some(script) => script.content.clone(),
@@ -831,6 +847,10 @@ impl App {
                         }
                     }
                 }
+                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                    text: "[reload] Script recompiled and loaded".to_string(),
+                    level: "info".to_string(),
+                });
                 self.webview_manager.send_to_all(&RustToJs::ScriptStarted {
                     script_id: sid,
                 });

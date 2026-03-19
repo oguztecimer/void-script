@@ -31,6 +31,8 @@ pub struct ScriptState {
     pub call_stack: Vec<CallFrame>,
     /// True if the unit yielded (action consumed the tick).
     pub yielded: bool,
+    /// True if the unit hit the step limit and was auto-yielded.
+    pub step_limit_hit: bool,
     /// Set on unrecoverable error — unit stops executing.
     pub error: Option<String>,
 }
@@ -44,6 +46,7 @@ impl ScriptState {
             variables: vec![SimValue::None; num_variables],
             call_stack: Vec::new(),
             yielded: false,
+            step_limit_hit: false,
             error: None,
         }
     }

@@ -4,7 +4,8 @@
 //! instructions until hitting an action (which consumes the tick) or halting.
 //!
 //! Key design: no floats in simulation. All values are `i64`. Dicts use
-//! `Vec<(K,V)>` for deterministic iteration. World positions are 1D integers.
+//! `IndexMap<String, SimValue>` for deterministic insertion-order iteration
+//! with O(1) amortized lookup. World positions are 1D integers.
 
 #[cfg(feature = "compiler")]
 pub mod compiler;

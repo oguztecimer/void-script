@@ -15,6 +15,7 @@ pub fn is_stdlib(name: &str) -> bool {
     matches!(
         name,
         "print" | "len" | "range" | "abs" | "min" | "max" | "int" | "float" | "str" | "type"
+            | "percent" | "scale"
     )
 }
 
@@ -40,6 +41,8 @@ pub fn is_builtin_static(name: &str) -> bool {
             | "float"
             | "str"
             | "type"
+            | "percent"
+            | "scale"
             | "append"
             | "move"
             | "get_pos"
@@ -338,6 +341,49 @@ pub fn call_builtin(
             }
             Ok(Value::String(args[0].type_name().to_string()))
         }
+        "percent" => {
+            if args.len() != 2 {
+                return Err(GrimScriptError::type_error(
+                    0,
+                    "percent() takes exactly 2 arguments",
+                ));
+            }
+            let value = match &args[0] {
+                Value::Int(n) => *n,
+                _ => return Err(GrimScriptError::type_error(0, "percent() arguments must be int")),
+            };
+            let pct = match &args[1] {
+                Value::Int(n) => *n,
+                _ => return Err(GrimScriptError::type_error(0, "percent() arguments must be int")),
+            };
+            let product = value.wrapping_mul(pct);
+            Ok(Value::Int(bankers_div(product, 100)))
+        }
+        "scale" => {
+            if args.len() != 3 {
+                return Err(GrimScriptError::type_error(
+                    0,
+                    "scale() takes exactly 3 arguments",
+                ));
+            }
+            let value = match &args[0] {
+                Value::Int(n) => *n,
+                _ => return Err(GrimScriptError::type_error(0, "scale() arguments must be int")),
+            };
+            let num = match &args[1] {
+                Value::Int(n) => *n,
+                _ => return Err(GrimScriptError::type_error(0, "scale() arguments must be int")),
+            };
+            let den = match &args[2] {
+                Value::Int(n) => *n,
+                _ => return Err(GrimScriptError::type_error(0, "scale() arguments must be int")),
+            };
+            if den == 0 {
+                return Err(GrimScriptError::runtime(0, "scale() division by zero"));
+            }
+            let product = value.wrapping_mul(num);
+            Ok(Value::Int(bankers_div(product, den)))
+        }
         "append" => {
             // This is a special case - handled as method call in interpreter
             Err(GrimScriptError::runtime(
@@ -419,6 +465,22 @@ pub fn call_builtin_with_custom(
             0,
             format!("Unknown function: {name}"),
         ))
+    }
+}
+
+/// Integer division with banker's rounding (round half to even).
+fn bankers_div(numerator: i64, denominator: i64) -> i64 {
+    let quotient = numerator / denominator;
+    let remainder = (numerator % denominator).abs();
+    let half = denominator.abs() / 2;
+    let is_exact_half = denominator.abs() % 2 == 0 && remainder == half;
+
+    if is_exact_half {
+        if quotient % 2 == 0 { quotient } else { quotient + numerator.signum() }
+    } else if remainder > half {
+        quotient + numerator.signum()
+    } else {
+        quotient
     }
 }
 

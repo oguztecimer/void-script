@@ -1,5 +1,6 @@
 use std::fmt;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::entity::EntityId;
@@ -8,7 +9,8 @@ use crate::entity::EntityId;
 ///
 /// Key differences:
 /// - No `f64` (determinism).
-/// - `Dict` uses `Vec<(String, SimValue)>` for deterministic iteration order.
+/// - `Dict` uses `IndexMap<String, SimValue>` for deterministic insertion-order
+///   iteration with O(1) amortized key lookup.
 /// - `EntityRef` is a lightweight ID reference; attribute access goes through queries.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SimValue {
@@ -17,8 +19,8 @@ pub enum SimValue {
     Str(String),
     None,
     List(Vec<SimValue>),
-    /// Ordered key-value pairs — deterministic iteration.
-    Dict(Vec<(String, SimValue)>),
+    /// Ordered key-value map — deterministic insertion-order iteration, O(1) lookup.
+    Dict(IndexMap<String, SimValue>),
     /// Lightweight entity reference resolved via world queries.
     EntityRef(EntityId),
 }
@@ -43,7 +45,7 @@ impl SimValue {
             SimValue::Str(s) => !s.is_empty(),
             SimValue::None => false,
             SimValue::List(v) => !v.is_empty(),
-            SimValue::Dict(v) => !v.is_empty(),
+            SimValue::Dict(m) => !m.is_empty(),
             SimValue::EntityRef(_) => true,
         }
     }
@@ -94,9 +96,9 @@ impl fmt::Display for SimValue {
                 }
                 write!(f, "]")
             }
-            SimValue::Dict(pairs) => {
+            SimValue::Dict(map) => {
                 write!(f, "{{")?;
-                for (i, (k, v)) in pairs.iter().enumerate() {
+                for (i, (k, v)) in map.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }

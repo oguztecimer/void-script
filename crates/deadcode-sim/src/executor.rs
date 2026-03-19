@@ -29,12 +29,14 @@ pub fn execute_unit(
     }
 
     state.yielded = false;
+    state.step_limit_hit = false;
     let mut steps = 0usize;
 
     while state.pc < state.program.instructions.len() {
         steps += 1;
         if steps > STEP_LIMIT {
             state.yielded = true;
+            state.step_limit_hit = true;
             return Ok(Some(UnitAction::Wait));
         }
 
@@ -211,15 +213,15 @@ pub fn execute_unit(
             Instruction::BuildDict(count) => {
                 let start = state.stack.len().saturating_sub(count * 2);
                 let pairs_flat: Vec<SimValue> = state.stack.drain(start..).collect();
-                let mut pairs = Vec::with_capacity(count);
+                let mut map = indexmap::IndexMap::with_capacity(count);
                 for chunk in pairs_flat.chunks_exact(2) {
                     let key = match &chunk[0] {
                         SimValue::Str(s) => s.clone(),
                         other => other.to_string(),
                     };
-                    pairs.push((key, chunk[1].clone()));
+                    map.insert(key, chunk[1].clone());
                 }
-                state.stack.push(SimValue::Dict(pairs));
+                state.stack.push(SimValue::Dict(map));
             }
             Instruction::Index => {
                 let index = pop(&mut state.stack)?;
@@ -237,11 +239,10 @@ pub fn execute_unit(
                             .ok_or_else(|| SimError::index_out_of_bounds(*i, list.len()))?;
                         state.stack.push(val);
                     }
-                    (SimValue::Dict(pairs), SimValue::Str(key)) => {
-                        let val = pairs
-                            .iter()
-                            .find(|(k, _)| k == key)
-                            .map(|(_, v)| v.clone())
+                    (SimValue::Dict(map), SimValue::Str(key)) => {
+                        let val = map
+                            .get(key.as_str())
+                            .cloned()
                             .ok_or_else(|| SimError::key_not_found(key))?;
                         state.stack.push(val);
                     }
@@ -270,12 +271,8 @@ pub fn execute_unit(
                         }
                         list[idx] = value;
                     }
-                    (SimValue::Dict(pairs), SimValue::Str(key)) => {
-                        if let Some(entry) = pairs.iter_mut().find(|(k, _)| k == key) {
-                            entry.1 = value;
-                        } else {
-                            pairs.push((key.clone(), value));
-                        }
+                    (SimValue::Dict(map), SimValue::Str(key)) => {
+                        map.insert(key.clone(), value);
                     }
                     _ => {
                         return Err(SimError::type_error(format!(
@@ -295,11 +292,10 @@ pub fn execute_unit(
                         let result = query::get_entity_attr(world, *eid, &attr)?;
                         state.stack.push(result);
                     }
-                    SimValue::Dict(pairs) => {
-                        let result = pairs
-                            .iter()
-                            .find(|(k, _)| k == &attr)
-                            .map(|(_, v)| v.clone())
+                    SimValue::Dict(map) => {
+                        let result = map
+                            .get(&attr)
+                            .cloned()
                             .ok_or_else(|| SimError::key_not_found(&attr))?;
                         state.stack.push(result);
                     }
@@ -449,8 +445,8 @@ pub fn execute_unit(
             Instruction::DictKeys => {
                 let dict = pop(&mut state.stack)?;
                 match dict {
-                    SimValue::Dict(pairs) => {
-                        let keys: Vec<SimValue> = pairs.into_iter().map(|(k, _)| SimValue::Str(k)).collect();
+                    SimValue::Dict(map) => {
+                        let keys: Vec<SimValue> = map.keys().map(|k| SimValue::Str(k.clone())).collect();
                         state.stack.push(SimValue::List(keys));
                     }
                     other => {
@@ -464,8 +460,8 @@ pub fn execute_unit(
             Instruction::DictValues => {
                 let dict = pop(&mut state.stack)?;
                 match dict {
-                    SimValue::Dict(pairs) => {
-                        let values: Vec<SimValue> = pairs.into_iter().map(|(_, v)| v).collect();
+                    SimValue::Dict(map) => {
+                        let values: Vec<SimValue> = map.values().cloned().collect();
                         state.stack.push(SimValue::List(values));
                     }
                     other => {
@@ -479,8 +475,8 @@ pub fn execute_unit(
             Instruction::DictItems => {
                 let dict = pop(&mut state.stack)?;
                 match dict {
-                    SimValue::Dict(pairs) => {
-                        let items: Vec<SimValue> = pairs
+                    SimValue::Dict(map) => {
+                        let items: Vec<SimValue> = map
                             .into_iter()
                             .map(|(k, v)| SimValue::List(vec![SimValue::Str(k), v]))
                             .collect();
@@ -499,11 +495,10 @@ pub fn execute_unit(
                 let key = pop_str(&mut state.stack)?;
                 let dict = pop(&mut state.stack)?;
                 match dict {
-                    SimValue::Dict(pairs) => {
-                        let val = pairs
-                            .iter()
-                            .find(|(k, _)| k == &key)
-                            .map(|(_, v)| v.clone())
+                    SimValue::Dict(map) => {
+                        let val = map
+                            .get(&key)
+                            .cloned()
                             .unwrap_or(default);
                         state.stack.push(val);
                     }
@@ -514,6 +509,26 @@ pub fn execute_unit(
                         )));
                     }
                 }
+            }
+
+            Instruction::Percent => {
+                let pct = pop_int(&mut state.stack)?;
+                let value = pop_int(&mut state.stack)?;
+                // value * pct / 100 with banker's rounding (round half to even).
+                let product = value.wrapping_mul(pct);
+                let result = bankers_div(product, 100);
+                state.stack.push(SimValue::Int(result));
+            }
+            Instruction::Scale => {
+                let den = pop_int(&mut state.stack)?;
+                let num = pop_int(&mut state.stack)?;
+                let value = pop_int(&mut state.stack)?;
+                if den == 0 {
+                    return Err(SimError::division_by_zero());
+                }
+                let product = value.wrapping_mul(num);
+                let result = bankers_div(product, den);
+                state.stack.push(SimValue::Int(result));
             }
 
             // --- Query instructions (instant) ---
@@ -719,6 +734,23 @@ fn binary_int_op(
             a.type_name(),
             b.type_name()
         ))),
+    }
+}
+
+/// Integer division with banker's rounding (round half to even).
+fn bankers_div(numerator: i64, denominator: i64) -> i64 {
+    let quotient = numerator / denominator;
+    let remainder = (numerator % denominator).abs();
+    let half = denominator.abs() / 2;
+    let is_exact_half = denominator.abs() % 2 == 0 && remainder == half;
+
+    if is_exact_half {
+        // Round to even.
+        if quotient % 2 == 0 { quotient } else { quotient + numerator.signum() }
+    } else if remainder > half {
+        quotient + numerator.signum()
+    } else {
+        quotient
     }
 }
 

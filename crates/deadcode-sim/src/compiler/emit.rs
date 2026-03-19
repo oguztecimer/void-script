@@ -836,6 +836,19 @@ impl<'a> Compiler<'a> {
                     "float() is not supported in simulation mode",
                 ));
             }
+            StdlibBuiltin::Percent => {
+                self.expect_args("percent", args, 2, line)?;
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.emit(Instruction::Percent);
+            }
+            StdlibBuiltin::Scale => {
+                self.expect_args("scale", args, 3, line)?;
+                self.compile_expr(&args[0])?;
+                self.compile_expr(&args[1])?;
+                self.compile_expr(&args[2])?;
+                self.emit(Instruction::Scale);
+            }
         }
         Ok(())
     }

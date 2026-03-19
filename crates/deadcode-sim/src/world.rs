@@ -310,6 +310,14 @@ impl SimWorld {
                 }
             }
 
+            // Emit warning if step limit was hit.
+            if script_state.step_limit_hit {
+                self.events.push(SimEvent::ScriptOutput {
+                    entity_id: eid,
+                    text: "[warning] Script exceeded step limit (10000 instructions) — auto-yielded".into(),
+                });
+            }
+
             // Put script state back.
             if let Some(entity) = self.get_entity_mut(eid) {
                 entity.script_state = Some(script_state);

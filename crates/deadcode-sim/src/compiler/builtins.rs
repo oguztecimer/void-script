@@ -54,6 +54,8 @@ pub enum StdlibBuiltin {
     Str,
     Type,
     Float, // compile error
+    Percent,
+    Scale,
 }
 
 /// Classify a function name as a builtin, checking custom commands if provided.
@@ -104,6 +106,8 @@ pub fn classify(name: &str) -> BuiltinKind {
         "str" => BuiltinKind::Stdlib(StdlibBuiltin::Str),
         "type" => BuiltinKind::Stdlib(StdlibBuiltin::Type),
         "float" => BuiltinKind::Stdlib(StdlibBuiltin::Float),
+        "percent" => BuiltinKind::Stdlib(StdlibBuiltin::Percent),
+        "scale" => BuiltinKind::Stdlib(StdlibBuiltin::Scale),
         _ => BuiltinKind::NotBuiltin,
     }
 }

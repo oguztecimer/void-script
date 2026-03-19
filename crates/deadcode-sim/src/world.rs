@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::action::{UnitAction, resolve_action};
-use crate::entity::{EntityId, EntityType, SimEntity};
+use crate::entity::{EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
 
@@ -26,18 +26,6 @@ pub enum SimEvent {
         entity_id: EntityId,
         entity_type: String,
         position: i64,
-    },
-    ResourceMined {
-        miner_id: EntityId,
-        asteroid_id: EntityId,
-        resource: String,
-        amount: i64,
-    },
-    CargoDeposited {
-        entity_id: EntityId,
-        depot_id: EntityId,
-        resource: String,
-        amount: i64,
     },
     ScriptOutput {
         entity_id: EntityId,
@@ -117,7 +105,7 @@ impl SimWorld {
     /// Spawn an entity and return its ID.
     pub fn spawn_entity(
         &mut self,
-        entity_type: EntityType,
+        entity_type: String,
         name: String,
         position: i64,
     ) -> EntityId {
@@ -175,7 +163,7 @@ impl SimWorld {
                 .filter(|e| e.alive)
                 .map(|e| EntitySnapshot {
                     id: e.id,
-                    entity_type: e.entity_type.as_str().to_string(),
+                    entity_type: e.entity_type.clone(),
                     name: e.name.clone(),
                     position: e.position,
                     health: e.health,
@@ -295,7 +283,7 @@ impl SimWorld {
         // 7. Flush pending spawns/despawns.
         for entity in self.pending_spawns.drain(..) {
             let id = entity.id;
-            let etype = entity.entity_type.as_str().to_string();
+            let etype = entity.entity_type.clone();
             let pos = entity.position;
             let index = self.entities.len();
             self.entities.push(entity);
@@ -337,7 +325,7 @@ mod tests {
     #[test]
     fn spawn_and_query() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity(EntityType::Miner, "miner1".into(), 100);
+        let id = world.spawn_entity("skeleton".into(), "miner1".into(), 100);
         let entity = world.get_entity(id).unwrap();
         assert_eq!(entity.position, 100);
         assert_eq!(entity.name, "miner1");
@@ -346,7 +334,7 @@ mod tests {
     #[test]
     fn tick_moves_unit() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity(EntityType::Miner, "miner1".into(), 0);
+        let id = world.spawn_entity("skeleton".into(), "miner1".into(), 0);
 
         // Give it a script: move(100), halt
         let program = CompiledScript::new(
@@ -373,9 +361,9 @@ mod tests {
         fn run_sim(seed: u64) -> SimSnapshot {
             let mut world = SimWorld::new(seed);
 
-            let m1 = world.spawn_entity(EntityType::Miner, "m1".into(), 0);
-            let m2 = world.spawn_entity(EntityType::Miner, "m2".into(), 500);
-            let _ast = world.spawn_entity(EntityType::Asteroid, "rock".into(), 250);
+            let m1 = world.spawn_entity("skeleton".into(), "m1".into(), 0);
+            let m2 = world.spawn_entity("skeleton".into(), "m2".into(), 500);
+            let _ast = world.spawn_entity("grave".into(), "rock".into(), 250);
 
             // Script: while True: move(250)
             let program = CompiledScript::new(
@@ -418,7 +406,7 @@ mod tests {
     #[test]
     fn tick_without_running_is_noop() {
         let mut world = SimWorld::new(42);
-        world.spawn_entity(EntityType::Miner, "m".into(), 0);
+        world.spawn_entity("skeleton".into(), "m".into(), 0);
         world.tick(); // not started
         assert_eq!(world.tick, 0);
     }
@@ -426,7 +414,7 @@ mod tests {
     #[test]
     fn script_error_recorded() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity(EntityType::Miner, "m".into(), 0);
+        let id = world.spawn_entity("skeleton".into(), "m".into(), 0);
 
         // Division by zero.
         let program = CompiledScript::new(

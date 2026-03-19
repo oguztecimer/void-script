@@ -65,6 +65,10 @@ pub enum RustToJs {
     SimulationTick {
         tick: u64,
     },
+    #[serde(rename = "available_commands")]
+    AvailableCommands {
+        commands: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use grimscript_lang::ast::*;
 
 use crate::ir::{CompiledScript, FunctionEntry, Instruction};
@@ -31,10 +33,12 @@ pub struct Compiler<'a> {
     temp_counter: usize,
     /// Pending call patches: (instruction_index, function_name).
     pending_calls: Vec<(usize, String)>,
+    /// If Some, only these game commands are available. Stdlib is always allowed.
+    available_commands: Option<HashSet<String>>,
 }
 
 impl<'a> Compiler<'a> {
-    pub fn new() -> Self {
+    pub fn new(available_commands: Option<HashSet<String>>) -> Self {
         Self {
             instructions: Vec::new(),
             functions: Vec::new(),
@@ -43,7 +47,20 @@ impl<'a> Compiler<'a> {
             func_defs: Vec::new(),
             temp_counter: 0,
             pending_calls: Vec::new(),
+            available_commands,
         }
+    }
+
+    fn check_command_available(&self, name: &str, line: u32) -> Result<(), CompileError> {
+        if let Some(ref set) = self.available_commands {
+            if !set.contains(name) {
+                return Err(CompileError::new(
+                    line,
+                    format!("'{name}' is not available yet"),
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub fn compile(mut self, program: &'a Program) -> Result<CompiledScript, CompileError> {
@@ -616,9 +633,11 @@ impl<'a> Compiler<'a> {
                 // Check builtins.
                 match builtins::classify(name) {
                     BuiltinKind::Query(q) => {
+                        self.check_command_available(name, line)?;
                         self.compile_query_call(&q, args, line)?;
                     }
                     BuiltinKind::Action(a) => {
+                        self.check_command_available(name, line)?;
                         self.compile_action_call(&a, args, line)?;
                     }
                     BuiltinKind::Stdlib(s) => {
@@ -846,6 +865,7 @@ impl<'a> Compiler<'a> {
             _ => {
                 // Try as a game builtin with the object as first arg.
                 // e.g., entity.get_health() → get_health(entity)
+                self.check_command_available(method, line)?;
                 match builtins::classify(method) {
                     BuiltinKind::Query(q) => {
                         self.compile_expr(object)?;
@@ -1087,9 +1107,6 @@ fn query_name(q: &QueryBuiltin) -> &'static str {
         QueryBuiltin::GetHealth => "get_health",
         QueryBuiltin::GetEnergy => "get_energy",
         QueryBuiltin::GetShield => "get_shield",
-        QueryBuiltin::GetCargo => "get_cargo",
-        QueryBuiltin::CargoFull => "cargo_full",
-        QueryBuiltin::CanMine => "can_mine",
         QueryBuiltin::GetTarget => "get_target",
         QueryBuiltin::HasTarget => "has_target",
         QueryBuiltin::GetType => "get_type",
@@ -1102,11 +1119,12 @@ fn action_name(a: &ActionBuiltin) -> &'static str {
     match a {
         ActionBuiltin::Move => "move",
         ActionBuiltin::Attack => "attack",
-        ActionBuiltin::Mine => "mine",
-        ActionBuiltin::Deposit => "deposit",
         ActionBuiltin::Flee => "flee",
         ActionBuiltin::Wait => "wait",
         ActionBuiltin::SetTarget => "set_target",
-        ActionBuiltin::Transfer => "transfer",
+        ActionBuiltin::Consult => "consult",
+        ActionBuiltin::Raise => "raise",
+        ActionBuiltin::Harvest => "harvest",
+        ActionBuiltin::Pact => "pact",
     }
 }

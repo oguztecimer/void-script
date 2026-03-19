@@ -12,7 +12,8 @@ export type RustToJsMessage =
   | { type: 'terminal_finished'; success: boolean; error?: string }
   | { type: 'simulation_started' }
   | { type: 'simulation_stopped' }
-  | { type: 'simulation_tick'; tick: number };
+  | { type: 'simulation_tick'; tick: number }
+  | { type: 'available_commands'; commands: string[] };
 
 // Messages from JS to Rust
 export type JsToRustMessage =

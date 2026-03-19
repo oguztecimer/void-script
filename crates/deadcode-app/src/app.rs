@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -75,6 +76,7 @@ pub struct App {
     execution_manager: ScriptExecutionManager,
     maximized_state: MaximizedState,
     settings: Settings,
+    available_commands: HashSet<String>,
 
     /// Whether the background tick thread has been spawned (Windows only).
     #[cfg(target_os = "windows")]
@@ -118,6 +120,10 @@ impl App {
             execution_manager: ScriptExecutionManager::default(),
             maximized_state: MaximizedState::default(),
             settings: Settings::default(),
+            available_commands: ["consult", "raise", "harvest", "pact"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
 
             #[cfg(target_os = "windows")]
             tick_thread_started: false,
@@ -640,6 +646,33 @@ impl ApplicationHandler<UserEvent> for App {
 // ---------------------------------------------------------------------------
 
 impl App {
+    fn send_available_commands(&self) {
+        let commands: Vec<String> = if deadcode_desktop::is_dev_mode() {
+            // In dev mode, send all game builtins as available
+            vec![
+                "move", "get_pos", "scan", "nearest", "distance", "attack",
+                "flee", "wait", "set_target", "get_target", "has_target",
+                "get_health", "get_energy", "get_shield", "get_type",
+                "get_name", "get_owner", "consult", "raise", "harvest", "pact",
+            ]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect()
+        } else {
+            self.available_commands.iter().cloned().collect()
+        };
+        let msg = RustToJs::AvailableCommands { commands };
+        self.webview_manager.send_to_all(&msg);
+    }
+
+    fn available_commands_for_interpreter(&self) -> Option<HashSet<String>> {
+        if deadcode_desktop::is_dev_mode() {
+            None // all commands available
+        } else {
+            Some(self.available_commands.clone())
+        }
+    }
+
     fn poll_editor_ipc(&mut self) {
         while let Ok(msg) = self.ipc_receiver.try_recv() {
             match msg {
@@ -650,6 +683,10 @@ impl App {
                         let msg = RustToJs::ScriptList { scripts: infos };
                         self.webview_manager.send_to_all(&msg);
                     }
+                    self.execution_manager.set_available_commands(
+                        self.available_commands_for_interpreter(),
+                    );
+                    self.send_available_commands();
                 }
                 JsToRust::ScriptSave { script_id, content } => {
                     if let Some(store) = &mut self.script_store {

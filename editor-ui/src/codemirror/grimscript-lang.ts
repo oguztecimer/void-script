@@ -1,4 +1,5 @@
 import { StreamLanguage, foldService } from '@codemirror/language';
+import { useStore } from '../state/store';
 
 const keywords = new Set([
   'while', 'if', 'else', 'elif', 'for', 'in', 'def', 'return',
@@ -7,19 +8,18 @@ const keywords = new Set([
 
 const booleans = new Set(['True', 'False', 'None']);
 
-const constants = new Set([
-  'NORTH', 'SOUTH', 'EAST', 'WEST',
-  'ASTEROID', 'MINER', 'FIGHTER', 'SCOUT', 'HAULER',
-  'IRON', 'COPPER', 'SILICON', 'URANIUM', 'CRYSTAL',
+const constants = new Set<string>([]);
+
+const stdlibFunctions = new Set([
+  'print', 'len', 'range', 'abs', 'min', 'max', 'int', 'str', 'type',
 ]);
 
-const builtinFunctions = new Set([
-  'move', 'mine', 'can_mine', 'deposit', 'get_pos', 'scan',
-  'get_cargo', 'cargo_full', 'nearest', 'distance', 'attack',
-  'flee', 'dock', 'undock', 'transfer', 'build', 'print',
-  'get_health', 'get_energy', 'get_shield', 'wait',
-  'set_target', 'get_target', 'has_target',
+const allGameFunctions = new Set([
+  'move', 'get_pos', 'scan', 'nearest', 'distance', 'attack',
+  'flee', 'wait', 'set_target', 'get_target', 'has_target',
+  'get_health', 'get_energy', 'get_shield',
   'get_type', 'get_name', 'get_owner',
+  'consult', 'raise', 'harvest', 'pact',
 ]);
 
 // Indentation-based folding for Python-like syntax
@@ -98,7 +98,11 @@ export const grimScriptLanguage = StreamLanguage.define({
       if (keywords.has(word)) return 'keyword';
       if (booleans.has(word)) return 'bool';
       if (constants.has(word)) return 'variableName.constant';
-      if (builtinFunctions.has(word)) return 'variableName.function';
+      if (stdlibFunctions.has(word)) return 'variableName.function';
+      if (allGameFunctions.has(word)) {
+        const available = useStore.getState().availableCommands;
+        if (available.includes(word)) return 'variableName.function';
+      }
       return 'variableName';
     }
 

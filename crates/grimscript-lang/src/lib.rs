@@ -19,11 +19,15 @@ pub fn run_script(
     source: &str,
     output_tx: crossbeam_channel::Sender<ScriptEvent>,
     command_rx: crossbeam_channel::Receiver<DebugCommand>,
+    available_commands: Option<std::collections::HashSet<String>>,
 ) {
     let tokens = lexer::Lexer::new(source).tokenize();
     match parser::Parser::new(tokens).parse() {
         Ok(program) => {
             let mut interp = Interpreter::new(output_tx.clone(), command_rx, false);
+            if let Some(cmds) = available_commands {
+                interp.set_available_commands(cmds);
+            }
             if let Err(e) = interp.execute(&program) {
                 let _ = output_tx.send(ScriptEvent::Output {
                     line: format!("Error (line {}): {}", e.line, e.message),
@@ -59,12 +63,16 @@ pub fn debug_script(
     output_tx: crossbeam_channel::Sender<ScriptEvent>,
     command_rx: crossbeam_channel::Receiver<DebugCommand>,
     breakpoints: std::collections::HashSet<u32>,
+    available_commands: Option<std::collections::HashSet<String>>,
 ) {
     let tokens = lexer::Lexer::new(source).tokenize();
     match parser::Parser::new(tokens).parse() {
         Ok(program) => {
             let mut interp = Interpreter::new(output_tx.clone(), command_rx, true);
             interp.set_breakpoints(breakpoints);
+            if let Some(cmds) = available_commands {
+                interp.set_available_commands(cmds);
+            }
             if let Err(e) = interp.execute(&program) {
                 let _ = output_tx.send(ScriptEvent::Output {
                     line: format!("Error (line {}): {}", e.line, e.message),

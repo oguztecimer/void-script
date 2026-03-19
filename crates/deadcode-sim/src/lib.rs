@@ -19,7 +19,7 @@ pub mod rng;
 pub mod value;
 pub mod world;
 
-pub use entity::{EntityId, EntityType, SimEntity};
+pub use entity::{EntityId, SimEntity};
 pub use ir::{CompiledScript, Instruction};
 pub use value::SimValue;
 pub use world::{SimEvent, SimSnapshot, SimWorld};

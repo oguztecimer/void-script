@@ -11,6 +11,17 @@ fn send_output(output_tx: &Sender<ScriptEvent>, msg: &str) {
     });
 }
 
+pub fn is_stdlib(name: &str) -> bool {
+    matches!(
+        name,
+        "print" | "len" | "range" | "abs" | "min" | "max" | "int" | "float" | "str" | "type"
+    )
+}
+
+pub fn is_game_builtin(name: &str) -> bool {
+    is_builtin(name) && !is_stdlib(name)
+}
+
 pub fn is_builtin(name: &str) -> bool {
     matches!(
         name,
@@ -26,20 +37,12 @@ pub fn is_builtin(name: &str) -> bool {
             | "type"
             | "append"
             | "move"
-            | "mine"
-            | "can_mine"
-            | "cargo_full"
-            | "deposit"
             | "get_pos"
             | "scan"
-            | "get_cargo"
             | "nearest"
             | "distance"
             | "attack"
             | "flee"
-            | "dock"
-            | "undock"
-            | "build"
             | "get_health"
             | "get_energy"
             | "get_shield"
@@ -50,8 +53,10 @@ pub fn is_builtin(name: &str) -> bool {
             | "get_type"
             | "get_name"
             | "get_owner"
-            | "get_fleet"
-            | "transfer"
+            | "consult"
+            | "raise"
+            | "harvest"
+            | "pact"
     )
 }
 
@@ -334,24 +339,8 @@ pub fn call_builtin(
             send_output(output_tx, "[move] Moving...");
             Ok(Value::None)
         }
-        "mine" => {
-            send_output(output_tx, "[mine] Mining...");
-            Ok(Value::None)
-        }
-        "can_mine" => Ok(Value::Bool(true)),
-        "cargo_full" => Ok(Value::Bool(false)),
-        "deposit" => {
-            send_output(output_tx, "[deposit] Depositing cargo");
-            Ok(Value::None)
-        }
-        "get_pos" => Ok(Value::Tuple(vec![Value::Int(0), Value::Int(0)])),
+        "get_pos" => Ok(Value::Int(0)),
         "scan" => Ok(Value::List(vec![])),
-        "get_cargo" => {
-            let mut cargo = std::collections::HashMap::new();
-            cargo.insert("iron".to_string(), Value::Int(0));
-            cargo.insert("copper".to_string(), Value::Int(0));
-            Ok(Value::Dict(cargo))
-        }
         "nearest" => Ok(Value::Entity {
             id: 1,
             name: "target".into(),
@@ -359,23 +348,11 @@ pub fn call_builtin(
         }),
         "distance" => Ok(Value::Int(10)),
         "attack" => {
-            send_output(output_tx, "[attack] Attacking target");
+            send_output(output_tx, "[attack] Attacking...");
             Ok(Value::None)
         }
         "flee" => {
             send_output(output_tx, "[flee] Fleeing!");
-            Ok(Value::None)
-        }
-        "dock" => {
-            send_output(output_tx, "[dock] Docking...");
-            Ok(Value::None)
-        }
-        "undock" => {
-            send_output(output_tx, "[undock] Undocking...");
-            Ok(Value::None)
-        }
-        "build" => {
-            send_output(output_tx, "[build] Building ship");
             Ok(Value::None)
         }
         "get_health" => Ok(Value::Int(100)),
@@ -391,8 +368,22 @@ pub fn call_builtin(
         "get_type" => Ok(Value::String("unknown".into())),
         "get_name" => Ok(Value::String("entity".into())),
         "get_owner" => Ok(Value::String("player".into())),
-        "get_fleet" => Ok(Value::List(vec![])),
-        "transfer" => Ok(Value::None),
+        "consult" => {
+            send_output(output_tx, "[consult] Consulting the spirits...");
+            Ok(Value::None)
+        }
+        "raise" => {
+            send_output(output_tx, "[raise] Raising the dead...");
+            Ok(Value::None)
+        }
+        "harvest" => {
+            send_output(output_tx, "[harvest] Harvesting essence...");
+            Ok(Value::None)
+        }
+        "pact" => {
+            send_output(output_tx, "[pact] Forging a dark pact...");
+            Ok(Value::None)
+        }
         _ => Err(GrimScriptError::runtime(
             0,
             format!("Unknown function: {name}"),

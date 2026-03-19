@@ -47,7 +47,7 @@ Editor UI is embedded into the Rust binary via `rust-embed` in `deadcode-editor/
 ## Testing
 
 ```bash
-cargo test                          # All Rust tests (67 tests)
+cargo test                          # All Rust tests (97 tests)
 cargo test -p deadcode-sim          # Sim engine + compiler tests
 cargo test -p grimscript-lang       # Language crate only
 cd editor-ui && npx tsc --noEmit    # TypeScript type check
@@ -71,16 +71,16 @@ src/
   value.rs        — SimValue: Int, Bool, Str, None, List, Dict, EntityRef (no floats)
   error.rs        — SimError types
   entity.rs       — SimEntity, EntityId, EntityType, ScriptState, CallFrame
-  ir.rs           — 50+ stack-based Instruction variants, CompiledScript, FunctionEntry
+  ir.rs           — 55+ stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick
   world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots
   action.rs       — UnitAction enum, resolve_action() against world state
   query.rs        — scan(), nearest(), distance() — linear scan over entities
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
-    mod.rs        — compile(), compile_source(), initial_variables()
-    emit.rs       — AST walk, instruction emission, jump patching, function compilation
+    mod.rs        — compile(), compile_source(), compile_source_with(), initial_variables()
+    emit.rs       — AST walk, instruction emission, jump patching, function compilation, available command gating
     symbol_table.rs — Scope tracking, global slots vs function-local offsets
-    builtins.rs   — Maps 30+ game builtins to IR instructions
+    builtins.rs   — Maps 30+ game builtins to IR instructions (queries, actions, stdlib)
     error.rs      — CompileError
 ```
 
@@ -90,8 +90,10 @@ src/
 - GrimScript source → lexer → parser → AST → compiler → `CompiledScript` (flat instruction vec + function table)
 - Each entity has a `ScriptState` (program counter, value stack, variable slots, call stack)
 - Per tick: seeded shuffle entity order, execute each until an action yields
-- Queries (scan, get_health, etc.) are instant; actions (move, attack, wait) consume the tick
+- Queries (scan, get_health, etc.) are instant; actions (move, attack, wait, consult, raise, harvest, pact) consume the tick
 - `self` is pre-allocated at variable slot 0 as `EntityRef` for the executing entity
+
+**Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`) are always available. Game commands (queries/actions) are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set: `consult`, `raise`, `harvest`, `pact` (necromancer starters). In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set received via IPC.
 
 **Tick loop** (`SimWorld::tick()`):
 1. Derive per-tick RNG: `SimRng::new(seed ^ tick)`
@@ -111,6 +113,7 @@ Message categories:
 - **Simulation:** StartSimulation, StopSimulation, PauseSimulation → SimulationStarted, SimulationStopped, SimulationTick
 - **Window:** Minimize, Maximize, Close, DragStart, ResizeStart, Shake, SetSize
 - **Console:** ConsoleOutput, ConsoleCommand
+- **Game state:** AvailableCommands (Rust→JS, sent on EditorReady)
 
 ### Game Loop
 
@@ -153,3 +156,5 @@ Message categories:
 | Editor state | `editor-ui/src/state/` (zustand) |
 | Script storage | `crates/deadcode-editor/src/scripts.rs` |
 | Save/load | `crates/deadcode-desktop/src/save.rs` |
+| Unlock a game command | `crates/deadcode-app/src/app.rs` → `available_commands` set |
+| Gate a new game builtin | Add to `is_builtin()`, `is_game_builtin()` returns true, `is_stdlib()` returns false |

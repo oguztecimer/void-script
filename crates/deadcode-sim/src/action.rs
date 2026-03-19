@@ -1,4 +1,4 @@
-use crate::entity::{EntityId, EntityType};
+use crate::entity::EntityId;
 use crate::world::{SimEvent, SimWorld};
 
 /// An action a unit wants to perform this tick.
@@ -8,20 +8,22 @@ pub enum UnitAction {
     Move { target_pos: i64 },
     /// Attack a target entity.
     Attack { target: EntityId },
-    /// Mine the nearest asteroid in range.
-    Mine,
-    /// Deposit cargo at nearest station/mothership.
-    Deposit,
     /// Flee from a threat (move away).
     Flee { threat: EntityId },
     /// Do nothing for one tick.
     Wait,
     /// Set the unit's target.
     SetTarget { target: EntityId },
-    /// Transfer cargo to current target.
-    Transfer { resource: String, amount: i64 },
     /// Print a value (not really a game action, but uses the same yield path).
     Print { text: String },
+    /// Consult the spirits (necromancer starter).
+    Consult,
+    /// Raise the dead (necromancer starter).
+    Raise,
+    /// Harvest essence (necromancer starter).
+    Harvest,
+    /// Forge a dark pact (necromancer starter).
+    Pact,
 }
 
 /// Resolve a unit's action against the world state.
@@ -48,25 +50,22 @@ pub fn resolve_action(
         }
 
         UnitAction::Attack { target } => {
-            // Read attacker stats.
             let (damage, range, attacker_pos) = match world.get_entity(entity_id) {
                 Some(e) => (e.attack_damage, e.attack_range, e.position),
                 None => return events,
             };
 
-            // Check range and apply damage.
             match world.get_entity(target) {
                 Some(t) if t.alive => {
                     let dist = (t.position - attacker_pos).abs();
                     if dist > range {
-                        return events; // Out of range, action wasted.
+                        return events;
                     }
                 }
                 _ => return events,
             };
 
             if let Some(target_entity) = world.get_entity_mut(target) {
-                // Damage goes through shield first, then health.
                 let mut remaining = damage;
                 if target_entity.shield > 0 {
                     let shield_absorbed = remaining.min(target_entity.shield);
@@ -87,107 +86,8 @@ pub fn resolve_action(
                 }
             }
 
-            // Set cooldown.
             if let Some(attacker) = world.get_entity_mut(entity_id) {
                 attacker.cooldown_remaining = attacker.attack_cooldown;
-            }
-        }
-
-        UnitAction::Mine => {
-            let (pos, range, mine_amount, cargo_full) = match world.get_entity(entity_id) {
-                Some(e) => (e.position, e.mine_range, e.mine_amount, e.cargo_full()),
-                None => return events,
-            };
-            if cargo_full {
-                return events;
-            }
-
-            // Find nearest asteroid in range.
-            let asteroid_id = world
-                .entities()
-                .filter(|e| {
-                    e.alive
-                        && e.entity_type == EntityType::Asteroid
-                        && (e.position - pos).abs() <= range
-                })
-                .min_by_key(|e| (e.position - pos).abs())
-                .map(|e| e.id);
-
-            if let Some(aid) = asteroid_id {
-                // Extract resource from asteroid.
-                let resource = {
-                    let asteroid = world.get_entity(aid).unwrap();
-                    asteroid
-                        .cargo
-                        .first()
-                        .map(|(r, _)| r.clone())
-                        .unwrap_or_else(|| "iron".to_string())
-                };
-
-                let mined = {
-                    let asteroid = world.get_entity_mut(aid).unwrap();
-                    asteroid.remove_cargo(&resource, mine_amount)
-                };
-
-                if mined > 0 {
-                    let miner = world.get_entity_mut(entity_id).unwrap();
-                    let added = miner.add_cargo(&resource, mined);
-                    events.push(SimEvent::ResourceMined {
-                        miner_id: entity_id,
-                        asteroid_id: aid,
-                        resource: resource.clone(),
-                        amount: added,
-                    });
-
-                    // Check if asteroid is depleted.
-                    let asteroid = world.get_entity(aid).unwrap();
-                    if asteroid.cargo_total() <= 0 {
-                        let asteroid = world.get_entity_mut(aid).unwrap();
-                        asteroid.alive = false;
-                        events.push(SimEvent::EntityDied { entity_id: aid });
-                    }
-                }
-            }
-        }
-
-        UnitAction::Deposit => {
-            let (pos, range) = match world.get_entity(entity_id) {
-                Some(e) => (e.position, e.mine_range), // reuse mine_range for deposit range
-                None => return events,
-            };
-
-            // Find nearest mothership/station in range.
-            let depot_id = world
-                .entities()
-                .filter(|e| {
-                    e.alive
-                        && matches!(e.entity_type, EntityType::Mothership | EntityType::Station)
-                        && (e.position - pos).abs() <= range
-                })
-                .min_by_key(|e| (e.position - pos).abs())
-                .map(|e| e.id);
-
-            if let Some(did) = depot_id {
-                // Transfer all cargo.
-                let cargo_snapshot = match world.get_entity(entity_id) {
-                    Some(e) => e.cargo.clone(),
-                    None => return events,
-                };
-
-                for (resource, amount) in &cargo_snapshot {
-                    if let Some(miner) = world.get_entity_mut(entity_id) {
-                        miner.remove_cargo(resource, *amount);
-                    }
-                    if let Some(depot) = world.get_entity_mut(did) {
-                        depot.add_cargo(resource, *amount);
-                    }
-                    events.push(SimEvent::CargoDeposited {
-                        entity_id,
-                        depot_id: did,
-                        resource: resource.clone(),
-                        amount: *amount,
-                    });
-                }
             }
         }
 
@@ -198,7 +98,6 @@ pub fn resolve_action(
             };
             if let Some(entity) = world.get_entity_mut(entity_id) {
                 let speed = entity.speed;
-                // Move away from threat.
                 let direction = if entity.position >= threat_pos { 1 } else { -1 };
                 entity.position += direction * speed;
                 events.push(SimEvent::EntityMoved {
@@ -208,9 +107,7 @@ pub fn resolve_action(
             }
         }
 
-        UnitAction::Wait => {
-            // Intentional no-op.
-        }
+        UnitAction::Wait => {}
 
         UnitAction::SetTarget { target } => {
             if let Some(entity) = world.get_entity_mut(entity_id) {
@@ -218,35 +115,33 @@ pub fn resolve_action(
             }
         }
 
-        UnitAction::Transfer { resource, amount } => {
-            let target_id = match world.get_entity(entity_id) {
-                Some(e) => match e.target {
-                    Some(tid) => tid,
-                    None => return events,
-                },
-                None => return events,
-            };
-
-            let removed = match world.get_entity_mut(entity_id) {
-                Some(e) => e.remove_cargo(&resource, amount),
-                None => return events,
-            };
-
-            if removed > 0 {
-                if let Some(target) = world.get_entity_mut(target_id) {
-                    target.add_cargo(&resource, removed);
-                }
-                events.push(SimEvent::CargoDeposited {
-                    entity_id,
-                    depot_id: target_id,
-                    resource,
-                    amount: removed,
-                });
-            }
-        }
-
         UnitAction::Print { text } => {
             events.push(SimEvent::ScriptOutput { entity_id, text });
+        }
+
+        UnitAction::Consult => {
+            events.push(SimEvent::ScriptOutput {
+                entity_id,
+                text: "[consult] Consulting the spirits...".to_string(),
+            });
+        }
+        UnitAction::Raise => {
+            events.push(SimEvent::ScriptOutput {
+                entity_id,
+                text: "[raise] Raising the dead...".to_string(),
+            });
+        }
+        UnitAction::Harvest => {
+            events.push(SimEvent::ScriptOutput {
+                entity_id,
+                text: "[harvest] Harvesting essence...".to_string(),
+            });
+        }
+        UnitAction::Pact => {
+            events.push(SimEvent::ScriptOutput {
+                entity_id,
+                text: "[pact] Forging a dark pact...".to_string(),
+            });
         }
     }
 

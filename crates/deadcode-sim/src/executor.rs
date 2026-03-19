@@ -553,21 +553,6 @@ pub fn execute_unit(
                 let val = query::get_stat(world, eid, "shield")?;
                 state.stack.push(val);
             }
-            Instruction::QueryGetCargo => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::get_cargo(world, eid)?;
-                state.stack.push(val);
-            }
-            Instruction::QueryCargoFull => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::cargo_full(world, eid)?;
-                state.stack.push(SimValue::Bool(val));
-            }
-            Instruction::QueryCanMine => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::can_mine(world, eid)?;
-                state.stack.push(SimValue::Bool(val));
-            }
             Instruction::QueryGetTarget => {
                 let eid = pop_entity_ref(&mut state.stack)?;
                 let val = query::get_target(world, eid)?;
@@ -605,14 +590,6 @@ pub fn execute_unit(
                 state.yielded = true;
                 return Ok(Some(UnitAction::Attack { target }));
             }
-            Instruction::ActionMine => {
-                state.yielded = true;
-                return Ok(Some(UnitAction::Mine));
-            }
-            Instruction::ActionDeposit => {
-                state.yielded = true;
-                return Ok(Some(UnitAction::Deposit));
-            }
             Instruction::ActionFlee => {
                 let threat = pop_entity_ref(&mut state.stack)?;
                 state.yielded = true;
@@ -627,13 +604,22 @@ pub fn execute_unit(
                 state.yielded = true;
                 return Ok(Some(UnitAction::SetTarget { target }));
             }
-            Instruction::ActionTransfer => {
-                let amount = pop_int(&mut state.stack)?;
-                let resource = pop_str(&mut state.stack)?;
+            Instruction::ActionConsult => {
                 state.yielded = true;
-                return Ok(Some(UnitAction::Transfer { resource, amount }));
+                return Ok(Some(UnitAction::Consult));
             }
-
+            Instruction::ActionRaise => {
+                state.yielded = true;
+                return Ok(Some(UnitAction::Raise));
+            }
+            Instruction::ActionHarvest => {
+                state.yielded = true;
+                return Ok(Some(UnitAction::Harvest));
+            }
+            Instruction::ActionPact => {
+                state.yielded = true;
+                return Ok(Some(UnitAction::Pact));
+            }
             // --- Misc ---
             Instruction::Print => {
                 let val = pop(&mut state.stack)?;
@@ -744,7 +730,7 @@ fn cmp_int(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::{EntityType, ScriptState};
+    use crate::entity::ScriptState;
     use crate::ir::{CompiledScript, Instruction};
     use crate::world::SimWorld;
 
@@ -754,7 +740,7 @@ mod tests {
 
     fn run_script(instructions: Vec<Instruction>, num_vars: usize) -> (ScriptState, Option<UnitAction>) {
         let mut world = make_world();
-        let eid = world.spawn_entity(EntityType::Miner, "test".into(), 0);
+        let eid = world.spawn_entity("skeleton".into(), "test".into(), 0);
         let program = CompiledScript::new(instructions, num_vars);
         let mut state = ScriptState::new(program, num_vars);
         let action = execute_unit(eid, &mut state, &world).unwrap();
@@ -836,7 +822,7 @@ mod tests {
     #[test]
     fn division_by_zero() {
         let mut world = make_world();
-        let eid = world.spawn_entity(EntityType::Miner, "test".into(), 0);
+        let eid = world.spawn_entity("skeleton".into(), "test".into(), 0);
         let program = CompiledScript::new(
             vec![
                 Instruction::LoadConst(SimValue::Int(10)),

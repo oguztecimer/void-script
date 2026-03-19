@@ -1,7 +1,7 @@
 export const TYPE_LABELS: Record<string, string> = {
-  ship_brain: 'Ship Brains',
-  mothership_brain: 'Mothership',
-  production: 'Production',
+  unit_brain: 'Unit Brains',
+  summoner_brain: 'Summoner',
+  behavior: 'Behavior',
 };
 
-export const TYPE_ORDER = ['ship_brain', 'mothership_brain', 'production'];
+export const TYPE_ORDER = ['unit_brain', 'summoner_brain', 'behavior'];

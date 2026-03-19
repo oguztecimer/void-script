@@ -12,17 +12,17 @@ pub struct Script {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ScriptType {
-    ShipBrain,
-    MothershipBrain,
-    Production,
+    UnitBrain,
+    SummonerBrain,
+    Behavior,
 }
 
 impl ScriptType {
     pub fn as_str(&self) -> &str {
         match self {
-            ScriptType::ShipBrain => "ship_brain",
-            ScriptType::MothershipBrain => "mothership_brain",
-            ScriptType::Production => "production",
+            ScriptType::UnitBrain => "unit_brain",
+            ScriptType::SummonerBrain => "summoner_brain",
+            ScriptType::Behavior => "behavior",
         }
     }
 }
@@ -75,12 +75,12 @@ impl ScriptStore {
     }
 
     fn infer_type(name: &str) -> ScriptType {
-        if name.contains("mothership") {
-            ScriptType::MothershipBrain
-        } else if name.contains("production") {
-            ScriptType::Production
+        if name.contains("summoner") {
+            ScriptType::SummonerBrain
+        } else if name.contains("behavior") {
+            ScriptType::Behavior
         } else {
-            ScriptType::ShipBrain
+            ScriptType::UnitBrain
         }
     }
 

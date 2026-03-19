@@ -39,6 +39,7 @@ interface EditorState {
   breakpoints: Record<string, number[]>;
   tier: number;
   foldedLines: Record<string, number[]>;
+  availableCommands: string[];
 
   setTier: (tier: number) => void;
   openTab: (scriptId: string, name: string, content: string, scriptType: string) => void;
@@ -68,6 +69,7 @@ interface EditorState {
   toggleBreakpoint: (scriptId: string, line: number) => void;
   getBreakpoints: (scriptId: string) => number[];
   setFoldedLines: (scriptId: string, lines: number[]) => void;
+  setAvailableCommands: (commands: string[]) => void;
 }
 
 export const useStore = create<EditorState>()(persist((set, get) => ({
@@ -92,6 +94,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   tier: 0,
   breakpoints: {},
   foldedLines: {},
+  availableCommands: [],
 
   setTier: (tier) => set({ tier }),
   openTab: (scriptId, name, content, scriptType) =>
@@ -200,6 +203,8 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
     set((state) => ({
       foldedLines: { ...state.foldedLines, [key]: lines },
     })),
+
+  setAvailableCommands: (commands) => set({ availableCommands: commands }),
 }), {
   name: 'deadcode-editor-panels',
   partialize: (state) => ({

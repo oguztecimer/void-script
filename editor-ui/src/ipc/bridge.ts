@@ -74,6 +74,9 @@ export function initIpcBridge(): void {
       case 'simulation_tick':
         // Tick updates can be used by UI components if needed.
         break;
+      case 'available_commands':
+        store.setAvailableCommands(msg.commands);
+        break;
     }
   };
 

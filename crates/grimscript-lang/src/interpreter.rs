@@ -28,6 +28,7 @@ pub struct Interpreter {
     functions: HashMap<String, (Vec<String>, Vec<Statement>)>,
     call_stack: Vec<String>,
     stopped: bool,
+    available_commands: Option<HashSet<String>>,
 }
 
 impl Interpreter {
@@ -64,7 +65,27 @@ impl Interpreter {
             functions: HashMap::new(),
             call_stack: vec!["<module>".to_string()],
             stopped: false,
+            available_commands: None,
         }
+    }
+
+    pub fn set_available_commands(&mut self, cmds: HashSet<String>) {
+        self.available_commands = Some(cmds);
+    }
+
+    fn check_command_available(&self, name: &str, line: u32) -> Result<(), GrimScriptError> {
+        if !builtins::is_game_builtin(name) {
+            return Ok(());
+        }
+        if let Some(ref set) = self.available_commands {
+            if !set.contains(name) {
+                return Err(GrimScriptError::runtime(
+                    line,
+                    format!("'{name}' is not available yet"),
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub fn set_breakpoints(&mut self, breakpoints: HashSet<u32>) {
@@ -619,6 +640,7 @@ impl Interpreter {
                         return self.call_function(name, eval_args, expr.line);
                     }
                     if builtins::is_builtin(name) {
+                        self.check_command_available(name, expr.line)?;
                         return builtins::call_builtin(
                             name,
                             eval_args,
@@ -989,6 +1011,7 @@ impl Interpreter {
                 let mut full_args = vec![obj.clone()];
                 full_args.extend(args);
                 if builtins::is_builtin(method) {
+                    self.check_command_available(method, line)?;
                     builtins::call_builtin(method, full_args, &self.output_tx)
                 } else {
                     Err(GrimScriptError::runtime(

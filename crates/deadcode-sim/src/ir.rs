@@ -80,12 +80,6 @@ pub enum Instruction {
     QueryGetEnergy,
     /// Get shield of entity. Pop EntityRef, push Int.
     QueryGetShield,
-    /// Get cargo as dict. Pop EntityRef, push Dict.
-    QueryGetCargo,
-    /// Check if cargo is full. Pop EntityRef, push Bool.
-    QueryCargoFull,
-    /// Check if entity can mine (has asteroids in range). Pop EntityRef, push Bool.
-    QueryCanMine,
     /// Get current target. Pop EntityRef, push EntityRef or None.
     QueryGetTarget,
     /// Check if entity has a target. Pop EntityRef, push Bool.
@@ -102,18 +96,20 @@ pub enum Instruction {
     ActionMove,
     /// Attack target entity. Pop EntityRef target.
     ActionAttack,
-    /// Mine nearest asteroid. No args.
-    ActionMine,
-    /// Deposit cargo at nearest station/mothership. No args.
-    ActionDeposit,
     /// Flee from target entity. Pop EntityRef threat.
     ActionFlee,
     /// Wait one tick. No args.
     ActionWait,
     /// Set target. Pop EntityRef.
     ActionSetTarget,
-    /// Transfer cargo to target. Pop String resource, Pop Int amount.
-    ActionTransfer,
+    /// Consult the spirits. No args.
+    ActionConsult,
+    /// Raise the dead. No args.
+    ActionRaise,
+    /// Harvest essence. No args.
+    ActionHarvest,
+    /// Forge a dark pact. No args.
+    ActionPact,
 
     // --- Local variable access (var_base-relative for function params/locals) ---
     /// Load function-local variable at var_base + offset.

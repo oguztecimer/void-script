@@ -20,9 +20,6 @@ pub enum QueryBuiltin {
     GetHealth,
     GetEnergy,
     GetShield,
-    GetCargo,
-    CargoFull,
-    CanMine,
     GetTarget,
     HasTarget,
     GetType,
@@ -33,12 +30,13 @@ pub enum QueryBuiltin {
 pub enum ActionBuiltin {
     Move,
     Attack,
-    Mine,
-    Deposit,
     Flee,
     Wait,
     SetTarget,
-    Transfer,
+    Consult,
+    Raise,
+    Harvest,
+    Pact,
 }
 
 pub enum StdlibBuiltin {
@@ -65,9 +63,6 @@ pub fn classify(name: &str) -> BuiltinKind {
         "get_health" => BuiltinKind::Query(QueryBuiltin::GetHealth),
         "get_energy" => BuiltinKind::Query(QueryBuiltin::GetEnergy),
         "get_shield" => BuiltinKind::Query(QueryBuiltin::GetShield),
-        "get_cargo" => BuiltinKind::Query(QueryBuiltin::GetCargo),
-        "cargo_full" => BuiltinKind::Query(QueryBuiltin::CargoFull),
-        "can_mine" => BuiltinKind::Query(QueryBuiltin::CanMine),
         "get_target" => BuiltinKind::Query(QueryBuiltin::GetTarget),
         "has_target" => BuiltinKind::Query(QueryBuiltin::HasTarget),
         "get_type" => BuiltinKind::Query(QueryBuiltin::GetType),
@@ -76,12 +71,13 @@ pub fn classify(name: &str) -> BuiltinKind {
         // Actions
         "move" => BuiltinKind::Action(ActionBuiltin::Move),
         "attack" => BuiltinKind::Action(ActionBuiltin::Attack),
-        "mine" => BuiltinKind::Action(ActionBuiltin::Mine),
-        "deposit" => BuiltinKind::Action(ActionBuiltin::Deposit),
         "flee" => BuiltinKind::Action(ActionBuiltin::Flee),
         "wait" => BuiltinKind::Action(ActionBuiltin::Wait),
         "set_target" => BuiltinKind::Action(ActionBuiltin::SetTarget),
-        "transfer" => BuiltinKind::Action(ActionBuiltin::Transfer),
+        "consult" => BuiltinKind::Action(ActionBuiltin::Consult),
+        "raise" => BuiltinKind::Action(ActionBuiltin::Raise),
+        "harvest" => BuiltinKind::Action(ActionBuiltin::Harvest),
+        "pact" => BuiltinKind::Action(ActionBuiltin::Pact),
         // Stdlib
         "print" => BuiltinKind::Stdlib(StdlibBuiltin::Print),
         "len" => BuiltinKind::Stdlib(StdlibBuiltin::Len),
@@ -107,9 +103,6 @@ pub fn query_instruction(q: &QueryBuiltin) -> Instruction {
         QueryBuiltin::GetHealth => Instruction::QueryGetHealth,
         QueryBuiltin::GetEnergy => Instruction::QueryGetEnergy,
         QueryBuiltin::GetShield => Instruction::QueryGetShield,
-        QueryBuiltin::GetCargo => Instruction::QueryGetCargo,
-        QueryBuiltin::CargoFull => Instruction::QueryCargoFull,
-        QueryBuiltin::CanMine => Instruction::QueryCanMine,
         QueryBuiltin::GetTarget => Instruction::QueryGetTarget,
         QueryBuiltin::HasTarget => Instruction::QueryHasTarget,
         QueryBuiltin::GetType => Instruction::QueryGetType,
@@ -123,12 +116,13 @@ pub fn action_instruction(a: &ActionBuiltin) -> Instruction {
     match a {
         ActionBuiltin::Move => Instruction::ActionMove,
         ActionBuiltin::Attack => Instruction::ActionAttack,
-        ActionBuiltin::Mine => Instruction::ActionMine,
-        ActionBuiltin::Deposit => Instruction::ActionDeposit,
         ActionBuiltin::Flee => Instruction::ActionFlee,
         ActionBuiltin::Wait => Instruction::ActionWait,
         ActionBuiltin::SetTarget => Instruction::ActionSetTarget,
-        ActionBuiltin::Transfer => Instruction::ActionTransfer,
+        ActionBuiltin::Consult => Instruction::ActionConsult,
+        ActionBuiltin::Raise => Instruction::ActionRaise,
+        ActionBuiltin::Harvest => Instruction::ActionHarvest,
+        ActionBuiltin::Pact => Instruction::ActionPact,
     }
 }
 
@@ -140,9 +134,6 @@ pub fn query_takes_implicit_self(q: &QueryBuiltin) -> bool {
             | QueryBuiltin::GetHealth
             | QueryBuiltin::GetEnergy
             | QueryBuiltin::GetShield
-            | QueryBuiltin::GetCargo
-            | QueryBuiltin::CargoFull
-            | QueryBuiltin::CanMine
             | QueryBuiltin::GetTarget
             | QueryBuiltin::HasTarget
     )
@@ -157,9 +148,6 @@ pub fn query_expected_args(q: &QueryBuiltin) -> usize {
         | QueryBuiltin::GetHealth
         | QueryBuiltin::GetEnergy
         | QueryBuiltin::GetShield
-        | QueryBuiltin::GetCargo
-        | QueryBuiltin::CargoFull
-        | QueryBuiltin::CanMine
         | QueryBuiltin::GetTarget
         | QueryBuiltin::HasTarget
         | QueryBuiltin::GetType
@@ -179,11 +167,12 @@ pub fn action_expected_args(a: &ActionBuiltin) -> usize {
     match a {
         ActionBuiltin::Move => 1,
         ActionBuiltin::Attack => 1,
-        ActionBuiltin::Mine => 0,
-        ActionBuiltin::Deposit => 0,
         ActionBuiltin::Flee => 1,
         ActionBuiltin::Wait => 0,
         ActionBuiltin::SetTarget => 1,
-        ActionBuiltin::Transfer => 2,
+        ActionBuiltin::Consult => 0,
+        ActionBuiltin::Raise => 0,
+        ActionBuiltin::Harvest => 0,
+        ActionBuiltin::Pact => 0,
     }
 }

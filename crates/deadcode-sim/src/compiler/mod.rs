@@ -3,6 +3,8 @@ mod emit;
 pub mod error;
 mod symbol_table;
 
+use std::collections::HashSet;
+
 use grimscript_lang::ast::Program;
 
 use crate::entity::EntityId;
@@ -12,8 +14,11 @@ use crate::value::SimValue;
 pub use error::CompileError;
 
 /// Compile a GrimScript AST into simulation IR.
-pub fn compile(program: &Program) -> Result<CompiledScript, CompileError> {
-    let compiler = emit::Compiler::new();
+pub fn compile(
+    program: &Program,
+    available_commands: Option<HashSet<String>>,
+) -> Result<CompiledScript, CompileError> {
+    let compiler = emit::Compiler::new(available_commands);
     let mut script = compiler.compile(program)?;
     emit::fixup_calls(&mut script);
     Ok(script)
@@ -29,18 +34,27 @@ pub fn initial_variables(entity_id: EntityId, num_globals: usize) -> Vec<SimValu
 
 /// Parse source code and compile to IR in one step.
 pub fn compile_source(source: &str) -> Result<CompiledScript, String> {
+    compile_source_with(source, None)
+}
+
+/// Parse source code and compile to IR, with optional command gating.
+pub fn compile_source_with(
+    source: &str,
+    available_commands: Option<HashSet<String>>,
+) -> Result<CompiledScript, String> {
     let tokens = grimscript_lang::lexer::Lexer::new(source).tokenize();
     let program = grimscript_lang::parser::Parser::new(tokens)
         .parse()
         .map_err(|e| format!("parse error (line {}): {}", e.line, e.message))?;
-    compile(&program).map_err(|e| format!("compile error (line {}): {}", e.line, e.message))
+    compile(&program, available_commands)
+        .map_err(|e| format!("compile error (line {}): {}", e.line, e.message))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::action::UnitAction;
-    use crate::entity::{EntityType, ScriptState};
+    use crate::entity::ScriptState;
     use crate::executor;
     use crate::ir::Instruction;
     use crate::world::SimWorld;
@@ -49,7 +63,7 @@ mod tests {
     fn compile_and_run(source: &str) -> (ScriptState, Option<UnitAction>) {
         let script = compile_source(source).expect("compilation failed");
         let mut world = SimWorld::new(42);
-        let eid = world.spawn_entity(EntityType::Miner, "test".into(), 100);
+        let eid = world.spawn_entity("skeleton".into(), "test".into(), 100);
         let num_vars = script.num_variables;
         let mut state = ScriptState::new(script, num_vars);
         // Set self = EntityRef for the entity.

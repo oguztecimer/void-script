@@ -5,7 +5,15 @@ use grimscript_lang::{ScriptEvent, run_script};
 fn run(source: &str) -> Vec<ScriptEvent> {
     let (event_tx, event_rx) = unbounded();
     let (_cmd_tx, cmd_rx) = unbounded();
-    run_script(source, event_tx, cmd_rx);
+    run_script(source, event_tx, cmd_rx, None);
+    event_rx.try_iter().collect()
+}
+
+/// Run with a specific set of available commands.
+fn run_with_commands(source: &str, available: std::collections::HashSet<String>) -> Vec<ScriptEvent> {
+    let (event_tx, event_rx) = unbounded();
+    let (_cmd_tx, cmd_rx) = unbounded();
+    run_script(source, event_tx, cmd_rx, Some(available));
     event_rx.try_iter().collect()
 }
 
@@ -230,4 +238,36 @@ fn one_liner_variable_and_print() {
     let events = run("x = 5 * 10\nprint(x)");
     assert!(succeeded(&events));
     assert_eq!(outputs(&events), vec!["50"]);
+}
+
+// ── Available commands gating ───────────────────────────────────────
+
+#[test]
+fn unavailable_game_builtin_produces_error() {
+    let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let events = run_with_commands(r#"scan("fighter")"#, empty);
+    assert!(failed(&events));
+    // Check the error message mentions "not available"
+    let has_not_available = events.iter().any(|e| match e {
+        ScriptEvent::Output { line, .. } => line.contains("not available yet"),
+        _ => false,
+    });
+    assert!(has_not_available);
+}
+
+#[test]
+fn stdlib_works_with_empty_available_set() {
+    let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let events = run_with_commands(r#"print("hello")"#, empty);
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["hello"]);
+}
+
+#[test]
+fn available_game_builtin_works_when_in_set() {
+    let mut cmds = std::collections::HashSet::new();
+    cmds.insert("consult".to_string());
+    let events = run_with_commands("consult()", cmds);
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["[consult] Consulting the spirits..."]);
 }

@@ -156,12 +156,28 @@ impl UnitManager {
         }
     }
 
+    /// Advance movement interpolation (render-driven, called every frame).
     pub fn tick(&mut self, delta: Duration) {
         let dt = delta.as_secs_f32();
         self.time += dt;
 
         for unit in self.units.values_mut() {
-            unit.animation.tick(delta);
+            // Don't override PlayOnce animations (attack, summon, death) with walk/idle.
+            if unit.animation.is_action_playing() {
+                if let Some(movement) = &unit.movement {
+                    let dx = movement.target_x - unit.x;
+                    let step = movement.speed * dt;
+                    if dx.abs() <= step {
+                        unit.x = movement.target_x;
+                        unit.movement = None;
+                    } else if dx > 0.0 {
+                        unit.x = (unit.x + step).min(WORLD_WIDTH as f32);
+                    } else {
+                        unit.x = (unit.x - step).max(0.0);
+                    }
+                }
+                continue;
+            }
 
             if let Some(movement) = &unit.movement {
                 let dx = movement.target_x - unit.x;
@@ -185,6 +201,13 @@ impl UnitManager {
                     }
                 }
             }
+        }
+    }
+
+    /// Advance all animations by one sim tick (sim-driven, deterministic).
+    pub fn tick_animations(&mut self) {
+        for unit in self.units.values_mut() {
+            unit.animation.tick();
         }
     }
 

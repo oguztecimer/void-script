@@ -3,12 +3,10 @@
 //! Provides `AnimationPlayer`, which:
 //! - Decodes an atlas PNG once at construction (zero per-frame decode overhead)
 //! - Pre-extracts all animation frames into `Vec<Vec<Pixmap>>` at load time
-//! - Advances frames based on wall-clock time (`Duration`) — animation speed is
-//!   independent of render frame rate
+//! - Advances frames based on tick counts (each frame specifies how many ticks it lasts)
 //! - Supports horizontal flip via Transform for left-facing rendering
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use tiny_skia::{IntRect, Pixmap, PixmapPaint, PixmapRef, Transform};
 
@@ -70,7 +68,7 @@ pub struct AnimationDef {
 #[derive(serde::Deserialize, Clone)]
 pub struct FrameDef {
     pub col: u32,
-    pub duration_ms: u64,
+    pub ticks: u64,
 }
 
 #[derive(serde::Deserialize, PartialEq, Eq, Clone, Copy, Debug)]
@@ -103,8 +101,8 @@ pub struct AnimationPlayer {
     current_anim_idx: usize,
     /// Index of the current frame within that animation.
     current_frame_idx: usize,
-    /// Accumulated time since the last frame advance.
-    elapsed: Duration,
+    /// Accumulated sim ticks since the last frame advance.
+    elapsed_ticks: u64,
     /// When `true`, the sprite is drawn mirrored horizontally (facing left).
     pub facing_left: bool,
 }
@@ -184,7 +182,7 @@ impl AnimationPlayer {
             frame_height: meta.frame_height,
             current_anim_idx: idle_idx,
             current_frame_idx: 0,
-            elapsed: Duration::ZERO,
+            elapsed_ticks: 0,
             facing_left: false,
         }
     }
@@ -193,20 +191,19 @@ impl AnimationPlayer {
     // Tick
     // -----------------------------------------------------------------------
 
-    /// Advance the animation by `delta` wall-clock time.
+    /// Advance the animation by one simulation tick.
     ///
-    /// Uses `Duration` arithmetic so animation speed is independent of render
-    /// frame rate. On `LoopMode::PlayOnce`, holds the last frame then
-    /// auto-transitions back to "idle".
-    pub fn tick(&mut self, delta: Duration) {
-        self.elapsed += delta;
+    /// Frame durations are specified in ticks. Called once per sim tick
+    /// for deterministic animation timing.
+    /// On `LoopMode::PlayOnce`, auto-transitions back to "idle" when done.
+    pub fn tick(&mut self) {
+        self.elapsed_ticks += 1;
 
         let anim = &self.defs[self.current_anim_idx];
-        let frame_duration =
-            Duration::from_millis(anim.frames[self.current_frame_idx].duration_ms);
+        let frame_ticks = anim.frames[self.current_frame_idx].ticks;
 
-        if self.elapsed >= frame_duration {
-            self.elapsed -= frame_duration;
+        if self.elapsed_ticks >= frame_ticks {
+            self.elapsed_ticks = 0;
             let total_frames = anim.frames.len();
 
             match anim.loop_mode {
@@ -224,7 +221,7 @@ impl AnimationPlayer {
                             .expect("AnimationPlayer: 'idle' not found during PlayOnce transition");
                         self.current_anim_idx = idle_idx;
                         self.current_frame_idx = 0;
-                        self.elapsed = Duration::ZERO;
+                        self.elapsed_ticks = 0;
                     }
                 }
             }
@@ -238,25 +235,29 @@ impl AnimationPlayer {
     /// Switch to the named animation, resetting to frame 0.
     ///
     /// If the animation is already playing, this is a no-op (prevents restart).
-    ///
-    /// # Panics
-    ///
-    /// Panics if `name` is not present in the atlas metadata.
+    /// If the animation name is not found, logs a warning and does nothing.
     pub fn play(&mut self, name: &str) {
-        let idx = *self.anim_index.get(name).unwrap_or_else(|| {
-            panic!("AnimationPlayer::play: animation '{}' not found", name)
-        });
+        let Some(&idx) = self.anim_index.get(name) else {
+            eprintln!("[animation] warning: '{}' not found, ignoring", name);
+            return;
+        };
         if idx == self.current_anim_idx {
             return; // Already playing — do nothing.
         }
         self.current_anim_idx = idx;
         self.current_frame_idx = 0;
-        self.elapsed = Duration::ZERO;
+        self.elapsed_ticks = 0;
     }
 
     /// Returns the name of the currently playing animation.
     pub fn current_animation(&self) -> &str {
         &self.defs[self.current_anim_idx].name
+    }
+
+    /// Returns true if a PlayOnce animation is currently playing (not yet finished).
+    pub fn is_action_playing(&self) -> bool {
+        let anim = &self.defs[self.current_anim_idx];
+        anim.loop_mode == LoopMode::PlayOnce
     }
 
     // -----------------------------------------------------------------------
@@ -338,17 +339,10 @@ impl AnimationPlayer {
         self.frame_height
     }
 
-    /// Suggested render interval for the current animation.
-    ///
-    /// Returns 30 FPS (33 ms) for active animations, 10 FPS (100 ms) for
-    /// `idle` and `sleep` (per user decision — lower rate for resting states).
-    pub fn desired_frame_interval(&self) -> Duration {
+    /// Whether the current animation is a resting state (idle/sleep).
+    pub fn is_resting(&self) -> bool {
         let name = self.current_animation();
-        if name == "idle" || name == "sleep" {
-            Duration::from_millis(100) // 10 FPS
-        } else {
-            Duration::from_millis(33) // ~30 FPS
-        }
+        name == "idle" || name == "sleep"
     }
 }
 

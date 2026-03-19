@@ -3,15 +3,17 @@ import { useStore } from '../state/store';
 import { sendToRust } from '../ipc/bridge';
 import styles from './Console.module.css';
 
-/** Highlight function calls like `foo()` in console output */
+/** Render text with <hl> tags as highlighted spans */
 function highlightCode(text: string, glow?: boolean): React.ReactNode {
-  const parts = text.split(/(\w+\(\))/g);
+  const parts = text.split(/(<hl>.*?<\/hl>)/g);
   if (parts.length === 1) return text;
-  return parts.map((part, i) =>
-    /^\w+\(\)$/.test(part)
-      ? <span key={i} className={glow ? styles.codeGlow : styles.code}>{part}</span>
-      : part
-  );
+  return parts.map((part, i) => {
+    const match = part.match(/^<hl>(.*)<\/hl>$/);
+    if (match) {
+      return <span key={i} className={glow ? styles.codeGlow : styles.code}>{match[1]}</span>;
+    }
+    return part;
+  });
 }
 
 const levelClass: Record<string, string> = {

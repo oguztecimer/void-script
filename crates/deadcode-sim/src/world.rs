@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::action::{CommandDef, CommandEffect, PhaseDef, UnitAction, resolve_action, resolve_custom_effects};
+use crate::action::{CommandDef, CommandEffect, DynInt, PhaseDef, UnitAction, resolve_action, resolve_custom_effects};
 use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
@@ -39,6 +39,10 @@ pub enum SimEvent {
         entity_id: EntityId,
         success: bool,
         error: Option<String>,
+    },
+    PlayAnimation {
+        entity_id: EntityId,
+        animation: String,
     },
 }
 
@@ -124,6 +128,11 @@ impl SimWorld {
         let id = self.next_entity_id;
         self.next_entity_id += 1;
         id
+    }
+
+    /// Get the seed for the current tick (for deterministic RNG in effect resolution).
+    pub fn tick_seed(&self) -> u64 {
+        self.seed ^ self.tick
     }
 
     /// Start the simulation.
@@ -813,7 +822,7 @@ mod tests {
                     ticks: 3,
                     interruptible: false,
                     per_tick: vec![
-                        CommandEffect::UseResource { stat: "energy".into(), amount: 10 },
+                        CommandEffect::UseResource { stat: "energy".into(), amount: DynInt::Fixed(10) },
                         CommandEffect::Output { message: "drained".into() },
                     ],
                     on_start: vec![],

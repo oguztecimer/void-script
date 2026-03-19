@@ -268,7 +268,7 @@ fn embedded_fallback() -> LoadedMod {
         initial: Some(InitialDef {
             effects: vec![
                 CommandEffect::Output { message: "The dead stir beneath your feet".into() },
-                CommandEffect::Output { message: "Call for help() to hear them speak".into() },
+                CommandEffect::Output { message: "Call for <hl>help()</hl> to hear them speak".into() },
             ],
         }),
     };
@@ -371,12 +371,14 @@ fn validate_effects(
                 );
             }
         }
-        // Validate UseResource amounts.
+        // Validate UseResource amounts (only check fixed values).
         if let CommandEffect::UseResource { stat, amount } = effect {
-            if *amount <= 0 {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' has non-positive use_resource amount {amount} for {stat}",
-                );
+            if let deadcode_sim::action::DynInt::Fixed(v) = amount {
+                if *v <= 0 {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: command '{cmd_name}' has non-positive use_resource amount {v} for {stat}",
+                    );
+                }
             }
         }
         // Validate target strings in effects that have them.
@@ -442,13 +444,15 @@ pub fn validate_command_defs(mods: &[LoadedMod]) {
                         );
                     }
                 }
-                // Validate UseResource amounts.
+                // Validate UseResource amounts (only check fixed values).
                 if let CommandEffect::UseResource { stat, amount } = effect {
-                    if *amount <= 0 {
-                        eprintln!(
-                            "[mod:{mod_id}] warning: command '{}' has non-positive use_resource amount {amount} for {stat}",
-                            def.name
-                        );
+                    if let deadcode_sim::action::DynInt::Fixed(v) = amount {
+                        if *v <= 0 {
+                            eprintln!(
+                                "[mod:{mod_id}] warning: command '{}' has non-positive use_resource amount {v} for {stat}",
+                                def.name
+                            );
+                        }
                     }
                 }
                 // Validate target strings in effects that have them.

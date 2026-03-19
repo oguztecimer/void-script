@@ -27,7 +27,7 @@ position = 500
 [initial]
 effects = [
   { type = "output", message = "The dead stir beneath your feet" },
-  { type = "output", message = "Call for help() to hear them speak" },
+  { type = "output", message = "Call for <hl>help()</hl> to hear them speak" },
 ]
 
 [commands]
@@ -46,10 +46,18 @@ effects = [
 name = "raise"
 description = "From the ground, the dead are bound"
 args = []
-effects = [
-  { type = "use_resource", stat = "energy", amount = 30 },
-  { type = "spawn", entity_type = "skeleton", offset = 1 },
-  { type = "output", message = "[raise] A skeleton rises!" },
+phases = [
+  { ticks = 12, interruptible = true, on_start = [
+    { type = "animate", target = "self", animation = "cast" },
+    { type = "output", message = "[raise] Casting..." }
+  ]},
+  { ticks = 1, interruptible = false, on_start = [
+    { type = "spawn", entity_type = "skeleton", offset = "rand(-300,300)"},
+    { type = "output", message = "[raise] A skeleton rises!" },
+  ]},
+  { ticks = 9, interruptible = false, on_start = [
+    { type = "output", message = "[raise] Recovering..." },
+  ]},
 ]
 
 [[commands.definitions]]

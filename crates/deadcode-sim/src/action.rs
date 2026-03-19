@@ -1,8 +1,82 @@
 use serde::{Deserialize, Serialize};
 
 use crate::entity::{EntityId, SimEntity};
+use crate::rng::SimRng;
 use crate::value::SimValue;
 use crate::world::{SimEvent, SimWorld};
+
+/// An integer value that is either fixed or randomized at resolution time.
+/// In mod.toml, write a plain integer for fixed values, or `"rand(min,max)"`
+/// for a random value in [min, max] inclusive.
+#[derive(Debug, Clone)]
+pub enum DynInt {
+    Fixed(i64),
+    Rand { min: i64, max: i64 },
+}
+
+impl DynInt {
+    pub fn resolve(&self, rng: &mut SimRng) -> i64 {
+        match self {
+            DynInt::Fixed(v) => *v,
+            DynInt::Rand { min, max } => {
+                if min >= max {
+                    return *min;
+                }
+                let range = (max - min + 1) as u64;
+                *min + rng.next_bounded(range) as i64
+            }
+        }
+    }
+}
+
+impl Serialize for DynInt {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            DynInt::Fixed(v) => serializer.serialize_i64(*v),
+            DynInt::Rand { min, max } => {
+                serializer.serialize_str(&format!("rand({min},{max})"))
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DynInt {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de;
+
+        struct DynIntVisitor;
+
+        impl<'de> de::Visitor<'de> for DynIntVisitor {
+            type Value = DynInt;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "an integer or \"rand(min,max)\"")
+            }
+
+            fn visit_i64<E: de::Error>(self, v: i64) -> Result<DynInt, E> {
+                Ok(DynInt::Fixed(v))
+            }
+
+            fn visit_u64<E: de::Error>(self, v: u64) -> Result<DynInt, E> {
+                Ok(DynInt::Fixed(v as i64))
+            }
+
+            fn visit_str<E: de::Error>(self, s: &str) -> Result<DynInt, E> {
+                if let Some(inner) = s.strip_prefix("rand(").and_then(|s| s.strip_suffix(')')) {
+                    let parts: Vec<&str> = inner.split(',').collect();
+                    if parts.len() == 2 {
+                        let min = parts[0].trim().parse::<i64>().map_err(de::Error::custom)?;
+                        let max = parts[1].trim().parse::<i64>().map_err(de::Error::custom)?;
+                        return Ok(DynInt::Rand { min, max });
+                    }
+                }
+                Err(de::Error::custom(format!("expected integer or \"rand(min,max)\", got \"{s}\"")))
+            }
+        }
+
+        deserializer.deserialize_any(DynIntVisitor)
+    }
+}
 
 /// An action a unit wants to perform this tick.
 #[derive(Debug, Clone)]
@@ -24,6 +98,9 @@ pub enum UnitAction {
 }
 
 /// An effect that a custom command applies when resolved.
+///
+/// Integer fields use `DynInt`: write a plain integer for fixed values,
+/// or `"rand(min,max)"` for a random value in [min, max] inclusive.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum CommandEffect {
@@ -32,22 +109,25 @@ pub enum CommandEffect {
     Output { message: String },
     /// Deal damage to a target (shield-first).
     #[serde(rename = "damage")]
-    Damage { target: String, amount: i64 },
+    Damage { target: String, amount: DynInt },
     /// Heal a target (capped at max).
     #[serde(rename = "heal")]
-    Heal { target: String, amount: i64 },
+    Heal { target: String, amount: DynInt },
     /// Spawn an entity at self.position + offset.
     #[serde(rename = "spawn")]
-    Spawn { entity_type: String, offset: i64 },
+    Spawn { entity_type: String, offset: DynInt },
     /// Add to a stat (health/energy/shield/speed).
     #[serde(rename = "modify_stat")]
-    ModifyStat { target: String, stat: String, amount: i64 },
+    ModifyStat { target: String, stat: String, amount: DynInt },
     /// Check and deduct a resource; if insufficient, abort remaining effects.
     #[serde(rename = "use_resource")]
-    UseResource { stat: String, amount: i64 },
+    UseResource { stat: String, amount: DynInt },
     /// List all registered commands and their descriptions.
     #[serde(rename = "list_commands")]
     ListCommands,
+    /// Trigger an animation on a target entity.
+    #[serde(rename = "animate")]
+    Animate { target: String, animation: String },
 }
 
 /// A single phase in a multi-tick phased command.
@@ -217,6 +297,9 @@ pub fn resolve_custom_effects(
     args: &[SimValue],
     events: &mut Vec<SimEvent>,
 ) -> bool {
+    // Derive an RNG from the world's current tick for deterministic randomness.
+    let mut rng = SimRng::new(world.tick_seed() ^ entity_id.0 as u64);
+
     for effect in effects {
         match effect {
             CommandEffect::Output { message } => {
@@ -226,10 +309,11 @@ pub fn resolve_custom_effects(
                 });
             }
             CommandEffect::Damage { target, amount } => {
+                let amount = amount.resolve(&mut rng);
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
-                        let mut remaining = *amount;
+                        let mut remaining = amount;
                         if target_entity.shield > 0 {
                             let shield_absorbed = remaining.min(target_entity.shield);
                             target_entity.shield -= shield_absorbed;
@@ -238,7 +322,7 @@ pub fn resolve_custom_effects(
                         target_entity.health = (target_entity.health - remaining).max(0);
                         events.push(SimEvent::EntityDamaged {
                             entity_id: tid,
-                            damage: *amount,
+                            damage: amount,
                             new_health: target_entity.health,
                         });
                         if target_entity.health <= 0 {
@@ -249,6 +333,7 @@ pub fn resolve_custom_effects(
                 }
             }
             CommandEffect::Heal { target, amount } => {
+                let amount = amount.resolve(&mut rng);
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
@@ -257,9 +342,10 @@ pub fn resolve_custom_effects(
                 }
             }
             CommandEffect::Spawn { entity_type, offset } => {
+                let offset = offset.resolve(&mut rng);
                 let position = world.get_entity(entity_id)
                     .map(|e| e.position + offset)
-                    .unwrap_or(*offset);
+                    .unwrap_or(offset);
                 let spawned = SimEntity::new(
                     EntityId(world.next_entity_id()),
                     entity_type.clone(),
@@ -276,6 +362,7 @@ pub fn resolve_custom_effects(
                 });
             }
             CommandEffect::ModifyStat { target, stat, amount } => {
+                let amount = amount.resolve(&mut rng);
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
@@ -302,6 +389,7 @@ pub fn resolve_custom_effects(
                 }
             }
             CommandEffect::UseResource { stat, amount } => {
+                let amount = amount.resolve(&mut rng);
                 let has_enough = world.get_entity(entity_id).map_or(false, |e| {
                     let current = match stat.as_str() {
                         "health" => e.health,
@@ -309,7 +397,7 @@ pub fn resolve_custom_effects(
                         "shield" => e.shield,
                         _ => return false,
                     };
-                    current >= *amount
+                    current >= amount
                 });
                 if !has_enough {
                     events.push(SimEvent::ScriptOutput {
@@ -344,6 +432,15 @@ pub fn resolve_custom_effects(
                             text: format!("{padded:<width$} — {description}", width = max_width + 1),
                         });
                     }
+                }
+            }
+            CommandEffect::Animate { target, animation } => {
+                let target_id = resolve_target_from_args(entity_id, target, args);
+                if let Some(tid) = target_id {
+                    events.push(SimEvent::PlayAnimation {
+                        entity_id: tid,
+                        animation: animation.clone(),
+                    });
                 }
             }
         }

@@ -12,19 +12,15 @@ energy = 50
 speed = 2
 
 [resources]
-initial = ["bones"]
-
-[resources.pool]
 bones = 0
 
 [initial]
+commands = ["help", "raise", "harvest", "pact"]
+resources = ["bones"]
 effects = [
   { type = "output", message = "The dead stir beneath your feet" },
   { type = "output", message = "Call for <hl>help()</hl> to hear them speak" },
 ]
-
-[commands]
-initial = ["help", "raise", "harvest", "pact"]
 
 [[commands.definitions]]
 name = "help"

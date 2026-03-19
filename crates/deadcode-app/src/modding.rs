@@ -29,23 +29,21 @@ pub struct ModManifest {
     pub commands: Option<CommandsDef>,
     #[serde(default)]
     pub initial: Option<InitialDef>,
-    /// Global resources defined by this mod.
+    /// Global resources: name → initial value.
     #[serde(default)]
-    pub resources: ResourcesDef,
+    pub resources: HashMap<String, i64>,
 }
 
+/// The `[initial]` section: commands, resources, and effects available at game start.
 #[derive(Debug, Deserialize, Default)]
-pub struct ResourcesDef {
-    /// Resource pool: name → initial value.
-    #[serde(default)]
-    pub pool: HashMap<String, i64>,
-    /// Initially available resource names. If empty, all pool resources are available.
-    #[serde(default)]
-    pub initial: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct InitialDef {
+    /// Initially available command names.
+    #[serde(default)]
+    pub commands: Vec<String>,
+    /// Initially available resource names. If empty, all defined resources are available.
+    #[serde(default)]
+    pub resources: Vec<String>,
+    /// Effects to run on first game open.
     #[serde(default)]
     pub effects: Vec<CommandEffect>,
 }
@@ -106,8 +104,6 @@ pub struct SpawnDef {
 
 #[derive(Debug, Deserialize)]
 pub struct CommandsDef {
-    #[serde(default)]
-    pub initial: Vec<String>,
     #[serde(default)]
     pub definitions: Vec<CommandDef>,
     /// Reserved: paths to .grim library files (Phase 2, not yet loaded).
@@ -257,28 +253,26 @@ fn embedded_fallback() -> LoadedMod {
         entities: vec![],
         spawn: vec![],
         commands: Some(CommandsDef {
-            initial: vec![
+            definitions: vec![],
+            libraries: vec![],
+        }),
+        initial: Some(InitialDef {
+            commands: vec![
                 "help".into(),
                 "raise".into(),
                 "harvest".into(),
                 "pact".into(),
             ],
-            definitions: vec![],
-            libraries: vec![],
-        }),
-        initial: Some(InitialDef {
+            resources: vec!["bones".into()],
             effects: vec![
                 CommandEffect::Output { message: "The dead stir beneath your feet".into() },
                 CommandEffect::Output { message: "Call for <hl>help()</hl> to hear them speak".into() },
             ],
         }),
-        resources: ResourcesDef {
-            pool: {
-                let mut r = HashMap::new();
-                r.insert("bones".into(), 0);
-                r
-            },
-            initial: vec!["bones".into()],
+        resources: {
+            let mut r = HashMap::new();
+            r.insert("bones".into(), 0);
+            r
         },
     };
 
@@ -514,8 +508,8 @@ pub fn collect_initial_commands(mods: &[LoadedMod]) -> Vec<String> {
     let mut commands = Vec::new();
     let mut seen = HashSet::new();
     for m in mods {
-        if let Some(cmds) = &m.manifest.commands {
-            for cmd in &cmds.initial {
+        if let Some(initial) = &m.manifest.initial {
+            for cmd in &initial.commands {
                 if seen.insert(cmd.clone()) {
                     commands.push(cmd.clone());
                 }
@@ -534,7 +528,7 @@ pub fn collect_initial_commands(mods: &[LoadedMod]) -> Vec<String> {
 pub fn collect_initial_resources(mods: &[LoadedMod]) -> deadcode_sim::IndexMap<String, i64> {
     let mut resources = deadcode_sim::IndexMap::new();
     for m in mods {
-        for (name, &value) in &m.manifest.resources.pool {
+        for (name, &value) in &m.manifest.resources {
             if resources.contains_key(name) {
                 eprintln!(
                     "[mod] warning: resource '{}' already defined, skipping duplicate from '{}'",
@@ -549,21 +543,22 @@ pub fn collect_initial_resources(mods: &[LoadedMod]) -> deadcode_sim::IndexMap<S
 }
 
 /// Collect initially available resource names from all loaded mods.
-/// If a mod's `resources.initial` is empty, all of its pool resources are available.
+/// If a mod has no `initial.resources` list, all of its defined resources are available.
 pub fn collect_available_resources(mods: &[LoadedMod]) -> Vec<String> {
     let mut available = Vec::new();
     let mut seen = HashSet::new();
     for m in mods {
-        let res = &m.manifest.resources;
-        if res.initial.is_empty() {
-            // No explicit initial list → all pool resources are available.
-            for name in res.pool.keys() {
+        let initial_resources = m.manifest.initial.as_ref().map(|i| &i.resources);
+        let has_explicit_list = initial_resources.map_or(false, |r| !r.is_empty());
+        if has_explicit_list {
+            for name in initial_resources.unwrap() {
                 if seen.insert(name.clone()) {
                     available.push(name.clone());
                 }
             }
         } else {
-            for name in &res.initial {
+            // No explicit initial list → all defined resources are available.
+            for name in m.manifest.resources.keys() {
                 if seen.insert(name.clone()) {
                     available.push(name.clone());
                 }

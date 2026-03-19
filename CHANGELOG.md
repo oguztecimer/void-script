@@ -26,7 +26,7 @@
 - **M-07: `list_commands` effect type** — New `CommandEffect::ListCommands` variant that emits all registered custom commands and their descriptions as `ScriptOutput` events. Commands are sorted alphabetically for deterministic output. The `consult` command in `mods/core/mod.toml` now uses this effect instead of a static output message, making it a discovery mechanic that reveals available commands to the player.
 
 #### Fixed
-- **Console custom commands now resolve effects** — Custom commands typed in the console (e.g., `help()`) now resolve their effects through the sim world instead of printing a stub message. Previously, the interpreter path had no access to effect definitions and would only output `[name] (custom command)`.
+- **Console commands now execute through the sim** — All console commands are now compiled to IR and executed through the sim world instead of the tree-walking interpreter. This means custom commands (e.g., `help()`) resolve their actual effects, queries return real entity data, and all builtins work identically to scripts. Previously, the interpreter path stubbed custom commands and returned dummy values for queries.
 - **M-01: Deterministic mod load order** — Mods are now loaded in alphabetical order by directory name instead of filesystem iteration order. This ensures consistent behavior across platforms and runs. First-loaded-wins for entity type collisions is now predictable.
 - **M-04: Spawn entity type validation** — After all mods load, spawn definitions are validated against registered entity types. Unknown entity types produce a clear warning: "[mod:<id>] warning: spawn '<name>' references unknown entity type '<type>'". Also validates spawn effects in custom command definitions.
 

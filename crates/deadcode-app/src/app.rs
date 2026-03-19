@@ -873,6 +873,89 @@ impl App {
         }
     }
 
+    /// Compile and execute a console command through the sim.
+    ///
+    /// The command is compiled to IR and executed immediately against the
+    /// summoner entity. Actions are resolved and events forwarded to the editor.
+    /// This ensures custom commands, queries, and all builtins work in the console.
+    fn handle_console_command_sim(&mut self, source: &str) {
+        let available = self.available_commands_for_compiler();
+        let custom = self.custom_command_arg_counts();
+
+        let compiled = deadcode_sim::compiler::compile_source_full(source, available, custom);
+        match compiled {
+            Ok(script) => {
+                if let Some(sim) = &mut self.sim_world {
+                    let summoner_id = sim.entities()
+                        .find(|e| e.entity_type == "summoner" && e.alive)
+                        .map(|e| e.id);
+
+                    if let Some(eid) = summoner_id {
+                        let num_vars = script.num_variables;
+                        let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                        // Set self = EntityRef for the summoner.
+                        if !state.variables.is_empty() {
+                            state.variables[0] = deadcode_sim::SimValue::EntityRef(eid);
+                        }
+
+                        // Execute until halt or action, collecting events.
+                        let mut all_events = Vec::new();
+                        let mut error_msg = None;
+                        loop {
+                            match deadcode_sim::executor::execute_unit(eid, &mut state, sim) {
+                                Ok(Some(action)) => {
+                                    let action_events = deadcode_sim::action::resolve_action(sim, eid, action);
+                                    all_events.extend(action_events);
+                                }
+                                Ok(None) => break, // Script finished.
+                                Err(err) => {
+                                    error_msg = Some(err.to_string());
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Forward collected events to editor (outside sim borrow).
+                        for event in &all_events {
+                            self.forward_sim_event_to_editor(event);
+                        }
+                        if let Some(err) = error_msg {
+                            self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                                text: format!("[error] {err}"),
+                                level: "error".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                    text: error,
+                    level: "error".to_string(),
+                });
+            }
+        }
+    }
+
+    /// Forward a sim event to the editor as a console message.
+    fn forward_sim_event_to_editor(&self, event: &deadcode_sim::SimEvent) {
+        match event {
+            deadcode_sim::SimEvent::ScriptOutput { text, .. } => {
+                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                    text: text.clone(),
+                    level: "info".to_string(),
+                });
+            }
+            deadcode_sim::SimEvent::ScriptError { error, .. } => {
+                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                    text: format!("[sim error] {error}"),
+                    level: "error".to_string(),
+                });
+            }
+            _ => {}
+        }
+    }
+
     /// Stop the summoner's script (clear its ScriptState).
     fn handle_stop_script_sim(&mut self, script_id: &str) {
         if let Some(sim) = &mut self.sim_world {
@@ -1032,44 +1115,7 @@ impl App {
                     self.webview_manager.set_size(width, height, resizable);
                 }
                 JsToRust::ConsoleCommand { command } => {
-                    // Check if the command is a simple custom command call (e.g. "help()").
-                    // If so, resolve it through the sim world instead of the interpreter,
-                    // which only stubs custom commands without resolving effects.
-                    let handled = if let Some(cmd_name) = parse_simple_call(&command) {
-                        if let (Some(sim), true) = (&mut self.sim_world, self.command_defs.contains_key(&cmd_name)) {
-                            let caster_id = sim.entities().next().map(|e| e.id);
-                            if let Some(eid) = caster_id {
-                                if let Some(effects) = sim.custom_commands.get(&cmd_name).cloned() {
-                                    let mut events = Vec::new();
-                                    deadcode_sim::action::resolve_custom_effects(
-                                        sim, eid, &cmd_name, &effects, &[], &mut events,
-                                    );
-                                    for event in &events {
-                                        match event {
-                                            deadcode_sim::SimEvent::ScriptOutput { text, .. } => {
-                                                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
-                                                    text: text.clone(),
-                                                    level: "info".to_string(),
-                                                });
-                                            }
-                                            deadcode_sim::SimEvent::ScriptError { error, .. } => {
-                                                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
-                                                    text: error.clone(),
-                                                    level: "error".to_string(),
-                                                });
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                    true
-                                } else { false }
-                            } else { false }
-                        } else { false }
-                    } else { false };
-
-                    if !handled {
-                        self.execution_manager.handle_console_command(&command, &self.webview_manager);
-                    }
+                    self.handle_console_command_sim(&command);
                 }
                 JsToRust::StartSimulation => {
                     // Sim runs continuously from game open — no-op.
@@ -1130,23 +1176,6 @@ impl App {
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     fn show_context_menu(&self) {}
-}
-
-// ---------------------------------------------------------------------------
-// Console command helpers
-// ---------------------------------------------------------------------------
-
-/// Parse a simple no-arg function call like "help()" and return the function name.
-/// Returns None for anything more complex.
-fn parse_simple_call(source: &str) -> Option<String> {
-    let trimmed = source.trim();
-    if trimmed.ends_with("()") {
-        let name = &trimmed[..trimmed.len() - 2];
-        if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Some(name.to_string());
-        }
-    }
-    None
 }
 
 // ---------------------------------------------------------------------------

@@ -24,11 +24,15 @@ export function Console({ variant = 'console' }: { variant?: 'console' | 'termin
   const consoleOutput = useStore((s) => s.consoleOutput);
   const terminalOutput = useStore((s) => s.terminalOutput);
   const addTerminalOutput = useStore((s) => s.addTerminalOutput);
+  const terminalBusy = useStore((s) => s.terminalBusy);
+  const setTerminalBusy = useStore((s) => s.setTerminalBusy);
   const tier = useStore((s) => s.tier);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [command, setCommand] = useState('');
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIdx, setHistoryIdx] = useState(-1);
 
   const isTerminal = variant === 'terminal' || tier === 0;
   const output = isTerminal ? terminalOutput : consoleOutput;
@@ -42,21 +46,47 @@ export function Console({ variant = 'console' }: { variant?: 'console' | 'termin
     }
   }, [output.length]);
 
-  // Auto-focus the input in terminal mode
+  // Auto-focus the input in terminal mode and when command finishes
   useEffect(() => {
-    if (isTerminal) {
+    if (isTerminal && !terminalBusy) {
       inputRef.current?.focus();
     }
-  }, [isTerminal]);
+  }, [isTerminal, terminalBusy]);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
+    if (terminalBusy) return;
     const trimmed = command.trim();
     if (!trimmed) return;
     addTerminalOutput(`> ${trimmed}`, 'info');
+    setTerminalBusy(true);
     sendToRust({ type: 'console_command', command: trimmed });
+    setHistory((h) => [...h, trimmed]);
+    setHistoryIdx(-1);
     setCommand('');
-  }, [command, addTerminalOutput]);
+  }, [command, terminalBusy, addTerminalOutput, setTerminalBusy]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (command.length > 0) return;
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (history.length === 0) return;
+      const newIdx = historyIdx === -1 ? history.length - 1 : Math.max(0, historyIdx - 1);
+      setHistoryIdx(newIdx);
+      setCommand(history[newIdx]);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIdx === -1) return;
+      const newIdx = historyIdx + 1;
+      if (newIdx >= history.length) {
+        setHistoryIdx(-1);
+        setCommand('');
+      } else {
+        setHistoryIdx(newIdx);
+        setCommand(history[newIdx]);
+      }
+    }
+  }, [command, history, historyIdx]);
 
   const handleConsoleClick = useCallback(() => {
     if (isTerminal) {
@@ -83,6 +113,8 @@ export function Console({ variant = 'console' }: { variant?: 'console' | 'termin
             className={styles.promptInput}
             value={command}
             onChange={(e) => setCommand(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={terminalBusy}
             spellCheck={false}
             autoComplete="off"
           />

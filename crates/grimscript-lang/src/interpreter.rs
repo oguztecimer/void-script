@@ -38,33 +38,13 @@ impl Interpreter {
     ) -> Self {
         let mut env = Environment::new();
 
-        // Game constants
-        env.set("NORTH".to_string(), Value::Int(0));
-        env.set("SOUTH".to_string(), Value::Int(1));
-        env.set("EAST".to_string(), Value::Int(2));
-        env.set("WEST".to_string(), Value::Int(3));
-        env.set("ASTEROID".to_string(), Value::String("asteroid".into()));
-        env.set("MINER".to_string(), Value::String("miner".into()));
-        env.set("FIGHTER".to_string(), Value::String("fighter".into()));
-        env.set("SCOUT".to_string(), Value::String("scout".into()));
-        env.set("HAULER".to_string(), Value::String("hauler".into()));
-        env.set("IRON".to_string(), Value::String("iron".into()));
-        env.set("COPPER".to_string(), Value::String("copper".into()));
-        env.set("SILICON".to_string(), Value::String("silicon".into()));
-        env.set("URANIUM".to_string(), Value::String("uranium".into()));
-        env.set("CRYSTAL".to_string(), Value::String("crystal".into()));
-        env.set(
-            "MOTHERSHIP".to_string(),
-            Value::String("mothership".into()),
-        );
-
         // self keyword
         env.set(
             "self".to_string(),
             Value::Entity {
                 id: 0,
                 name: "self".into(),
-                entity_type: "ship".into(),
+                entity_type: "unit".into(),
             },
         );
 
@@ -633,29 +613,24 @@ impl Interpreter {
                     return self.call_method(&obj, attr, eval_args, expr.line, object);
                 }
 
-                // Handle function calls
+                // Handle named function calls — check user functions and builtins before eval
+                if let ExprKind::Name(name) = &func.kind {
+                    if self.functions.contains_key(name.as_str()) {
+                        return self.call_function(name, eval_args, expr.line);
+                    }
+                    if builtins::is_builtin(name) {
+                        return builtins::call_builtin(
+                            name,
+                            eval_args,
+                            &self.output_tx,
+                        );
+                    }
+                }
+
+                // Fallback: evaluate the expression as a callable value
                 let func_val = self.eval_expr(func)?;
                 match func_val {
-                    // If the function resolved to a name, check user functions and builtins
                     _ => {
-                        if let ExprKind::Name(name) = &func.kind {
-                            // Check user-defined functions first
-                            if self.functions.contains_key(name.as_str()) {
-                                return self.call_function(name, eval_args, expr.line);
-                            }
-                            // Check builtins
-                            if builtins::is_builtin(name) {
-                                return builtins::call_builtin(
-                                    name,
-                                    eval_args,
-                                    &self.output_tx,
-                                );
-                            }
-                            return Err(GrimScriptError::name_error(
-                                expr.line,
-                                format!("'{name}' is not defined"),
-                            ));
-                        }
                         Err(GrimScriptError::type_error(
                             expr.line,
                             "object is not callable",

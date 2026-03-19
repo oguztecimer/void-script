@@ -51,6 +51,12 @@ pub enum RustToJs {
     DebugResumed {
         script_id: String,
     },
+    #[serde(rename = "terminal_finished")]
+    TerminalFinished {
+        success: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     #[serde(rename = "simulation_started")]
     SimulationStarted,
     #[serde(rename = "simulation_stopped")]

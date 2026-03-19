@@ -59,6 +59,12 @@ export function initIpcBridge(): void {
       case 'debug_resumed':
         store.setPaused(false);
         break;
+      case 'terminal_finished':
+        store.setTerminalBusy(false);
+        if (!msg.success && msg.error) {
+          store.addTerminalOutput(msg.error, 'error');
+        }
+        break;
       case 'simulation_started':
         store.addTerminalOutput('--- Simulation started ---', 'info');
         break;

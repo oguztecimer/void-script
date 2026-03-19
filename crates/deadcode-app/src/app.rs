@@ -20,7 +20,7 @@ use deadcode_desktop::unit::{UnitManager, WORLD_WIDTH};
 use deadcode_desktop::window::{StripInfo, enumerate_monitors};
 
 use deadcode_editor::ipc::{JsToRust, RustToJs, WindowControlEvent};
-use deadcode_sim::{EntityType, SimWorld};
+use deadcode_sim::SimWorld;
 use deadcode_editor::window::{WebViewManager, MaximizedState, open_editor, get_window_geometry};
 use deadcode_editor::scripts::ScriptStore;
 use deadcode_editor::tabs::EditorWindowState;
@@ -249,6 +249,7 @@ impl App {
 
         // --- Script execution polling ---
         self.execution_manager.poll_script_events(&self.webview_manager);
+        self.execution_manager.poll_terminal_events(&self.webview_manager);
 
         // --- Detect editor native close ---
         if let Some((x, y, w, h)) = self.webview_manager.detect_native_close() {
@@ -458,7 +459,7 @@ impl ApplicationHandler<UserEvent> for App {
 
         // --- Simulation init ---
         let mut sim = SimWorld::new(42);
-        sim.spawn_entity(EntityType::Mothership, "summoner".into(), 500);
+        sim.spawn_entity("summoner".into(), "summoner".into(), 500);
         self.sim_world = Some(sim);
 
         let tray_icon = tray::create_tray(self.proxy.clone());
@@ -736,7 +737,7 @@ impl App {
                     self.webview_manager.set_size(width, height, resizable);
                 }
                 JsToRust::ConsoleCommand { command } => {
-                    eprintln!("[console] command: {}", command);
+                    self.execution_manager.handle_console_command(&command, &self.webview_manager);
                 }
                 JsToRust::StartSimulation => {
                     if self.sim_world.is_none() {

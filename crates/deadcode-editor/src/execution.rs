@@ -17,10 +17,17 @@ struct RunningScript {
     is_debug: bool,
 }
 
+/// Tracks a running terminal command
+struct RunningTerminalCommand {
+    event_rx: Receiver<ScriptEvent>,
+    _handle: JoinHandle<()>,
+}
+
 /// Manages active script executions
 #[derive(Default)]
 pub struct ScriptExecutionManager {
     active: Option<RunningScript>,
+    terminal: Option<RunningTerminalCommand>,
     breakpoints: HashMap<String, HashSet<u32>>,
 }
 
@@ -135,6 +142,63 @@ impl ScriptExecutionManager {
                     DebugCommand::SetBreakpoints(bps_snapshot)
                 );
             }
+        }
+    }
+
+    pub fn handle_console_command(&mut self, source: &str, _webview: &WebViewManager) {
+        // Stop any existing terminal command
+        self.terminal = None;
+
+        let source = source.to_string();
+        let (event_tx, event_rx) = unbounded();
+        let (_, command_rx) = unbounded();
+
+        let handle = std::thread::spawn(move || {
+            grimscript_lang::run_script(&source, event_tx, command_rx);
+        });
+
+        self.terminal = Some(RunningTerminalCommand {
+            event_rx,
+            _handle: handle,
+        });
+
+        // Don't send ScriptStarted — terminal commands are separate
+    }
+
+    /// Poll terminal command events and forward to JS
+    pub fn poll_terminal_events(&mut self, webview: &WebViewManager) {
+        let Some(terminal) = self.terminal.as_ref() else { return };
+
+        for _ in 0..100 {
+            match terminal.event_rx.try_recv() {
+                Ok(event) => {
+                    match event {
+                        ScriptEvent::Output { line, level } => {
+                            let level_str = match level {
+                                OutputLevel::Info => "info",
+                                OutputLevel::Warn => "warn",
+                                OutputLevel::Error => "error",
+                            };
+                            webview.send_to_all(&RustToJs::ConsoleOutput {
+                                text: line,
+                                level: level_str.to_string(),
+                            });
+                        }
+                        ScriptEvent::Finished { success, error } => {
+                            webview.send_to_all(&RustToJs::TerminalFinished {
+                                success,
+                                error,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+
+        if self.terminal.as_ref().is_some_and(|t| t.event_rx.is_empty() && t._handle.is_finished()) {
+            self.terminal = None;
         }
     }
 

@@ -9,6 +9,7 @@ export type RustToJsMessage =
   | { type: 'script_finished'; script_id: string; success: boolean; error?: string }
   | { type: 'debug_paused'; script_id: string; line: number; variables: VariableInfo[]; call_stack: string[] }
   | { type: 'debug_resumed'; script_id: string }
+  | { type: 'terminal_finished'; success: boolean; error?: string }
   | { type: 'simulation_started' }
   | { type: 'simulation_stopped' }
   | { type: 'simulation_tick'; tick: number };

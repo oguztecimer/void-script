@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Diagnostic, ScriptInfo, VariableInfo } from '../ipc/types';
+import type { CommandInfo, Diagnostic, ScriptInfo, VariableInfo } from '../ipc/types';
 
 interface ConsoleEntry {
   text: string;
@@ -40,6 +40,7 @@ interface EditorState {
   tier: number;
   foldedLines: Record<string, number[]>;
   availableCommands: string[];
+  commandInfo: CommandInfo[];
   devMode: boolean;
 
   setTier: (tier: number) => void;
@@ -71,6 +72,7 @@ interface EditorState {
   getBreakpoints: (scriptId: string) => number[];
   setFoldedLines: (scriptId: string, lines: number[]) => void;
   setAvailableCommands: (commands: string[]) => void;
+  setCommandInfo: (info: CommandInfo[]) => void;
   setDevMode: (devMode: boolean) => void;
 }
 
@@ -97,6 +99,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   breakpoints: {},
   foldedLines: {},
   availableCommands: [],
+  commandInfo: [],
   devMode: false,
 
   setTier: (tier) => set({ tier }),
@@ -208,6 +211,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
     })),
 
   setAvailableCommands: (commands) => set({ availableCommands: commands }),
+  setCommandInfo: (info) => set({ commandInfo: info }),
   setDevMode: (devMode) => set({ devMode }),
 }), {
   name: 'deadcode-editor-panels',

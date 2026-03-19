@@ -620,6 +620,20 @@ pub fn execute_unit(
                 state.yielded = true;
                 return Ok(Some(UnitAction::Pact));
             }
+            Instruction::ActionCustom(name) => {
+                // Pop N args from stack (N from custom command registry).
+                let num_args = world.custom_command_arg_counts
+                    .get(&name)
+                    .copied()
+                    .unwrap_or(0);
+                let mut args = Vec::with_capacity(num_args);
+                for _ in 0..num_args {
+                    args.push(pop(&mut state.stack)?);
+                }
+                args.reverse(); // Args were pushed left-to-right, popped in reverse.
+                state.yielded = true;
+                return Ok(Some(UnitAction::Custom { name, args }));
+            }
             // --- Misc ---
             Instruction::Print => {
                 let val = pop(&mut state.stack)?;

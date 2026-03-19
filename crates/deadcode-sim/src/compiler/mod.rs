@@ -3,7 +3,7 @@ mod emit;
 pub mod error;
 mod symbol_table;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use grimscript_lang::ast::Program;
 
@@ -18,7 +18,17 @@ pub fn compile(
     program: &Program,
     available_commands: Option<HashSet<String>>,
 ) -> Result<CompiledScript, CompileError> {
-    let compiler = emit::Compiler::new(available_commands);
+    compile_with_custom(program, available_commands, HashMap::new())
+}
+
+/// Compile a GrimScript AST into simulation IR, with custom command definitions.
+pub fn compile_with_custom(
+    program: &Program,
+    available_commands: Option<HashSet<String>>,
+    custom_commands: HashMap<String, usize>,
+) -> Result<CompiledScript, CompileError> {
+    let compiler = emit::Compiler::new(available_commands)
+        .with_custom_commands(custom_commands);
     let mut script = compiler.compile(program)?;
     emit::fixup_calls(&mut script);
     Ok(script)
@@ -42,11 +52,20 @@ pub fn compile_source_with(
     source: &str,
     available_commands: Option<HashSet<String>>,
 ) -> Result<CompiledScript, String> {
+    compile_source_full(source, available_commands, HashMap::new())
+}
+
+/// Parse source code and compile to IR, with command gating and custom commands.
+pub fn compile_source_full(
+    source: &str,
+    available_commands: Option<HashSet<String>>,
+    custom_commands: HashMap<String, usize>,
+) -> Result<CompiledScript, String> {
     let tokens = grimscript_lang::lexer::Lexer::new(source).tokenize();
     let program = grimscript_lang::parser::Parser::new(tokens)
         .parse()
         .map_err(|e| format!("parse error (line {}): {}", e.line, e.message))?;
-    compile(&program, available_commands)
+    compile_with_custom(&program, available_commands, custom_commands)
         .map_err(|e| format!("compile error (line {}): {}", e.line, e.message))
 }
 

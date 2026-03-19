@@ -23,6 +23,11 @@ pub fn is_game_builtin(name: &str) -> bool {
 }
 
 pub fn is_builtin(name: &str) -> bool {
+    is_builtin_static(name)
+}
+
+/// Check against the statically known builtins.
+pub fn is_builtin_static(name: &str) -> bool {
     matches!(
         name,
         "print"
@@ -58,6 +63,11 @@ pub fn is_builtin(name: &str) -> bool {
             | "harvest"
             | "pact"
     )
+}
+
+/// Check if a name is a builtin, considering dynamic custom commands.
+pub fn is_builtin_with_custom(name: &str, custom_commands: &std::collections::HashSet<String>) -> bool {
+    is_builtin_static(name) || custom_commands.contains(name)
 }
 
 pub fn call_builtin(
@@ -384,10 +394,31 @@ pub fn call_builtin(
             send_output(output_tx, "[pact] Forging a dark pact...");
             Ok(Value::None)
         }
-        _ => Err(GrimScriptError::runtime(
+        _ => {
+            // Custom command stub — just prints the command name.
+            send_output(output_tx, &format!("[{name}] (custom command)"));
+            Ok(Value::None)
+        }
+    }
+}
+
+/// Call a builtin, checking custom commands for unknown names.
+pub fn call_builtin_with_custom(
+    name: &str,
+    args: Vec<Value>,
+    output_tx: &Sender<ScriptEvent>,
+    custom_commands: &std::collections::HashSet<String>,
+) -> Result<Value, GrimScriptError> {
+    if is_builtin_static(name) {
+        call_builtin(name, args, output_tx)
+    } else if custom_commands.contains(name) {
+        send_output(output_tx, &format!("[{name}] (custom command)"));
+        Ok(Value::None)
+    } else {
+        Err(GrimScriptError::runtime(
             0,
             format!("Unknown function: {name}"),
-        )),
+        ))
     }
 }
 

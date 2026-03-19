@@ -13,7 +13,7 @@ export type RustToJsMessage =
   | { type: 'simulation_started' }
   | { type: 'simulation_stopped' }
   | { type: 'simulation_tick'; tick: number }
-  | { type: 'available_commands'; commands: string[]; dev_mode: boolean };
+  | { type: 'available_commands'; commands: string[]; dev_mode: boolean; command_info: CommandInfo[] };
 
 // Messages from JS to Rust
 export type JsToRustMessage =
@@ -61,4 +61,10 @@ export interface VariableInfo {
   name: string;
   value: string;
   var_type: string;
+}
+
+export interface CommandInfo {
+  name: string;
+  description: string;
+  args: string[];
 }

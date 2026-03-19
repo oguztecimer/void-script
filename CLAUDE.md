@@ -74,10 +74,10 @@ src/
   ir.rs           — 55+ stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick
   world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots
-  action.rs       — UnitAction enum, resolve_action() against world state
+  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect types for mod-defined commands
   query.rs        — scan(), nearest(), distance() — linear scan over entities
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
-    mod.rs        — compile(), compile_source(), compile_source_with(), initial_variables()
+    mod.rs        — compile(), compile_source(), compile_source_with(), compile_source_full(), initial_variables()
     emit.rs       — AST walk, instruction emission, jump patching, function compilation, available command gating
     symbol_table.rs — Scope tracking, global slots vs function-local offsets
     builtins.rs   — Maps 30+ game builtins to IR instructions (queries, actions, stdlib)
@@ -90,10 +90,14 @@ src/
 - GrimScript source → lexer → parser → AST → compiler → `CompiledScript` (flat instruction vec + function table)
 - Each entity has a `ScriptState` (program counter, value stack, variable slots, call stack)
 - Per tick: seeded shuffle entity order, execute each until an action yields
-- Queries (scan, get_health, etc.) are instant; actions (move, attack, wait, consult, raise, harvest, pact) consume the tick
+- Queries (scan, get_health, etc.) are instant; actions (move, attack, wait, consult, raise, harvest, pact, custom mod commands) consume the tick
 - `self` is pre-allocated at variable slot 0 as `EntityRef` for the executing entity
 
-**Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`) are always available. Game commands (queries/actions) are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set: `consult`, `raise`, `harvest`, `pact` (necromancer starters). In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set received via IPC.
+**Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`) are always available. Game commands (queries/actions) and custom mod commands are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set: `consult`, `raise`, `harvest`, `pact` (necromancer starters). In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set + command info received via IPC.
+
+**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, output). These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, and effects are resolved against world state. See `docs/modding.md` for the full reference.
+
+**Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState`. The interpreter path is only used for terminal one-liners.
 
 **Tick loop** (`SimWorld::tick()`):
 1. Derive per-tick RNG: `SimRng::new(seed ^ tick)`
@@ -158,3 +162,5 @@ Message categories:
 | Save/load | `crates/deadcode-desktop/src/save.rs` |
 | Unlock a game command | `crates/deadcode-app/src/app.rs` → `available_commands` set |
 | Gate a new game builtin | Add to `is_builtin()`, `is_game_builtin()` returns true, `is_stdlib()` returns false |
+| Add custom mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, effects |
+| Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + `resolve_custom_effects()` |

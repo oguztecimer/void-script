@@ -179,12 +179,70 @@ Game commands that can be gated:
 | `set_target` | Set combat target |
 | `get_target` | Get current target |
 | `has_target` | Check if target is set |
-| `consult` | Necromancer action |
-| `raise` | Summon a skeleton |
-| `harvest` | Harvest resources |
-| `pact` | Form a pact |
 
-In dev mode (`--features dev-mode`), all commands are available regardless of the `[commands]` setting.
+Custom commands defined via `[[commands.definitions]]` are also gated by the `initial` list. If a command is defined but not in `initial`, players can't use it until it's unlocked at runtime.
+
+In dev mode (`--features dev-mode`), all commands (including custom) are available regardless of the `[commands]` setting.
+
+## Custom Command Definitions
+
+Mods can define entirely new commands with data-driven effects using `[[commands.definitions]]`. Custom commands are always **actions** — they consume a tick when executed.
+
+```toml
+[[commands.definitions]]
+name = "drain"
+description = "Drain life from target"
+args = ["target"]               # Argument names (positional)
+effects = [
+  { type = "damage", target = "arg:target", amount = 20 },
+  { type = "heal", target = "self", amount = 10 },
+  { type = "output", message = "[drain] Draining life..." },
+]
+
+[[commands.definitions]]
+name = "summon"
+description = "Summon a skeleton at your position"
+args = []
+effects = [
+  { type = "spawn", entity_type = "skeleton", offset = 1 },
+  { type = "output", message = "[summon] A skeleton rises!" },
+]
+
+[[commands.definitions]]
+name = "fortify"
+description = "Gain shield"
+args = []
+effects = [
+  { type = "modify_stat", target = "self", stat = "shield", amount = 25 },
+  { type = "output", message = "[fortify] Shield raised!" },
+]
+```
+
+### Effect Types
+
+Effects are resolved in order when the command executes.
+
+| Effect | Fields | Description |
+|--------|--------|-------------|
+| `output` | `message` | Print a message to the console |
+| `damage` | `target`, `amount` | Deal damage (shield absorbs first) |
+| `heal` | `target`, `amount` | Restore health (capped at max) |
+| `spawn` | `entity_type`, `offset` | Spawn entity at self.position + offset |
+| `modify_stat` | `target`, `stat`, `amount` | Add to a stat (can be negative) |
+
+### Target Resolution
+
+The `target` field in effects uses these formats:
+- `"self"` — the entity executing the command
+- `"arg:<name>"` — an entity reference passed as a command argument (matched by position: first arg = index 0)
+
+### Stat Names
+
+For `modify_stat`, valid stat names are: `health`, `energy`, `shield`, `speed`.
+
+### Base Game Commands as Effects
+
+The base game commands (`consult`, `raise`, `harvest`, `pact`) are also defined as `[[commands.definitions]]` in `mods/necromancer/mod.toml` with real effects. For example, `raise()` actually spawns a skeleton entity and costs energy, rather than just printing a message.
 
 ## Multiple Mods
 
@@ -255,9 +313,11 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `ModManifest` | Deserialized `mod.toml` |
 | `EntityDef` | Entity type definition (type, sprite path, pivot, stats) |
 | `SpawnDef` | Initial spawn definition (type, name, position) |
-| `CommandsDef` | Available command list |
+| `CommandsDef` | Available command list + command definitions |
+| `CommandDef` | Custom command definition (name, description, args, effects) — lives in `deadcode-sim/action.rs` |
+| `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat) — lives in `deadcode-sim/action.rs` |
 | `SpriteData` | Loaded PNG bytes + JSON metadata string |
-| `LoadedMod` | Fully resolved mod with sprite/pivot/config registries |
+| `LoadedMod` | Fully resolved mod with sprite/pivot/config/command registries |
 | `EntityConfig` | Stat overrides applied at entity spawn time (in `deadcode-sim`) |
 
 **Loading flow:**
@@ -266,7 +326,15 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 3. Registries (sprites, pivots, entity configs) are merged into `App`
 4. `[[spawn]]` entries create both sim entities and render units
 5. `[commands].initial` entries populate `App::available_commands`
+6. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld`
+
+**Custom command flow:**
+1. `CommandDef` structs are parsed from TOML and collected in `App::command_defs`
+2. At sim init, each def is registered via `SimWorld::register_custom_command()`
+3. The compiler receives custom command arg counts, emits `ActionCustom(name)` IR instructions
+4. The executor pops args and yields `UnitAction::Custom { name, args }`
+5. `resolve_action()` looks up the command's effects in `SimWorld::custom_commands` and applies them
+6. Custom command metadata (name, description, args) is sent to the frontend via `AvailableCommands` IPC for autocomplete
 
 **Future phases** (not yet implemented):
 - **Phase 2**: Mods provide `.grim` library files whose functions are compiled and merged into player scripts
-- **Phase 3**: `CustomAction` IR instruction + action handler registry for truly new game mechanics defined by mods

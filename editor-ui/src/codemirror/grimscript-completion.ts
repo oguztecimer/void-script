@@ -46,12 +46,24 @@ export function grimScriptCompletion(context: CompletionContext): CompletionResu
   const word = context.matchBefore(/\w*/);
   if (!word || (word.from === word.to && !context.explicit)) return null;
 
-  const available = new Set(useStore.getState().availableCommands);
+  const state = useStore.getState();
+  const available = new Set(state.availableCommands);
   const filteredGameCommands = gameCommandCompletions.filter((c) => available.has(c.label));
+
+  // Build dynamic completions from command_info (custom mod commands).
+  const customCompletions: Completion[] = state.commandInfo
+    .filter((ci) => available.has(ci.name))
+    .filter((ci) => !gameCommandCompletions.some((gc) => gc.label === ci.name))
+    .map((ci) => ({
+      label: ci.name,
+      detail: ci.args.length > 0 ? `(${ci.args.join(', ')})` : '()',
+      info: ci.description,
+      type: 'function' as const,
+    }));
 
   return {
     from: word.from,
-    options: [...keywordCompletions, ...stdlibCompletions, ...filteredGameCommands],
+    options: [...keywordCompletions, ...stdlibCompletions, ...filteredGameCommands, ...customCompletions],
     validFor: /^\w*$/,
   };
 }

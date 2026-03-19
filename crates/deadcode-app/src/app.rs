@@ -19,8 +19,9 @@ use deadcode_desktop::tray;
 use deadcode_desktop::unit::{UnitManager, WORLD_WIDTH};
 use deadcode_desktop::window::{StripInfo, enumerate_monitors};
 
-use deadcode_editor::ipc::{JsToRust, RustToJs, WindowControlEvent};
+use deadcode_editor::ipc::{CommandInfo, JsToRust, RustToJs, WindowControlEvent};
 use deadcode_sim::SimWorld;
+use deadcode_sim::action::CommandDef;
 use deadcode_editor::window::{WebViewManager, MaximizedState, open_editor, get_window_geometry};
 use deadcode_editor::scripts::ScriptStore;
 use deadcode_editor::tabs::EditorWindowState;
@@ -86,6 +87,8 @@ pub struct App {
     maximized_state: MaximizedState,
     settings: Settings,
     available_commands: HashSet<String>,
+    /// Custom command definitions from mods.
+    command_defs: HashMap<String, CommandDef>,
 
     /// Whether the background tick thread has been spawned (Windows only).
     #[cfg(target_os = "windows")]
@@ -135,6 +138,7 @@ impl App {
             maximized_state: MaximizedState::default(),
             settings: Settings::default(),
             available_commands: HashSet::new(),
+            command_defs: HashMap::new(),
 
             #[cfg(target_os = "windows")]
             tick_thread_started: false,
@@ -224,6 +228,16 @@ impl App {
                             let msg = RustToJs::ConsoleOutput {
                                 text: format!("[sim error] {error}"),
                                 level: "error".to_string(),
+                            };
+                            self.webview_manager.send_to_all(&msg);
+                        }
+                        deadcode_sim::SimEvent::ScriptFinished { success, error, .. } => {
+                            // Find the script_id associated with this entity.
+                            // For now, use a placeholder — the editor tracks running state.
+                            let msg = RustToJs::ScriptFinished {
+                                script_id: String::new(), // The editor uses isRunning state.
+                                success: *success,
+                                error: error.clone(),
                             };
                             self.webview_manager.send_to_all(&msg);
                         }
@@ -490,6 +504,7 @@ impl ApplicationHandler<UserEvent> for App {
         // --- Mod loading ---
         let mods = modding::load_mods(&modding::mods_dir());
         self.available_commands = modding::collect_initial_commands(&mods);
+        self.command_defs = modding::collect_command_defs(&mods);
 
         // Merge sprite/pivot/config registries from all loaded mods.
         for loaded_mod in &mods {
@@ -541,6 +556,19 @@ impl ApplicationHandler<UserEvent> for App {
                 );
             }
         }
+
+        // Register custom command definitions with the sim.
+        for def in self.command_defs.values() {
+            sim.register_custom_command(def);
+        }
+
+        // Copy entity configs to sim for spawn effects.
+        for (etype, config) in &self.entity_configs {
+            sim.entity_configs.insert(etype.clone(), config.clone());
+        }
+
+        // Auto-start simulation — it runs continuously from game open.
+        sim.start();
 
         self.unit_manager = Some(um);
         self.sim_world = Some(sim);
@@ -724,30 +752,130 @@ impl ApplicationHandler<UserEvent> for App {
 
 impl App {
     fn send_available_commands(&self) {
-        let commands: Vec<String> = if deadcode_desktop::is_dev_mode() {
+        let mut commands: Vec<String> = if deadcode_desktop::is_dev_mode() {
             // In dev mode, send all game builtins as available
-            vec![
+            let mut cmds: Vec<String> = vec![
                 "move", "get_pos", "scan", "nearest", "distance", "attack",
                 "flee", "wait", "set_target", "get_target", "has_target",
                 "get_health", "get_energy", "get_shield", "get_type",
-                "get_name", "get_owner", "consult", "raise", "harvest", "pact",
+                "get_name", "get_owner",
             ]
             .into_iter()
             .map(|s| s.to_string())
-            .collect()
+            .collect();
+            // Add all custom command names too.
+            cmds.extend(self.command_defs.keys().cloned());
+            cmds
         } else {
             self.available_commands.iter().cloned().collect()
         };
-        let msg = RustToJs::AvailableCommands { commands, dev_mode: deadcode_desktop::is_dev_mode() };
+        commands.sort();
+        commands.dedup();
+
+        // Build command info for custom commands (for editor autocomplete).
+        let command_info: Vec<CommandInfo> = self.command_defs.values().map(|def| {
+            CommandInfo {
+                name: def.name.clone(),
+                description: def.description.clone(),
+                args: def.args.clone(),
+            }
+        }).collect();
+
+        let msg = RustToJs::AvailableCommands {
+            commands,
+            dev_mode: deadcode_desktop::is_dev_mode(),
+            command_info,
+        };
         self.webview_manager.send_to_all(&msg);
     }
 
-    fn available_commands_for_interpreter(&self) -> Option<HashSet<String>> {
+    /// Build custom command arg counts map for the compiler.
+    fn custom_command_arg_counts(&self) -> std::collections::HashMap<String, usize> {
+        self.command_defs.iter().map(|(name, def)| {
+            (name.clone(), def.args.len())
+        }).collect()
+    }
+
+    /// Compile script and assign to summoner's ScriptState in the sim.
+    fn handle_run_script_sim(&mut self, script_id: &str) {
+        let source = match self.script_store.as_ref().and_then(|s| s.scripts.get(script_id)) {
+            Some(script) => script.content.clone(),
+            None => return,
+        };
+        let sid = script_id.to_string();
+
+        // Build available commands for the compiler.
+        let available = self.available_commands_for_compiler();
+        let custom = self.custom_command_arg_counts();
+
+        // Compile source to IR.
+        let compiled = deadcode_sim::compiler::compile_source_full(&source, available, custom);
+        match compiled {
+            Ok(script) => {
+                // Find summoner entity in sim and assign script.
+                if let Some(sim) = &mut self.sim_world {
+                    // Find the summoner (first entity of type "summoner").
+                    let summoner_id = sim.entities()
+                        .find(|e| e.entity_type == "summoner" && e.alive)
+                        .map(|e| e.id);
+
+                    if let Some(eid) = summoner_id {
+                        let num_vars = script.num_variables;
+                        let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                        // Set self = EntityRef for the summoner.
+                        if !state.variables.is_empty() {
+                            state.variables[0] = deadcode_sim::SimValue::EntityRef(eid);
+                        }
+                        if let Some(entity) = sim.get_entity_mut(eid) {
+                            entity.script_state = Some(state);
+                        }
+                    }
+                }
+                self.webview_manager.send_to_all(&RustToJs::ScriptStarted {
+                    script_id: sid,
+                });
+            }
+            Err(error) => {
+                self.webview_manager.send_to_all(&RustToJs::ScriptFinished {
+                    script_id: sid,
+                    success: false,
+                    error: Some(error),
+                });
+            }
+        }
+    }
+
+    /// Stop the summoner's script (clear its ScriptState).
+    fn handle_stop_script_sim(&mut self, script_id: &str) {
+        if let Some(sim) = &mut self.sim_world {
+            let summoner_id = sim.entities()
+                .find(|e| e.entity_type == "summoner" && e.alive)
+                .map(|e| e.id);
+
+            if let Some(eid) = summoner_id {
+                if let Some(entity) = sim.get_entity_mut(eid) {
+                    entity.script_state = None;
+                }
+            }
+        }
+        self.webview_manager.send_to_all(&RustToJs::ScriptFinished {
+            script_id: script_id.to_string(),
+            success: true,
+            error: None,
+        });
+    }
+
+    /// Get available commands for the compiler (None = all allowed in dev mode).
+    fn available_commands_for_compiler(&self) -> Option<HashSet<String>> {
         if deadcode_desktop::is_dev_mode() {
             None // all commands available
         } else {
             Some(self.available_commands.clone())
         }
+    }
+
+    fn available_commands_for_interpreter(&self) -> Option<HashSet<String>> {
+        self.available_commands_for_compiler()
     }
 
     fn poll_editor_ipc(&mut self) {
@@ -794,17 +922,15 @@ impl App {
                 }
                 JsToRust::TabChanged { .. } => {}
                 JsToRust::RunScript { script_id } => {
-                    if let Some(store) = &self.script_store {
-                        self.execution_manager.handle_run_script(&script_id, store, &self.webview_manager);
-                    }
+                    self.handle_run_script_sim(&script_id);
                 }
-                JsToRust::StopScript { .. } => {
-                    self.execution_manager.handle_stop_script();
+                JsToRust::StopScript { script_id } => {
+                    self.handle_stop_script_sim(&script_id);
                 }
                 JsToRust::DebugStart { script_id } => {
-                    if let Some(store) = &self.script_store {
-                        self.execution_manager.handle_debug_start(&script_id, store, &self.webview_manager);
-                    }
+                    // Debug uses the same compile→sim path for now.
+                    // TODO: IR-level debug stepping support.
+                    self.handle_run_script_sim(&script_id);
                 }
                 JsToRust::DebugContinue { .. } => {
                     self.execution_manager.handle_debug_command(DebugCommand::Continue, &self.webview_manager);
@@ -854,32 +980,13 @@ impl App {
                     self.execution_manager.handle_console_command(&command, &self.webview_manager);
                 }
                 JsToRust::StartSimulation => {
-                    if self.sim_world.is_none() {
-                        self.sim_world = Some(SimWorld::new(42));
-                    }
-                    if let Some(sim) = &mut self.sim_world {
-                        sim.start();
-                    }
-                    self.webview_manager.send_to_all(&RustToJs::SimulationStarted);
-                    eprintln!("[sim] started");
+                    // Sim runs continuously from game open — no-op.
                 }
                 JsToRust::StopSimulation => {
-                    if let Some(sim) = &mut self.sim_world {
-                        sim.stop();
-                    }
-                    self.webview_manager.send_to_all(&RustToJs::SimulationStopped);
-                    eprintln!("[sim] stopped");
+                    // Sim runs continuously from game open — no-op.
                 }
                 JsToRust::PauseSimulation => {
-                    if let Some(sim) = &mut self.sim_world {
-                        let is_running = sim.is_running();
-                        sim.set_paused(is_running);
-                        if is_running {
-                            self.webview_manager.send_to_all(&RustToJs::SimulationStopped);
-                        } else {
-                            self.webview_manager.send_to_all(&RustToJs::SimulationStarted);
-                        }
-                    }
+                    // Sim runs continuously from game open — no-op.
                 }
             }
         }

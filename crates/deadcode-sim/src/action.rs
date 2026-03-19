@@ -1,4 +1,7 @@
-use crate::entity::EntityId;
+use serde::{Deserialize, Serialize};
+
+use crate::entity::{EntityId, SimEntity};
+use crate::value::SimValue;
 use crate::world::{SimEvent, SimWorld};
 
 /// An action a unit wants to perform this tick.
@@ -24,6 +27,41 @@ pub enum UnitAction {
     Harvest,
     /// Forge a dark pact (necromancer starter).
     Pact,
+    /// Custom mod-defined command with resolved arguments.
+    Custom { name: String, args: Vec<SimValue> },
+}
+
+/// An effect that a custom command applies when resolved.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum CommandEffect {
+    /// Print a message to the console.
+    #[serde(rename = "output")]
+    Output { message: String },
+    /// Deal damage to a target (shield-first).
+    #[serde(rename = "damage")]
+    Damage { target: String, amount: i64 },
+    /// Heal a target (capped at max).
+    #[serde(rename = "heal")]
+    Heal { target: String, amount: i64 },
+    /// Spawn an entity at self.position + offset.
+    #[serde(rename = "spawn")]
+    Spawn { entity_type: String, offset: i64 },
+    /// Add to a stat (health/energy/shield/speed).
+    #[serde(rename = "modify_stat")]
+    ModifyStat { target: String, stat: String, amount: i64 },
+}
+
+/// Definition of a custom command (parsed from mod.toml).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandDef {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub effects: Vec<CommandEffect>,
 }
 
 /// Resolve a unit's action against the world state.
@@ -143,7 +181,143 @@ pub fn resolve_action(
                 text: "[pact] Forging a dark pact...".to_string(),
             });
         }
+
+        UnitAction::Custom { name, args } => {
+            if let Some(effects) = world.custom_commands.get(&name).cloned() {
+                resolve_custom_effects(world, entity_id, &effects, &args, &mut events);
+            } else {
+                events.push(SimEvent::ScriptOutput {
+                    entity_id,
+                    text: format!("[{name}] (no effects defined)"),
+                });
+            }
+        }
     }
 
     events
+}
+
+/// Resolve custom command effects against the world.
+fn resolve_custom_effects(
+    world: &mut SimWorld,
+    entity_id: EntityId,
+    effects: &[CommandEffect],
+    args: &[SimValue],
+    events: &mut Vec<SimEvent>,
+) {
+    for effect in effects {
+        match effect {
+            CommandEffect::Output { message } => {
+                events.push(SimEvent::ScriptOutput {
+                    entity_id,
+                    text: message.clone(),
+                });
+            }
+            CommandEffect::Damage { target, amount } => {
+                let target_id = resolve_target_from_args(entity_id, target, args);
+                if let Some(tid) = target_id {
+                    if let Some(target_entity) = world.get_entity_mut(tid) {
+                        let mut remaining = *amount;
+                        if target_entity.shield > 0 {
+                            let shield_absorbed = remaining.min(target_entity.shield);
+                            target_entity.shield -= shield_absorbed;
+                            remaining -= shield_absorbed;
+                        }
+                        target_entity.health = (target_entity.health - remaining).max(0);
+                        events.push(SimEvent::EntityDamaged {
+                            entity_id: tid,
+                            damage: *amount,
+                            new_health: target_entity.health,
+                        });
+                        if target_entity.health <= 0 {
+                            target_entity.alive = false;
+                            events.push(SimEvent::EntityDied { entity_id: tid });
+                        }
+                    }
+                }
+            }
+            CommandEffect::Heal { target, amount } => {
+                let target_id = resolve_target_from_args(entity_id, target, args);
+                if let Some(tid) = target_id {
+                    if let Some(target_entity) = world.get_entity_mut(tid) {
+                        target_entity.health = (target_entity.health + amount).min(target_entity.max_health);
+                    }
+                }
+            }
+            CommandEffect::Spawn { entity_type, offset } => {
+                let position = world.get_entity(entity_id)
+                    .map(|e| e.position + offset)
+                    .unwrap_or(*offset);
+                let spawned = SimEntity::new(
+                    EntityId(world.next_entity_id()),
+                    entity_type.clone(),
+                    format!("{}_{}", entity_type, position),
+                    position,
+                );
+                let spawned_id = spawned.id;
+                // Apply entity config if available.
+                world.queue_spawn(spawned);
+                events.push(SimEvent::EntitySpawned {
+                    entity_id: spawned_id,
+                    entity_type: entity_type.clone(),
+                    position,
+                });
+            }
+            CommandEffect::ModifyStat { target, stat, amount } => {
+                let target_id = resolve_target_from_args(entity_id, target, args);
+                if let Some(tid) = target_id {
+                    if let Some(target_entity) = world.get_entity_mut(tid) {
+                        match stat.as_str() {
+                            "health" => {
+                                target_entity.health = (target_entity.health + amount)
+                                    .max(0)
+                                    .min(target_entity.max_health);
+                            }
+                            "energy" => {
+                                target_entity.energy = (target_entity.energy + amount)
+                                    .max(0)
+                                    .min(target_entity.max_energy);
+                            }
+                            "shield" => {
+                                target_entity.shield = (target_entity.shield + amount).max(0);
+                            }
+                            "speed" => {
+                                target_entity.speed = (target_entity.speed + amount).max(0);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Resolve target string to EntityId using positional args.
+/// "self" → executing entity, "arg:<name>" → matched by position (first arg = index 0).
+fn resolve_target_from_args(
+    entity_id: EntityId,
+    target_str: &str,
+    args: &[SimValue],
+) -> Option<EntityId> {
+    if target_str == "self" {
+        return Some(entity_id);
+    }
+    if let Some(arg_ref) = target_str.strip_prefix("arg:") {
+        // Try as numeric index first.
+        if let Ok(idx) = arg_ref.parse::<usize>() {
+            if let Some(SimValue::EntityRef(eid)) = args.get(idx) {
+                return Some(*eid);
+            }
+        }
+        // Named arg: treat as positional — first defined arg name = index 0, etc.
+        // Since we can't look up arg names here, fall back to matching the first
+        // entity ref in args if there's exactly one arg.
+        if args.len() == 1 {
+            if let Some(SimValue::EntityRef(eid)) = args.first() {
+                return Some(*eid);
+            }
+        }
+    }
+    None
 }

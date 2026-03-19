@@ -34,3 +34,41 @@ position = 500
 
 [commands]
 initial = ["consult", "raise", "harvest", "pact"]
+
+[[commands.definitions]]
+name = "consult"
+description = "Consult the spirits"
+args = []
+effects = [
+  { type = "modify_stat", target = "self", stat = "energy", amount = 10 },
+  { type = "output", message = "[consult] The spirits whisper..." },
+]
+
+[[commands.definitions]]
+name = "raise"
+description = "Raise the dead"
+args = []
+effects = [
+  { type = "spawn", entity_type = "skeleton", offset = 1 },
+  { type = "modify_stat", target = "self", stat = "energy", amount = -30 },
+  { type = "output", message = "[raise] A skeleton rises!" },
+]
+
+[[commands.definitions]]
+name = "harvest"
+description = "Harvest essence"
+args = []
+effects = [
+  { type = "modify_stat", target = "self", stat = "energy", amount = 20 },
+  { type = "output", message = "[harvest] Essence absorbed." },
+]
+
+[[commands.definitions]]
+name = "pact"
+description = "Forge a dark pact"
+args = []
+effects = [
+  { type = "modify_stat", target = "self", stat = "health", amount = -10 },
+  { type = "modify_stat", target = "self", stat = "energy", amount = 50 },
+  { type = "output", message = "[pact] Power surges through you..." },
+]

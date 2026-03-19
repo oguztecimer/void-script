@@ -103,6 +103,11 @@ export const grimScriptLanguage = StreamLanguage.define({
         const available = useStore.getState().availableCommands;
         if (available.includes(word)) return 'variableName.function';
       }
+      // Check custom commands from mods.
+      const available = useStore.getState().availableCommands;
+      if (available.includes(word) && !allGameFunctions.has(word) && !stdlibFunctions.has(word)) {
+        return 'variableName.function';
+      }
       return 'variableName';
     }
 

@@ -18,9 +18,9 @@ GrimScript source (.gs files)
     ▼         ▼
  Tree-walk   Compiler
  Interpreter (deadcode-sim/compiler)
- (editor     │
-  preview)   ▼
-          CompiledScript (flat IR)
+ (terminal   │
+  one-liners ▼
+  only)   CompiledScript (flat IR)
               │
               ▼
           Executor (deadcode-sim/executor)
@@ -29,21 +29,25 @@ GrimScript source (.gs files)
               ▼
           SimWorld tick loop
           Deterministic, seeded RNG
+          (always running from game open)
 ```
 
 Two execution paths exist for the same source code:
 
-- **Interpreter** (`grimscript-lang`) — tree-walking, used by the editor's Run/Debug buttons. Runs in a thread, no sim connection. Good for quick testing.
-- **Compiler + Executor** (`deadcode-sim`) — compiles AST to stack-based IR, runs deterministically inside the sim tick loop. This is the real game execution path.
+- **Interpreter** (`grimscript-lang`) — tree-walking, used only for **terminal one-liners**. Runs in a thread, no sim connection.
+- **Compiler + Executor** (`deadcode-sim`) — compiles AST to stack-based IR, runs deterministically inside the sim tick loop. This is the execution path for **Run/Debug buttons** and the real game.
 
-Both paths share the same parser and AST. Builtins need to be registered in both. Both paths also share the same **available commands gating** — an `Option<HashSet<String>>` that restricts which game builtins can be used (stdlib is always allowed).
+The sim runs continuously from game open. The Run button compiles the script to IR and hot-swaps the summoner's `ScriptState`. On the next tick, the executor picks up the new script. The Stop button clears the entity's script state.
+
+Both paths share the same parser and AST. Builtins need to be registered in both (static builtins in both, custom mod commands handled dynamically). Both paths also share the same **available commands gating** — an `Option<HashSet<String>>` that restricts which game builtins can be used (stdlib is always allowed).
 
 ## Script Lifecycle
 
 1. Player writes `.gs` file in the editor (CodeMirror)
 2. Editor sends source to Rust via IPC
-3. **Editor preview**: `grimscript_lang::run_script()` lexes, parses, interprets directly (with available commands gating)
-4. **Sim execution**: `deadcode_sim::compiler::compile_source_with()` lexes, parses, compiles to IR (with available commands gating). The `CompiledScript` is assigned to a `SimEntity`'s `ScriptState`. Each tick, the executor steps through IR until an action yields.
+3. **Run/Debug** (unified path): `deadcode_sim::compiler::compile_source_full()` lexes, parses, compiles to IR (with available commands gating + custom command definitions). The `CompiledScript` is assigned to the summoner's `ScriptState`. On the next sim tick, the executor picks it up and runs it.
+4. **Terminal one-liners**: `grimscript_lang::run_script()` lexes, parses, interprets directly in a thread (with available commands gating). No sim connection.
+5. **Stop**: Clears the entity's `ScriptState`. The sim keeps running, but the entity stops executing.
 
 ## Simulation Execution Model
 
@@ -78,7 +82,7 @@ Per tick, the world:
 | Stdlib | No | Len, Abs, Range, IntCast, StrCast, TypeOf, Min2, Max2, ListAppend, DictKeys/Values/Items/Get |
 | Locals | No | LoadLocal, StoreLocal (function-scoped variables) |
 | **Queries** | **No** | QueryScan, QueryNearest, QueryGetHealth, etc. |
-| **Actions** | **Yes** | ActionMove, ActionAttack, ActionFlee, ActionWait, ActionSetTarget, ActionConsult, ActionRaise, ActionHarvest, ActionPact |
+| **Actions** | **Yes** | ActionMove, ActionAttack, ActionFlee, ActionWait, ActionSetTarget, ActionConsult, ActionRaise, ActionHarvest, ActionPact, ActionCustom(name) |
 | Misc | Yes (Print) / No (Halt) | Print, Halt |
 
 **Key distinction**: Queries read world state instantly. Actions mutate world state and consume the tick.
@@ -109,17 +113,19 @@ Not every GrimScript builtin is available from the start. The game progressively
 - `None` → all commands available (used in dev mode and tests)
 - `Some(set)` → only game builtins in the set are allowed; others produce `"'name' is not available yet"` error
 
+This applies to both hardcoded game builtins and custom mod-defined commands. Custom commands not in the `initial` set cannot be used until unlocked at runtime.
+
 **Initial available set**: Defined in the mod's `[commands].initial` field (see `mods/necromancer/mod.toml`). The base game starts with `consult`, `raise`, `harvest`, `pact`. Multiple mods' command sets are merged.
 
-**Dev mode**: When compiled with `--features dev-mode`, the gate is bypassed entirely (`None` passed to interpreter/compiler, all game builtins sent to frontend as available).
+**Dev mode**: When compiled with `--features dev-mode`, the gate is bypassed entirely (`None` passed to interpreter/compiler, all game builtins + custom commands sent to frontend as available).
 
-**Frontend integration**: Rust sends `AvailableCommands { commands }` via IPC on EditorReady. The frontend uses this to:
-- Filter autocomplete: only show available game commands (`grimscript-completion.ts`)
-- Filter syntax highlighting: only highlight available game functions (`grimscript-lang.ts`)
+**Frontend integration**: Rust sends `AvailableCommands { commands, command_info }` via IPC on EditorReady. `command_info` includes metadata (name, description, args) for custom mod commands. The frontend uses this to:
+- Filter autocomplete: show available game commands + build dynamic entries for custom commands from `command_info` (`grimscript-completion.ts`)
+- Filter syntax highlighting: highlight available game functions + custom command names (`grimscript-lang.ts`)
 
 **Where the gate is checked**:
 - Interpreter: before `call_builtin()` and before entity method dispatch (`interpreter.rs`)
-- Compiler: before emitting Query/Action instructions and before method call fallback (`emit.rs`)
+- Compiler: before emitting Query/Action/CustomAction instructions and before method call fallback (`emit.rs`). The compiler uses `classify_with_custom()` which checks both static builtins and the `custom_commands` map.
 
 **Unlocking commands at runtime**: `App::available_commands` is a `HashSet<String>` in `deadcode-app`, initially populated from mod manifests (`[commands].initial`). Insert a command name, then call `send_available_commands()` to push the updated set to the frontend and `execution_manager.set_available_commands()` to update the interpreter gate.
 
@@ -139,11 +145,38 @@ Not every GrimScript builtin is available from the start. The game progressively
 
 # How to Add New Things
 
-## Adding a New Builtin Function
+## Adding a New Command via Modding (Recommended)
 
-There are two paths depending on where the function should work.
+The simplest way to add a new command is via `[[commands.definitions]]` in `mod.toml`. No Rust code needed:
 
-### Interpreter-only (editor preview, no sim)
+```toml
+[[commands.definitions]]
+name = "summon"
+description = "Summon a skeleton at your position"
+args = []
+effects = [
+  { type = "spawn", entity_type = "skeleton", offset = 1 },
+  { type = "output", message = "[summon] A skeleton rises!" },
+]
+
+[commands]
+initial = ["summon"]   # Make it available at game start
+```
+
+This creates a command that:
+- Is recognized by the compiler and emits `ActionCustom("summon")` IR
+- Consumes a tick when executed (it's an action)
+- Resolves effects against the world (spawns a skeleton, prints output)
+- Shows up in editor autocomplete with the description and args from IPC
+- Is syntax-highlighted when available
+
+See [Custom Command Definitions](modding.md#custom-command-definitions) for the full effect type reference.
+
+## Adding a New Builtin Function (Rust)
+
+For behavior that can't be expressed as data-driven effects, add a new builtin in Rust. There are two paths depending on where the function should work.
+
+### Interpreter-only (terminal one-liners, no sim)
 
 Two files:
 
@@ -203,7 +236,9 @@ Add to `is_builtin()` and `call_builtin()` with a stub return value so the edito
 - `grimscript-completion.ts` — add `{ label, detail, info }` to `gameCommandCompletions` (filtered by available commands) or `stdlibCompletions` (always shown)
 - `grimscript-lang.ts` — add the name to `allGameFunctions` set (highlighted only when available) or `stdlibFunctions` set (always highlighted)
 
-### Concrete example: adding `summon(type_str)` as an action
+### Concrete example: adding `summon(type_str)` as a hardcoded Rust action
+
+> **Note**: For simple cases, prefer defining custom commands in `mod.toml` instead. This Rust approach is only needed for behavior that can't be expressed as data-driven effects.
 
 ```rust
 // 1. ir.rs — add instruction
@@ -314,21 +349,21 @@ Events are how the sim communicates state changes to the rendering layer.
 | Sim IR | `crates/deadcode-sim/src/ir.rs` | Instruction enum, CompiledScript |
 | Sim exec | `crates/deadcode-sim/src/executor.rs` | Stack machine execution |
 | Sim world | `crates/deadcode-sim/src/world.rs` | SimWorld, tick loop, events |
-| Sim actions | `crates/deadcode-sim/src/action.rs` | UnitAction enum, resolution |
+| Sim actions | `crates/deadcode-sim/src/action.rs` | UnitAction enum, resolution, CommandDef/CommandEffect types |
 | Sim queries | `crates/deadcode-sim/src/query.rs` | Entity queries, attribute access |
 | Sim entities | `crates/deadcode-sim/src/entity.rs` | SimEntity, ScriptState |
 | Compiler | `crates/deadcode-sim/src/compiler/builtins.rs` | Builtin → IR mapping |
 | Compiler | `crates/deadcode-sim/src/compiler/emit.rs` | AST → IR emission, available commands gate |
 | Compiler | `crates/deadcode-sim/src/compiler/symbol_table.rs` | Variable scope tracking |
-| App | `crates/deadcode-app/src/app.rs` | Game loop, sim integration, IPC dispatch, available commands state |
-| Modding | `crates/deadcode-app/src/modding.rs` | Mod manifest types, loading, sprite registry, embedded fallback |
-| Mod manifest | `mods/necromancer/mod.toml` | Base game mod: entity defs, spawns, initial commands |
+| App | `crates/deadcode-app/src/app.rs` | Game loop, sim integration, IPC dispatch, available commands state, RunScript→sim compile+assign |
+| Modding | `crates/deadcode-app/src/modding.rs` | Mod manifest types, loading, sprite/command registries, embedded fallback |
+| Mod manifest | `mods/necromancer/mod.toml` | Base game mod: entity defs, spawns, initial commands, command definitions with effects |
 | Entity config | `crates/deadcode-sim/src/entity.rs` | `EntityConfig` for stat overrides at spawn |
 | Execution | `crates/deadcode-editor/src/execution.rs` | Script execution manager, threads available commands to interpreter |
 | IPC | `crates/deadcode-editor/src/ipc.rs` | Rust-side message enums |
 | IPC | `editor-ui/src/ipc/types.ts` | TypeScript message types |
 | IPC | `editor-ui/src/ipc/bridge.ts` | JS-side message handler |
-| Editor | `editor-ui/src/codemirror/grimscript-completion.ts` | Autocomplete (stdlib always, game commands filtered by available set) |
-| Editor | `editor-ui/src/codemirror/grimscript-lang.ts` | Syntax highlighting (stdlib always, game functions filtered by available set) |
-| Editor state | `editor-ui/src/state/store.ts` | `availableCommands` state (set via IPC) |
+| Editor | `editor-ui/src/codemirror/grimscript-completion.ts` | Autocomplete (stdlib always, game commands + custom commands filtered by available set) |
+| Editor | `editor-ui/src/codemirror/grimscript-lang.ts` | Syntax highlighting (stdlib always, game + custom functions filtered by available set) |
+| Editor state | `editor-ui/src/state/store.ts` | `availableCommands` + `commandInfo` state (set via IPC) |
 | Scripts | `crates/deadcode-editor/src/scripts.rs` | Script types, file storage |

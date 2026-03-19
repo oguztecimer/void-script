@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::ir::Instruction;
 
 /// Classification of a builtin function call.
@@ -8,6 +10,8 @@ pub enum BuiltinKind {
     Action(ActionBuiltin),
     /// Standard library function.
     Stdlib(StdlibBuiltin),
+    /// Custom mod-defined action.
+    CustomAction { name: String, num_args: usize },
     /// Not a builtin.
     NotBuiltin,
 }
@@ -50,6 +54,17 @@ pub enum StdlibBuiltin {
     Str,
     Type,
     Float, // compile error
+}
+
+/// Classify a function name as a builtin, checking custom commands if provided.
+pub fn classify_with_custom(name: &str, custom_commands: &HashMap<String, usize>) -> BuiltinKind {
+    let result = classify(name);
+    if matches!(result, BuiltinKind::NotBuiltin) {
+        if let Some(&num_args) = custom_commands.get(name) {
+            return BuiltinKind::CustomAction { name: name.to_string(), num_args };
+        }
+    }
+    result
 }
 
 /// Classify a function name as a builtin.

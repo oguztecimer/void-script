@@ -14,6 +14,7 @@ use deadcode_desktop::animation::{
     SKELETON_ATLAS_PNG, skeleton_atlas_json,
     MERCHANT_ATLAS_PNG, merchant_atlas_json,
 };
+use deadcode_sim::action::CommandDef;
 use deadcode_sim::entity::EntityConfig;
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,8 @@ pub struct SpawnDef {
 pub struct CommandsDef {
     #[serde(default)]
     pub initial: Vec<String>,
+    #[serde(default)]
+    pub definitions: Vec<CommandDef>,
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +110,8 @@ pub struct LoadedMod {
     pub pivots: HashMap<String, [f32; 2]>,
     /// Entity type → entity config (stat overrides).
     pub entity_configs: HashMap<String, EntityConfig>,
+    /// Command name → command definition.
+    pub command_defs: HashMap<String, CommandDef>,
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +128,14 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
     let mut sprites = HashMap::new();
     let mut pivots = HashMap::new();
     let mut entity_configs = HashMap::new();
+    let mut command_defs = HashMap::new();
+
+    // Parse command definitions.
+    if let Some(cmds) = &manifest.commands {
+        for def in &cmds.definitions {
+            command_defs.insert(def.name.clone(), def.clone());
+        }
+    }
 
     for entity_def in &manifest.entities {
         // Load sprite files if a sprite path is specified.
@@ -158,6 +171,7 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
         sprites,
         pivots,
         entity_configs,
+        command_defs,
     })
 }
 
@@ -231,6 +245,7 @@ fn embedded_fallback() -> LoadedMod {
                 "harvest".into(),
                 "pact".into(),
             ],
+            definitions: vec![],
         }),
     };
 
@@ -246,6 +261,7 @@ fn embedded_fallback() -> LoadedMod {
         sprites,
         pivots,
         entity_configs,
+        command_defs: HashMap::new(),
     }
 }
 
@@ -254,6 +270,17 @@ pub fn mods_dir() -> PathBuf {
     std::env::current_dir()
         .unwrap_or_default()
         .join("mods")
+}
+
+/// Collect all command definitions from loaded mods.
+pub fn collect_command_defs(mods: &[LoadedMod]) -> HashMap<String, CommandDef> {
+    let mut defs = HashMap::new();
+    for m in mods {
+        for (name, def) in &m.command_defs {
+            defs.entry(name.clone()).or_insert_with(|| def.clone());
+        }
+    }
+    defs
 }
 
 /// Collect initial commands from all loaded mods.

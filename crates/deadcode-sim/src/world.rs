@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::action::{UnitAction, resolve_action};
+use crate::action::{CommandDef, CommandEffect, UnitAction, resolve_action};
 use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
@@ -35,6 +35,11 @@ pub enum SimEvent {
         entity_id: EntityId,
         error: String,
     },
+    ScriptFinished {
+        entity_id: EntityId,
+        success: bool,
+        error: Option<String>,
+    },
 }
 
 /// A snapshot of the world state for rendering/UI sync.
@@ -66,6 +71,12 @@ pub struct SimWorld {
     pending_despawns: Vec<EntityId>,
     events: Vec<SimEvent>,
     running: bool,
+    /// Custom command name → effects (populated from mod definitions).
+    pub custom_commands: HashMap<String, Vec<CommandEffect>>,
+    /// Custom command name → arg count (for the executor to know how many args to pop).
+    pub custom_command_arg_counts: HashMap<String, usize>,
+    /// Entity type → stat overrides (for spawning from effects).
+    pub entity_configs: HashMap<String, EntityConfig>,
 }
 
 impl SimWorld {
@@ -80,7 +91,23 @@ impl SimWorld {
             pending_despawns: Vec::new(),
             events: Vec::new(),
             running: false,
+            custom_commands: HashMap::new(),
+            custom_command_arg_counts: HashMap::new(),
+            entity_configs: HashMap::new(),
         }
+    }
+
+    /// Register a custom command with its effects and arg count.
+    pub fn register_custom_command(&mut self, def: &CommandDef) {
+        self.custom_command_arg_counts.insert(def.name.clone(), def.args.len());
+        self.custom_commands.insert(def.name.clone(), def.effects.clone());
+    }
+
+    /// Get the next entity ID (for pre-allocating IDs in effect resolution).
+    pub fn next_entity_id(&mut self) -> u64 {
+        let id = self.next_entity_id;
+        self.next_entity_id += 1;
+        id
     }
 
     /// Start the simulation.
@@ -261,12 +288,24 @@ impl SimWorld {
                         actions.push((eid, action));
                     }
                 }
-                Ok(None) => { /* Script halted or finished. */ }
+                Ok(None) => {
+                    // Script halted or finished.
+                    self.events.push(SimEvent::ScriptFinished {
+                        entity_id: eid,
+                        success: true,
+                        error: None,
+                    });
+                }
                 Err(err) => {
                     script_state.error = Some(err.to_string());
                     self.events.push(SimEvent::ScriptError {
                         entity_id: eid,
                         error: err.to_string(),
+                    });
+                    self.events.push(SimEvent::ScriptFinished {
+                        entity_id: eid,
+                        success: false,
+                        error: Some(err.to_string()),
                     });
                 }
             }

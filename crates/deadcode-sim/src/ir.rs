@@ -110,6 +110,9 @@ pub enum Instruction {
     ActionHarvest,
     /// Forge a dark pact. No args.
     ActionPact,
+    /// Custom action defined by mods. Args are already on the stack.
+    /// The String is the command name; arg count is looked up from the command registry.
+    ActionCustom(String),
 
     // --- Local variable access (var_base-relative for function params/locals) ---
     /// Load function-local variable at var_base + offset.

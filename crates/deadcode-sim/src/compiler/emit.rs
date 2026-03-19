@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use grimscript_lang::ast::*;
 
@@ -35,6 +35,8 @@ pub struct Compiler<'a> {
     pending_calls: Vec<(usize, String)>,
     /// If Some, only these game commands are available. Stdlib is always allowed.
     available_commands: Option<HashSet<String>>,
+    /// Custom command name → arg count (from mod definitions).
+    custom_commands: HashMap<String, usize>,
 }
 
 impl<'a> Compiler<'a> {
@@ -48,7 +50,13 @@ impl<'a> Compiler<'a> {
             temp_counter: 0,
             pending_calls: Vec::new(),
             available_commands,
+            custom_commands: HashMap::new(),
         }
+    }
+
+    pub fn with_custom_commands(mut self, custom_commands: HashMap<String, usize>) -> Self {
+        self.custom_commands = custom_commands;
+        self
     }
 
     fn check_command_available(&self, name: &str, line: u32) -> Result<(), CompileError> {
@@ -630,8 +638,8 @@ impl<'a> Compiler<'a> {
                     return Ok(());
                 }
 
-                // Check builtins.
-                match builtins::classify(name) {
+                // Check builtins (including custom commands from mods).
+                match builtins::classify_with_custom(name, &self.custom_commands) {
                     BuiltinKind::Query(q) => {
                         self.check_command_available(name, line)?;
                         self.compile_query_call(&q, args, line)?;
@@ -642,6 +650,22 @@ impl<'a> Compiler<'a> {
                     }
                     BuiltinKind::Stdlib(s) => {
                         self.compile_stdlib_call(&s, args, line)?;
+                    }
+                    BuiltinKind::CustomAction { name: cmd_name, num_args } => {
+                        self.check_command_available(&cmd_name, line)?;
+                        if args.len() != num_args {
+                            return Err(CompileError::new(
+                                line,
+                                format!(
+                                    "{}() takes {} argument(s), got {}",
+                                    cmd_name, num_args, args.len()
+                                ),
+                            ));
+                        }
+                        for arg in args {
+                            self.compile_expr(arg)?;
+                        }
+                        self.emit(Instruction::ActionCustom(cmd_name));
                     }
                     BuiltinKind::NotBuiltin => {
                         // User-defined function call.
@@ -1048,8 +1072,10 @@ impl<'a> Compiler<'a> {
             ExprKind::Call { func, .. } => {
                 if let ExprKind::Name(name) = &func.kind {
                     matches!(
-                        builtins::classify(name),
-                        BuiltinKind::Action(_) | BuiltinKind::Stdlib(StdlibBuiltin::Print)
+                        builtins::classify_with_custom(name, &self.custom_commands),
+                        BuiltinKind::Action(_)
+                            | BuiltinKind::CustomAction { .. }
+                            | BuiltinKind::Stdlib(StdlibBuiltin::Print)
                     )
                 } else {
                     false

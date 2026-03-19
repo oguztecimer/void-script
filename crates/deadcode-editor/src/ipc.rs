@@ -69,7 +69,17 @@ pub enum RustToJs {
     AvailableCommands {
         commands: Vec<String>,
         dev_mode: bool,
+        #[serde(default)]
+        command_info: Vec<CommandInfo>,
     },
+}
+
+/// Metadata about a command (for editor autocomplete/syntax highlighting).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandInfo {
+    pub name: String,
+    pub description: String,
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

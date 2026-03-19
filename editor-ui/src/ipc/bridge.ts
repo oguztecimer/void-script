@@ -76,6 +76,7 @@ export function initIpcBridge(): void {
         break;
       case 'available_commands':
         store.setAvailableCommands(msg.commands);
+        store.setCommandInfo(msg.command_info || []);
         store.setDevMode(msg.dev_mode);
         break;
     }

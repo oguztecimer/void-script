@@ -245,9 +245,7 @@ For `modify_stat`, valid stat names are: `health`, `energy`, `shield`, `speed`.
 
 ### Base Game Commands as Effects
 
-The base game commands (`consult`, `raise`, `harvest`, `pact`) are defined as `[[commands.definitions]]` in `mods/necromancer/mod.toml` with data-driven effects (e.g., `raise` specifies spawn + energy cost).
-
-> **Known issue (BUG-001):** These four commands are currently shadowed by hardcoded `ActionBuiltin` entries in the compiler. The compiler matches the hardcoded path before checking custom commands, so the mod.toml definitions (effects and costs) are registered but never executed. The hardcoded path only prints a message. See `bugs&issues.md` for details and fix options.
+The base game commands (`consult`, `raise`, `harvest`, `pact`) are defined as `[[commands.definitions]]` in `mods/necromancer/mod.toml` with data-driven effects. They use the same custom command path as any mod-defined command — their effects and costs are fully executed by the data-driven system.
 
 ## Multiple Mods
 

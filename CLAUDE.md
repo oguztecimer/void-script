@@ -92,14 +92,12 @@ src/
 - GrimScript source → lexer → parser → AST → compiler → `CompiledScript` (flat instruction vec + function table)
 - Each entity has a `ScriptState` (program counter, value stack, variable slots, call stack)
 - Per tick: seeded shuffle entity order, execute each until an action yields
-- Queries (scan, get_health, etc.) are instant; actions (move, attack, wait, consult, raise, harvest, pact, custom mod commands) consume the tick
+- Queries (scan, get_health, etc.) are instant; actions (move, attack, wait, custom mod commands) consume the tick
 - `self` is pre-allocated at variable slot 0 as `EntityRef` for the executing entity
 
 **Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available. Game commands (queries/actions) and custom mod commands are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set: `consult`, `raise`, `harvest`, `pact` (necromancer starters). In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set + command info received via IPC.
 
 **Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, output) and optional resource costs (energy, health). These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, costs are checked/deducted, then effects are resolved against world state. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
-
-**Known issue (BUG-001):** The four base commands (`consult`, `raise`, `harvest`, `pact`) have hardcoded `ActionBuiltin` entries in `compiler/builtins.rs` that shadow their `[[commands.definitions]]` in mod.toml. Their custom effects and costs are registered but never executed. See `bugs&issues.md` for details and fix options.
 
 **Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
 

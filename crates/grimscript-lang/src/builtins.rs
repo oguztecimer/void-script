@@ -61,10 +61,6 @@ pub fn is_builtin_static(name: &str) -> bool {
             | "get_type"
             | "get_name"
             | "get_owner"
-            | "consult"
-            | "raise"
-            | "harvest"
-            | "pact"
     )
 }
 
@@ -424,22 +420,6 @@ pub fn call_builtin(
         "get_type" => Ok(Value::String("unknown".into())),
         "get_name" => Ok(Value::String("entity".into())),
         "get_owner" => Ok(Value::String("player".into())),
-        "consult" => {
-            send_output(output_tx, "[consult] Consulting the spirits...");
-            Ok(Value::None)
-        }
-        "raise" => {
-            send_output(output_tx, "[raise] Raising the dead...");
-            Ok(Value::None)
-        }
-        "harvest" => {
-            send_output(output_tx, "[harvest] Harvesting essence...");
-            Ok(Value::None)
-        }
-        "pact" => {
-            send_output(output_tx, "[pact] Forging a dark pact...");
-            Ok(Value::None)
-        }
         _ => {
             // Custom command stub — just prints the command name.
             send_output(output_tx, &format!("[{name}] (custom command)"));

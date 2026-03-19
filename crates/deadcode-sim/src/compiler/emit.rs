@@ -1161,9 +1161,5 @@ fn action_name(a: &ActionBuiltin) -> &'static str {
         ActionBuiltin::Flee => "flee",
         ActionBuiltin::Wait => "wait",
         ActionBuiltin::SetTarget => "set_target",
-        ActionBuiltin::Consult => "consult",
-        ActionBuiltin::Raise => "raise",
-        ActionBuiltin::Harvest => "harvest",
-        ActionBuiltin::Pact => "pact",
     }
 }

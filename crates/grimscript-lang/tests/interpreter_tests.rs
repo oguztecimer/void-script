@@ -266,8 +266,8 @@ fn stdlib_works_with_empty_available_set() {
 #[test]
 fn available_game_builtin_works_when_in_set() {
     let mut cmds = std::collections::HashSet::new();
-    cmds.insert("consult".to_string());
-    let events = run_with_commands("consult()", cmds);
+    cmds.insert("wait".to_string());
+    let events = run_with_commands("wait()", cmds);
     assert!(succeeded(&events));
-    assert_eq!(outputs(&events), vec!["[consult] Consulting the spirits..."]);
+    assert_eq!(outputs(&events), vec!["[wait] Waiting..."]);
 }

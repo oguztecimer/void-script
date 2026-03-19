@@ -37,10 +37,6 @@ pub enum ActionBuiltin {
     Flee,
     Wait,
     SetTarget,
-    Consult,
-    Raise,
-    Harvest,
-    Pact,
 }
 
 pub enum StdlibBuiltin {
@@ -91,10 +87,6 @@ pub fn classify(name: &str) -> BuiltinKind {
         "flee" => BuiltinKind::Action(ActionBuiltin::Flee),
         "wait" => BuiltinKind::Action(ActionBuiltin::Wait),
         "set_target" => BuiltinKind::Action(ActionBuiltin::SetTarget),
-        "consult" => BuiltinKind::Action(ActionBuiltin::Consult),
-        "raise" => BuiltinKind::Action(ActionBuiltin::Raise),
-        "harvest" => BuiltinKind::Action(ActionBuiltin::Harvest),
-        "pact" => BuiltinKind::Action(ActionBuiltin::Pact),
         // Stdlib
         "print" => BuiltinKind::Stdlib(StdlibBuiltin::Print),
         "len" => BuiltinKind::Stdlib(StdlibBuiltin::Len),
@@ -138,10 +130,6 @@ pub fn action_instruction(a: &ActionBuiltin) -> Instruction {
         ActionBuiltin::Flee => Instruction::ActionFlee,
         ActionBuiltin::Wait => Instruction::ActionWait,
         ActionBuiltin::SetTarget => Instruction::ActionSetTarget,
-        ActionBuiltin::Consult => Instruction::ActionConsult,
-        ActionBuiltin::Raise => Instruction::ActionRaise,
-        ActionBuiltin::Harvest => Instruction::ActionHarvest,
-        ActionBuiltin::Pact => Instruction::ActionPact,
     }
 }
 
@@ -189,9 +177,5 @@ pub fn action_expected_args(a: &ActionBuiltin) -> usize {
         ActionBuiltin::Flee => 1,
         ActionBuiltin::Wait => 0,
         ActionBuiltin::SetTarget => 1,
-        ActionBuiltin::Consult => 0,
-        ActionBuiltin::Raise => 0,
-        ActionBuiltin::Harvest => 0,
-        ActionBuiltin::Pact => 0,
     }
 }

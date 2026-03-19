@@ -3,7 +3,7 @@
 ## BUG-001: Base Commands Shadow Custom Command Definitions
 
 **Severity: High**
-**Status: Open**
+**Status: Resolved**
 **Affects: `raise`, `consult`, `harvest`, `pact`**
 
 ### Description

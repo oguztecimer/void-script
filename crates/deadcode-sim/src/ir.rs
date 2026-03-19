@@ -102,14 +102,6 @@ pub enum Instruction {
     ActionWait,
     /// Set target. Pop EntityRef.
     ActionSetTarget,
-    /// Consult the spirits. No args.
-    ActionConsult,
-    /// Raise the dead. No args.
-    ActionRaise,
-    /// Harvest essence. No args.
-    ActionHarvest,
-    /// Forge a dark pact. No args.
-    ActionPact,
     /// Custom action defined by mods. Args are already on the stack.
     /// The String is the command name; arg count is looked up from the command registry.
     ActionCustom(String),

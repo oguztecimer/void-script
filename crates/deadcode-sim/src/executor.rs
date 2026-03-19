@@ -619,22 +619,6 @@ pub fn execute_unit(
                 state.yielded = true;
                 return Ok(Some(UnitAction::SetTarget { target }));
             }
-            Instruction::ActionConsult => {
-                state.yielded = true;
-                return Ok(Some(UnitAction::Consult));
-            }
-            Instruction::ActionRaise => {
-                state.yielded = true;
-                return Ok(Some(UnitAction::Raise));
-            }
-            Instruction::ActionHarvest => {
-                state.yielded = true;
-                return Ok(Some(UnitAction::Harvest));
-            }
-            Instruction::ActionPact => {
-                state.yielded = true;
-                return Ok(Some(UnitAction::Pact));
-            }
             Instruction::ActionCustom(name) => {
                 // Pop N args from stack (N from custom command registry).
                 let num_args = world.custom_command_arg_counts

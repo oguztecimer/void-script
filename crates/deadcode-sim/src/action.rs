@@ -19,14 +19,6 @@ pub enum UnitAction {
     SetTarget { target: EntityId },
     /// Print a value (not really a game action, but uses the same yield path).
     Print { text: String },
-    /// Consult the spirits (necromancer starter).
-    Consult,
-    /// Raise the dead (necromancer starter).
-    Raise,
-    /// Harvest essence (necromancer starter).
-    Harvest,
-    /// Forge a dark pact (necromancer starter).
-    Pact,
     /// Custom mod-defined command with resolved arguments.
     Custom { name: String, args: Vec<SimValue> },
 }
@@ -171,30 +163,6 @@ pub fn resolve_action(
             events.push(SimEvent::ScriptOutput { entity_id, text });
         }
 
-        UnitAction::Consult => {
-            events.push(SimEvent::ScriptOutput {
-                entity_id,
-                text: "[consult] Consulting the spirits...".to_string(),
-            });
-        }
-        UnitAction::Raise => {
-            events.push(SimEvent::ScriptOutput {
-                entity_id,
-                text: "[raise] Raising the dead...".to_string(),
-            });
-        }
-        UnitAction::Harvest => {
-            events.push(SimEvent::ScriptOutput {
-                entity_id,
-                text: "[harvest] Harvesting essence...".to_string(),
-            });
-        }
-        UnitAction::Pact => {
-            events.push(SimEvent::ScriptOutput {
-                entity_id,
-                text: "[pact] Forging a dark pact...".to_string(),
-            });
-        }
 
         UnitAction::Custom { name, args } => {
             // Check and deduct costs before resolving effects.

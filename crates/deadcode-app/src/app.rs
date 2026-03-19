@@ -1032,7 +1032,44 @@ impl App {
                     self.webview_manager.set_size(width, height, resizable);
                 }
                 JsToRust::ConsoleCommand { command } => {
-                    self.execution_manager.handle_console_command(&command, &self.webview_manager);
+                    // Check if the command is a simple custom command call (e.g. "help()").
+                    // If so, resolve it through the sim world instead of the interpreter,
+                    // which only stubs custom commands without resolving effects.
+                    let handled = if let Some(cmd_name) = parse_simple_call(&command) {
+                        if let (Some(sim), true) = (&mut self.sim_world, self.command_defs.contains_key(&cmd_name)) {
+                            let caster_id = sim.entities().next().map(|e| e.id);
+                            if let Some(eid) = caster_id {
+                                if let Some(effects) = sim.custom_commands.get(&cmd_name).cloned() {
+                                    let mut events = Vec::new();
+                                    deadcode_sim::action::resolve_custom_effects(
+                                        sim, eid, &cmd_name, &effects, &[], &mut events,
+                                    );
+                                    for event in &events {
+                                        match event {
+                                            deadcode_sim::SimEvent::ScriptOutput { text, .. } => {
+                                                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                                                    text: text.clone(),
+                                                    level: "info".to_string(),
+                                                });
+                                            }
+                                            deadcode_sim::SimEvent::ScriptError { error, .. } => {
+                                                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                                                    text: error.clone(),
+                                                    level: "error".to_string(),
+                                                });
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    true
+                                } else { false }
+                            } else { false }
+                        } else { false }
+                    } else { false };
+
+                    if !handled {
+                        self.execution_manager.handle_console_command(&command, &self.webview_manager);
+                    }
                 }
                 JsToRust::StartSimulation => {
                     // Sim runs continuously from game open — no-op.
@@ -1093,6 +1130,23 @@ impl App {
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     fn show_context_menu(&self) {}
+}
+
+// ---------------------------------------------------------------------------
+// Console command helpers
+// ---------------------------------------------------------------------------
+
+/// Parse a simple no-arg function call like "help()" and return the function name.
+/// Returns None for anything more complex.
+fn parse_simple_call(source: &str) -> Option<String> {
+    let trimmed = source.trim();
+    if trimmed.ends_with("()") {
+        let name = &trimmed[..trimmed.len() - 2];
+        if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Some(name.to_string());
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------

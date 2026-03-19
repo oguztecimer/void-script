@@ -268,7 +268,7 @@ fn embedded_fallback() -> LoadedMod {
         initial: Some(InitialDef {
             effects: vec![
                 CommandEffect::Output { message: "The dead stir beneath your feet".into() },
-                CommandEffect::Output { message: "Type help() to hear the bones speak".into() },
+                CommandEffect::Output { message: "Call for help() to hear them speak".into() },
             ],
         }),
     };

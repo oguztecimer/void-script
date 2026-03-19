@@ -27,7 +27,7 @@ position = 500
 [initial]
 effects = [
   { type = "output", message = "The dead stir beneath your feet" },
-  { type = "output", message = "Type help() to hear the bones speak" },
+  { type = "output", message = "Call for help() to hear them speak" },
 ]
 
 [commands]

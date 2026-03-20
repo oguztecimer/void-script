@@ -839,12 +839,23 @@ effects = [
 
 ### Script Access
 
-Custom stats are accessible via entity attribute access in GrimScript:
+Custom stats are accessible via entity attribute access or the `get_custom_stat` builtin:
 
 ```python
+# Via attribute access (dot notation)
 my_armor = self.armor
 print("Armor:", my_armor)
+
+# Via builtin function (takes entity ref + stat name)
+armor = get_custom_stat(self, "armor")
+target_armor = get_custom_stat(target, "armor")
 ```
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `get_custom_stat(entity, "name")` | `Int` | Get the value of a custom stat on an entity (0 if undefined) |
+
+`get_custom_stat` is a game builtin gated by `[initial].commands`.
 
 ## Computed Values (DynInt)
 

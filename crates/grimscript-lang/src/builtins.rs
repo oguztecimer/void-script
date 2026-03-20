@@ -63,6 +63,7 @@ pub fn is_builtin_static(name: &str) -> bool {
             | "get_resource"
             | "gain_resource"
             | "try_spend_resource"
+            | "get_custom_stat"
     )
 }
 
@@ -424,6 +425,7 @@ pub fn call_builtin(
         "get_resource" => Ok(Value::Int(0)),
         "gain_resource" => Ok(Value::Int(0)),
         "try_spend_resource" => Ok(Value::Bool(true)),
+        "get_custom_stat" => Ok(Value::Int(0)),
         _ => {
             // Custom command stub — just prints the command name.
             send_output(output_tx, &format!("[{name}] (custom command)"));

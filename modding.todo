@@ -78,7 +78,7 @@ Arbitrary named stats beyond health/mana/shield/speed.
 [x] modify_custom_stat effect — like modify_stat but for custom stats
 [x] use_custom_stat effect — like use_resource but for custom stats
 [x] custom_stat condition type
-[ ] get_custom_stat GrimScript builtin (query, instant) — deferred (5-file builtin path)
+[x] get_custom_stat GrimScript builtin (query, instant)
 [x] Update docs/modding.md
 
 

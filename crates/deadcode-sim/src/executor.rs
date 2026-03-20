@@ -594,6 +594,14 @@ pub fn execute_unit(
                 let val = world.get_resource(&name);
                 state.stack.push(SimValue::Int(val));
             }
+            Instruction::QueryGetCustomStat => {
+                let stat_name = pop_str(&mut state.stack)?;
+                let eid = pop_entity_ref(&mut state.stack)?;
+                let val = world.get_entity(eid)
+                    .and_then(|e| e.custom_stats.get(&stat_name).copied())
+                    .unwrap_or(0);
+                state.stack.push(SimValue::Int(val));
+            }
 
             // --- Action instructions (consume tick) ---
             Instruction::ActionMove => {

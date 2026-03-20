@@ -273,6 +273,7 @@ Mods can define entirely new commands with data-driven effects using `[[commands
 [[commands.definitions]]
 name = "drain"
 description = "Drain life from target"
+unlisted = false                # If true, hidden from list_commands output (default: false)
 args = ["target"]               # Argument names (positional)
 effects = [
   { type = "damage", target = "arg:target", amount = 20 },
@@ -453,7 +454,7 @@ name = "fireball"
 description = "Channel a fireball"
 args = ["target"]
 phases = [
-  { ticks = 5, interruptible = true, per_tick = [
+  { ticks = 5, interruptible = true, per_update = [
     { type = "use_resource", stat = "mana", amount = 10 },
   ], on_start = [
     { type = "output", message = "[fireball] Channeling..." },
@@ -475,16 +476,17 @@ phases = [
 | `ticks` | Yes | — | Number of ticks this phase lasts (must be > 0) |
 | `interruptible` | No | `false` | Whether the entity's script runs during this phase |
 | `on_start` | No | `[]` | Effects that run on the first tick of the phase |
-| `per_tick` | No | `[]` | Effects that run every tick of the phase (including the first) |
+| `per_update` | No | `[]` | Effects that run on update ticks of the phase (frequency controlled by `update_interval`) |
+| `update_interval` | No | `1` | Run `per_update` effects every N ticks (1 = every tick, 2 = every other tick, etc.) |
 
-Effects inside `on_start` and `per_tick` use the same effect types as instant commands (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice).
+Effects inside `on_start` and `per_update` use the same effect types as instant commands (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice).
 
 ### Execution Model
 
 1. **Initiation tick:** The script calls the command (e.g., `fireball(target)`) → a channel is set up on the entity. No effects run this tick — the action is consumed.
 2. **Phase ticks (next tick onward):** Before normal script execution, the tick loop processes active channels:
-   - **First tick of a phase:** `on_start` effects run, then `per_tick` effects.
-   - **Subsequent ticks:** Only `per_tick` effects run.
+   - **First tick of a phase:** `on_start` effects run, then `per_update` fires if it's an update tick.
+   - **Update tick schedule:** `per_update` effects run when `(ticks_elapsed + 1) % update_interval == 0`. With interval=1 this fires every tick (0,1,2,...); interval=2 fires at ticks 1,3,5; interval=3 fires at ticks 2,5,8.
    - When ticks remaining reaches 0, the next phase begins.
 3. **Channel complete:** All phases done → entity resumes normal script execution next tick.
 
@@ -495,7 +497,7 @@ For the fireball example above (5 + 1 + 4 = 10 phase ticks):
 | Tick | What happens |
 |------|-------------|
 | N | Script calls `fireball(target)` → channel set up |
-| N+1 to N+5 | Phase 0: windup (interruptible, drains 10 mana/tick) |
+| N+1 to N+5 | Phase 0: windup (interruptible, drains 10 mana per update) |
 | N+6 | Phase 1: impact (50 damage, non-interruptible) |
 | N+7 to N+10 | Phase 2: recovery (non-interruptible) |
 | N+11 | Script resumes normally |
@@ -510,7 +512,7 @@ During **non-interruptible** phases, the script is not executed at all — the e
 
 ### Cancellation on Resource Failure
 
-If a `use_resource` effect within a phase's `on_start` or `per_tick` fails (insufficient resource), the entire channel is cancelled. Remaining effects in that tick and all subsequent phases are skipped. The standard `[<command>] not enough <stat>` message is emitted.
+If a `use_resource` effect within a phase's `on_start` or `per_update` fails (insufficient resource), the entire channel is cancelled. Remaining effects in that tick and all subsequent phases are skipped. The standard `[<command>] not enough <stat>` message is emitted.
 
 ### Edge Cases
 
@@ -649,8 +651,8 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `SpawnDef` | Initial spawn definition (type, name, position) |
 | `InitialDef` | Initial state: available commands, available resources, startup effects |
 | `CommandsDef` | Command definitions + reserved library paths |
-| `CommandDef` | Custom command definition (name, description, args, effects, phases) — lives in `deadcode-sim/action.rs` |
-| `PhaseDef` | Single phase in a multi-tick phased command (ticks, interruptible, on_start, per_tick) — lives in `deadcode-sim/action.rs` |
+| `CommandDef` | Custom command definition (name, description, args, effects, phases, unlisted) — lives in `deadcode-sim/action.rs` |
+| `PhaseDef` | Single phase in a multi-tick phased command (ticks, interruptible, on_start, per_update, update_interval) — lives in `deadcode-sim/action.rs` |
 | `ChannelState` | Active channel state on an entity during phased execution — lives in `deadcode-sim/entity.rs` |
 | `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice) — lives in `deadcode-sim/action.rs` |
 | `DynInt` | Integer value: fixed or `rand(min,max)` — deserialized from TOML, resolved at effect execution time — lives in `deadcode-sim/action.rs` |
@@ -664,7 +666,7 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 2. Each manifest is parsed, sprite files are read from disk
 3. Registries (sprites, pivots, entity configs) are merged into `App`, with collision warnings on duplicates
 4. `modding::validate_spawns()` checks all spawn entity types and spawn effects against known types
-5. `modding::validate_command_defs()` checks stat names, target references, `use_resource` amounts, phase ticks > 0, effects/phases mutual exclusivity, and effects within phase `on_start`/`per_tick` lists
+5. `modding::validate_command_defs()` checks stat names, target references, `use_resource` amounts, phase ticks > 0, phase update_interval > 0, effects/phases mutual exclusivity, and effects within phase `on_start`/`per_update` lists
 6. `[[spawn]]` entries create both sim entities and render units
 7. `[initial].commands` entries populate `App::available_commands`
 8. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld` (effects, arg counts), with collision warnings on duplicate command names
@@ -677,7 +679,7 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 3. The compiler receives custom command arg counts, emits `ActionCustom(name)` IR instructions
 4. The executor pops args and yields `UnitAction::Custom { name, args }`
 5. `resolve_action()` checks if the command has phases: if yes, creates a `ChannelState` on the entity (effects start next tick); if no, resolves instant effects in order; `use_resource` effects abort the command early if the resource check fails
-6. **Phased commands:** each tick, the tick loop processes active channels before script execution — runs `on_start`/`per_tick` effects, handles interruption for interruptible phases, advances phase counters
+6. **Phased commands:** each tick, the tick loop processes active channels before script execution — runs `on_start`/`per_update` effects (respecting `update_interval`), handles interruption for interruptible phases, advances phase counters
 7. Custom command metadata (name, description, args) is sent to the frontend via `AvailableCommands` IPC for autocomplete
 
 **Reserved schema fields** (parsed but not enforced):

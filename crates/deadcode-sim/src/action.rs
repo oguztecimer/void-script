@@ -150,9 +150,15 @@ pub struct PhaseDef {
     #[serde(default)]
     pub interruptible: bool,
     #[serde(default)]
-    pub per_tick: Vec<CommandEffect>,
+    pub per_update: Vec<CommandEffect>,
+    #[serde(default = "default_update_interval")]
+    pub update_interval: i64,
     #[serde(default)]
     pub on_start: Vec<CommandEffect>,
+}
+
+fn default_update_interval() -> i64 {
+    1
 }
 
 /// Definition of a custom command (parsed from mod.toml).
@@ -170,6 +176,9 @@ pub struct CommandDef {
     pub effects: Vec<CommandEffect>,
     #[serde(default)]
     pub phases: Vec<PhaseDef>,
+    /// If true, the command is hidden from `list_commands` output.
+    #[serde(default)]
+    pub unlisted: bool,
 }
 
 /// Resolve a unit's action against the world state.
@@ -433,13 +442,17 @@ pub fn resolve_custom_effects(
             }
             CommandEffect::ListCommands => {
                 // Use command_order to respect the order commands were made available.
+                // Skip unlisted commands.
                 // Compute max width for aligned output.
                 let max_width = world.command_order.iter()
-                    .filter(|n| world.custom_command_descriptions.contains_key(*n))
+                    .filter(|n| world.custom_command_descriptions.contains_key(*n) && !world.unlisted_commands.contains(*n))
                     .map(|n| n.len() + 2) // +2 for "()"
                     .max()
                     .unwrap_or(0);
                 for name in &world.command_order {
+                    if world.unlisted_commands.contains(name) {
+                        continue;
+                    }
                     if let Some(description) = world.custom_command_descriptions.get(name) {
                         let padded = format!("{name}()");
                         events.push(SimEvent::ScriptOutput {

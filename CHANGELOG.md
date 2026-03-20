@@ -4,7 +4,11 @@
 
 ### Modding System
 
+#### Changed
+- **M-12: Rename `per_tick` to `per_update` with `update_interval`** — Phase effects field `per_tick` renamed to `per_update`. New `update_interval` field (default 1) controls how often `per_update` effects fire: every N ticks instead of every tick. `(ticks_elapsed + 1) % update_interval == 0` determines update ticks — interval=2 fires at ticks 1,3,5 (not tick 0). Validated at load time (`update_interval` must be > 0). All `mod.toml` files, tests, and docs updated.
+
 #### Added
+- **M-13: `unlisted` field on command definitions** — Commands can set `unlisted = true` in `mod.toml` to be hidden from `list_commands` output while remaining fully functional. Useful for meta-commands like `help` that trigger `list_commands` themselves.
 - **M-11: `sacrifice` effect type** — New `CommandEffect::Sacrifice` variant that kills all alive, non-spawning entities of a given type and gains a resource per kill. Fields: `entity_type` (which entities to kill), `resource` (which global resource to gain), `per_kill` (DynInt amount gained per kill, supports `rand(min,max)`). Outputs a summary message or "Nothing to sacrifice" if no matching entities exist. The `harvest` command in `mods/core/mod.toml` now uses this effect to sacrifice skeletons for 1-2 bones each, replacing the old +20 energy placeholder. Entity type references in sacrifice effects are validated at mod load time alongside spawn effects.
 
 ### Desktop / Rendering

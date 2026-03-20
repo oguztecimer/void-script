@@ -98,6 +98,8 @@ pub struct SimWorld {
     pub resource_caps: HashMap<String, i64>,
     /// Available resource names. None = all available (dev mode).
     pub available_resources: Option<HashSet<String>>,
+    /// Commands hidden from `list_commands` output.
+    pub unlisted_commands: HashSet<String>,
 }
 
 impl SimWorld {
@@ -122,6 +124,7 @@ impl SimWorld {
             resources: IndexMap::new(),
             resource_caps: HashMap::new(),
             available_resources: None,
+            unlisted_commands: HashSet::new(),
         }
     }
 
@@ -179,6 +182,9 @@ impl SimWorld {
         }
         if !def.description.is_empty() {
             self.custom_command_descriptions.insert(def.name.clone(), def.description.clone());
+        }
+        if def.unlisted {
+            self.unlisted_commands.insert(def.name.clone());
         }
     }
 
@@ -434,12 +440,17 @@ impl SimWorld {
                     }
                 }
 
-                // Run per_tick effects.
-                if !channel_cancelled && !phase.per_tick.is_empty() {
+                // Run per_update effects (respecting update_interval).
+                // update_interval=1: fires every tick (0,1,2,...).
+                // update_interval=2: fires at elapsed 1,3,5,... (every 2nd tick).
+                // update_interval=3: fires at elapsed 2,5,8,... (every 3rd tick).
+                let interval = phase.update_interval.max(1);
+                let should_update = (channel.ticks_elapsed_in_phase + 1) % interval == 0;
+                if !channel_cancelled && should_update && !phase.per_update.is_empty() {
                     let mut effect_events = Vec::new();
                     let aborted = resolve_custom_effects(
                         self, eid, &channel.command_name,
-                        &phase.per_tick, &channel.args, &mut effect_events,
+                        &phase.per_update, &channel.args, &mut effect_events,
                     );
                     self.events.extend(effect_events);
                     if aborted {
@@ -770,23 +781,27 @@ mod tests {
             description: "test spell".into(),
             args: vec![],
             effects: vec![],
+            unlisted: false,
             phases: vec![
                 PhaseDef {
                     ticks: 2,
                     interruptible: false,
-                    per_tick: vec![CommandEffect::Output { message: "phase0-tick".into() }],
+                    per_update: vec![CommandEffect::Output { message: "phase0-tick".into() }],
+                    update_interval: 1,
                     on_start: vec![CommandEffect::Output { message: "phase0-start".into() }],
                 },
                 PhaseDef {
                     ticks: 1,
                     interruptible: false,
-                    per_tick: vec![],
+                    per_update: vec![],
+                    update_interval: 1,
                     on_start: vec![CommandEffect::Output { message: "phase1-start".into() }],
                 },
                 PhaseDef {
                     ticks: 1,
                     interruptible: false,
-                    per_tick: vec![CommandEffect::Output { message: "phase2-tick".into() }],
+                    per_update: vec![CommandEffect::Output { message: "phase2-tick".into() }],
+                    update_interval: 1,
                     on_start: vec![],
                 },
             ],
@@ -815,27 +830,27 @@ mod tests {
         assert!(texts.is_empty(), "No effects on initiation tick: {:?}", texts);
         assert!(world.get_entity(id).unwrap().active_channel.is_some());
 
-        // Tick 2: phase 0, tick 0 → on_start + per_tick.
+        // Tick 2: phase 0, tick 0 → on_start + per_update.
         world.tick();
         let texts = output_texts(&world.take_events());
         assert!(texts.contains(&"phase0-start".to_string()), "on_start runs first tick: {:?}", texts);
-        assert!(texts.contains(&"phase0-tick".to_string()), "per_tick runs first tick: {:?}", texts);
+        assert!(texts.contains(&"phase0-tick".to_string()), "per_update runs first tick: {:?}", texts);
 
-        // Tick 3: phase 0, tick 1 → per_tick only (no on_start).
+        // Tick 3: phase 0, tick 1 → per_update only (no on_start).
         world.tick();
         let texts = output_texts(&world.take_events());
         assert!(!texts.contains(&"phase0-start".to_string()), "on_start should not repeat: {:?}", texts);
-        assert!(texts.contains(&"phase0-tick".to_string()), "per_tick runs: {:?}", texts);
+        assert!(texts.contains(&"phase0-tick".to_string()), "per_update runs: {:?}", texts);
 
         // Tick 4: phase 1, tick 0 → on_start.
         world.tick();
         let texts = output_texts(&world.take_events());
         assert!(texts.contains(&"phase1-start".to_string()), "phase1 on_start: {:?}", texts);
 
-        // Tick 5: phase 2, tick 0 → per_tick.
+        // Tick 5: phase 2, tick 0 → per_update.
         world.tick();
         let texts = output_texts(&world.take_events());
-        assert!(texts.contains(&"phase2-tick".to_string()), "phase2 per_tick: {:?}", texts);
+        assert!(texts.contains(&"phase2-tick".to_string()), "phase2 per_update: {:?}", texts);
 
         // Channel should be done now.
         assert!(world.get_entity(id).unwrap().active_channel.is_none());
@@ -852,11 +867,13 @@ mod tests {
             description: "".into(),
             args: vec![],
             effects: vec![],
+            unlisted: false,
             phases: vec![
                 PhaseDef {
                     ticks: 5,
                     interruptible: true,
-                    per_tick: vec![CommandEffect::Output { message: "channeling".into() }],
+                    per_update: vec![CommandEffect::Output { message: "channeling".into() }],
+                    update_interval: 1,
                     on_start: vec![],
                 },
             ],
@@ -906,20 +923,23 @@ mod tests {
             description: "".into(),
             args: vec![],
             effects: vec![],
+            unlisted: false,
             phases: vec![
                 PhaseDef {
                     ticks: 3,
                     interruptible: false,
-                    per_tick: vec![
+                    per_update: vec![
                         CommandEffect::UseGlobalResource { resource: "mana".into(), amount: crate::action::DynInt::Fixed(10) },
                         CommandEffect::Output { message: "drained".into() },
                     ],
+                    update_interval: 1,
                     on_start: vec![],
                 },
                 PhaseDef {
                     ticks: 1,
                     interruptible: false,
-                    per_tick: vec![],
+                    per_update: vec![],
+                    update_interval: 1,
                     on_start: vec![CommandEffect::Output { message: "should not reach".into() }],
                 },
             ],
@@ -973,11 +993,13 @@ mod tests {
             description: "".into(),
             args: vec![],
             effects: vec![],
+            unlisted: false,
             phases: vec![
                 PhaseDef {
                     ticks: 2,
                     interruptible: false,
-                    per_tick: vec![],
+                    per_update: vec![],
+                    update_interval: 1,
                     on_start: vec![CommandEffect::Output { message: "locked".into() }],
                 },
             ],
@@ -1019,6 +1041,74 @@ mod tests {
         world.tick();
         world.take_events();
         assert!(world.get_entity(id).unwrap().position > 0, "Script should resume and move");
+    }
+
+    #[test]
+    fn phased_command_update_interval() {
+        let mut world = SimWorld::new(42);
+        let id = world.spawn_entity("summoner".into(), "s".into(), 0);
+
+        // Phase with update_interval = 2 over 4 ticks.
+        // per_update fires when (ticks_elapsed + 1) % interval == 0,
+        // i.e., at elapsed 1 and 3 (not 0 and 2).
+        let def = CommandDef {
+            name: "pulse".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![],
+            unlisted: false,
+            phases: vec![
+                PhaseDef {
+                    ticks: 4,
+                    interruptible: false,
+                    per_update: vec![CommandEffect::Output { message: "pulse".into() }],
+                    update_interval: 2,
+                    on_start: vec![],
+                },
+            ],
+        };
+        world.register_custom_command(&def);
+
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("pulse".into()),
+                Instruction::ActionWait,
+                Instruction::Jump(1),
+            ],
+            0,
+        );
+        world.get_entity_mut(id).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+
+        // Tick 1: initiation — no effects.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(texts.is_empty(), "No effects on initiation tick: {:?}", texts);
+
+        // Tick 2: ticks_elapsed=0, (0+1) % 2 != 0 → skipped.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert_eq!(texts.iter().filter(|t| *t == "pulse").count(), 0, "Should skip at elapsed 0: {:?}", texts);
+
+        // Tick 3: ticks_elapsed=1, (1+1) % 2 == 0 → fires.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert_eq!(texts.iter().filter(|t| *t == "pulse").count(), 1, "Should fire at elapsed 1: {:?}", texts);
+
+        // Tick 4: ticks_elapsed=2, (2+1) % 2 != 0 → skipped.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert_eq!(texts.iter().filter(|t| *t == "pulse").count(), 0, "Should skip at elapsed 2: {:?}", texts);
+
+        // Tick 5: ticks_elapsed=3, (3+1) % 2 == 0 → fires.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert_eq!(texts.iter().filter(|t| *t == "pulse").count(), 1, "Should fire at elapsed 3: {:?}", texts);
+
+        // Channel should be done now.
+        assert!(world.get_entity(id).unwrap().active_channel.is_none());
     }
 
     // --- Global resource tests ---
@@ -1215,6 +1305,7 @@ mod tests {
                 resource: "bones".into(),
                 per_kill: DynInt::Fixed(2),
             }],
+            unlisted: false,
             phases: vec![],
         };
         world.register_custom_command(&harvest);
@@ -1270,6 +1361,7 @@ mod tests {
                 resource: "bones".into(),
                 per_kill: DynInt::Fixed(1),
             }],
+            unlisted: false,
             phases: vec![],
         };
         world.register_custom_command(&harvest);

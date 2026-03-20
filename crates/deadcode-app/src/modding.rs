@@ -380,7 +380,7 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
                 let mut all_effects: Vec<&CommandEffect> = def.effects.iter().collect();
                 for phase in &def.phases {
                     all_effects.extend(phase.on_start.iter());
-                    all_effects.extend(phase.per_tick.iter());
+                    all_effects.extend(phase.per_update.iter());
                 }
                 for effect in all_effects {
                     let referenced_type = match effect {
@@ -452,7 +452,7 @@ fn validate_effects(
 ///
 /// Checks stat names in `ModifyStat`/`UseResource` effects, `arg:` target references.
 /// For phased commands: validates mutual exclusivity with `effects`, phase ticks > 0,
-/// and effects within `on_start`/`per_tick` lists.
+/// and effects within `on_start`/`per_update` lists.
 pub fn validate_command_defs(mods: &[LoadedMod]) {
     let valid_stats: HashSet<&str> = ["health", "shield", "speed"].into_iter().collect();
 
@@ -477,8 +477,14 @@ pub fn validate_command_defs(mods: &[LoadedMod]) {
                         def.name, phase.ticks
                     );
                 }
+                if phase.update_interval <= 0 {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: command '{}' phase {i} has non-positive update_interval ({})",
+                        def.name, phase.update_interval
+                    );
+                }
                 validate_effects(&phase.on_start, &def.args, &def.name, mod_id, &valid_stats);
-                validate_effects(&phase.per_tick, &def.args, &def.name, mod_id, &valid_stats);
+                validate_effects(&phase.per_update, &def.args, &def.name, mod_id, &valid_stats);
             }
 
             // Validate instant effects.

@@ -11,11 +11,11 @@ health = 50
 speed = 2
 
 [resources]
-mana = { value = 100, max = 100 }
+mana = { value = 50, max = 100 }
 bones = 0
 
 [initial]
-commands = ["help", "raise", "harvest", "pact"]
+commands = ["help","trance","raise","harvest","pact"]
 resources = ["mana", "bones"]
 effects = [
   { type = "output", message = "The dead stir beneath your feet" },
@@ -25,10 +25,23 @@ effects = [
 [[commands.definitions]]
 name = "help"
 description = "Hidden wisdom will be found"
+unlisted = true
 args = []
 effects = [
-  { type = "modify_resource", resource = "mana", amount = 10 },
+  { type = "output", message = " " },
   { type = "list_commands" },
+]
+
+[[commands.definitions]]
+name = "trance"
+description = "Deep in trance, what's lost is found"
+args = []
+phases = [
+  { ticks = 1000, interruptible = true, update_interval = 5, per_update = [
+    { type = "modify_resource", resource = "mana", amount = 1 },
+  ], on_start =[
+    { type = "output", message = "[trance] You feel the mana flowing in." }
+  ]}
 ]
 
 [[commands.definitions]]
@@ -40,7 +53,7 @@ phases = [
     { type = "animate", target = "self", animation = "cast" }
   ]},
   { ticks = 1, interruptible = false, on_start = [
-    { type = "use_global_resource", resource = "mana", amount = 30}
+    { type = "use_global_resource", resource = "mana", amount = 20}
   ]},
   { ticks = 18, interruptible = false, on_start = [
     { type = "spawn", entity_type = "skeleton", offset = "rand(-300,300)"}
@@ -56,12 +69,12 @@ phases = [
     { type = "animate", target = "self", animation = "cast" }
   ]},
   { ticks = 1, interruptible = false, on_start = [
+    { type = "use_global_resource", resource = "mana", amount = 50}
+  ]},
+  { ticks = 1, interruptible = false, on_start = [
     { type = "sacrifice", entity_type = "skeleton", resource = "bones", per_kill = "rand(1,2)" },
   ]},
   { ticks = 18, interruptible = false, on_start = []},
-]
-effects = [
-  { type = "sacrifice", entity_type = "skeleton", resource = "bones", per_kill = "rand(1,2)" },
 ]
 
 [[commands.definitions]]
@@ -70,6 +83,5 @@ description = "Pledge your bones to my domain"
 args = []
 effects = [
   { type = "modify_stat", target = "self", stat = "health", amount = -10 },
-  { type = "modify_resource", resource = "mana", amount = 50 },
   { type = "output", message = "[pact] Power surges through you..." },
 ]

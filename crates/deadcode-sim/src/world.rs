@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::action::{CommandDef, CommandEffect, PhaseDef, UnitAction, resolve_action, resolve_custom_effects};
+use crate::action::{CommandDef, CommandEffect, EffectOutcome, PhaseDef, UnitAction, resolve_action, resolve_custom_effects};
 use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
@@ -430,14 +430,15 @@ impl SimWorld {
                 let mut channel_cancelled = false;
                 if is_first_tick && !phase.on_start.is_empty() {
                     let mut effect_events = Vec::new();
-                    let aborted = resolve_custom_effects(
+                    let outcome = resolve_custom_effects(
                         self, eid, &channel.command_name,
                         &phase.on_start, &channel.args, &mut effect_events,
                     );
                     self.events.extend(effect_events);
-                    if aborted {
+                    if matches!(outcome, EffectOutcome::Aborted) {
                         channel_cancelled = true;
                     }
+                    // StartChannel inside an active channel is ignored.
                 }
 
                 // Run per_update effects (respecting update_interval).
@@ -448,14 +449,15 @@ impl SimWorld {
                 let should_update = (channel.ticks_elapsed_in_phase + 1) % interval == 0;
                 if !channel_cancelled && should_update && !phase.per_update.is_empty() {
                     let mut effect_events = Vec::new();
-                    let aborted = resolve_custom_effects(
+                    let outcome = resolve_custom_effects(
                         self, eid, &channel.command_name,
                         &phase.per_update, &channel.args, &mut effect_events,
                     );
                     self.events.extend(effect_events);
-                    if aborted {
+                    if matches!(outcome, EffectOutcome::Aborted) {
                         channel_cancelled = true;
                     }
+                    // StartChannel inside an active channel is ignored.
                 }
 
                 if channel_cancelled {
@@ -1463,6 +1465,398 @@ mod tests {
         let events = world.take_events();
         assert!(events.iter().any(|e| matches!(e, SimEvent::ScriptError { .. })));
         assert_eq!(world.get_resource("souls"), 10); // unchanged
+    }
+
+    // --- Conditional effects tests ---
+
+    #[test]
+    fn if_effect_takes_then_branch_when_condition_true() {
+        use crate::action::{CommandDef, CommandEffect, Condition, CompareOp, DynInt};
+
+        let mut world = SimWorld::new(42);
+        world.resources.insert("mana".into(), 20);
+        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+
+        let cmd = CommandDef {
+            name: "condtest".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![CommandEffect::If {
+                condition: Condition::Resource {
+                    resource: "mana".into(),
+                    compare: CompareOp::Gte,
+                    amount: DynInt::Fixed(20),
+                },
+                then_effects: vec![CommandEffect::Output { message: "has mana".into() }],
+                otherwise: vec![CommandEffect::Output { message: "no mana".into() }],
+            }],
+            phases: vec![],
+            unlisted: false,
+        };
+        world.register_custom_command(&cmd);
+
+        let program = CompiledScript::new(
+            vec![Instruction::ActionCustom("condtest".into()), Instruction::Halt],
+            0,
+        );
+        world.get_entity_mut(caster).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"has mana".to_string()), "Should take then branch: {:?}", texts);
+        assert!(!texts.contains(&"no mana".to_string()));
+    }
+
+    #[test]
+    fn if_effect_takes_else_branch_when_condition_false() {
+        use crate::action::{CommandDef, CommandEffect, Condition, CompareOp, DynInt};
+
+        let mut world = SimWorld::new(42);
+        world.resources.insert("mana".into(), 5);
+        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+
+        let cmd = CommandDef {
+            name: "condtest".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![CommandEffect::If {
+                condition: Condition::Resource {
+                    resource: "mana".into(),
+                    compare: CompareOp::Gte,
+                    amount: DynInt::Fixed(20),
+                },
+                then_effects: vec![CommandEffect::Output { message: "has mana".into() }],
+                otherwise: vec![CommandEffect::Output { message: "no mana".into() }],
+            }],
+            phases: vec![],
+            unlisted: false,
+        };
+        world.register_custom_command(&cmd);
+
+        let program = CompiledScript::new(
+            vec![Instruction::ActionCustom("condtest".into()), Instruction::Halt],
+            0,
+        );
+        world.get_entity_mut(caster).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"no mana".to_string()), "Should take else branch: {:?}", texts);
+        assert!(!texts.contains(&"has mana".to_string()));
+    }
+
+    #[test]
+    fn if_effect_entity_count_condition() {
+        use crate::action::{CommandDef, CommandEffect, Condition, CompareOp, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+        let _sk1 = world.spawn_entity("skeleton".into(), "sk1".into(), 100);
+        let _sk2 = world.spawn_entity("skeleton".into(), "sk2".into(), 200);
+
+        let cmd = CommandDef {
+            name: "counttest".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![CommandEffect::If {
+                condition: Condition::EntityCount {
+                    entity_type: "skeleton".into(),
+                    compare: CompareOp::Gte,
+                    amount: DynInt::Fixed(2),
+                },
+                then_effects: vec![CommandEffect::Output { message: "enough skeletons".into() }],
+                otherwise: vec![CommandEffect::Output { message: "need more".into() }],
+            }],
+            phases: vec![],
+            unlisted: false,
+        };
+        world.register_custom_command(&cmd);
+
+        let program = CompiledScript::new(
+            vec![Instruction::ActionCustom("counttest".into()), Instruction::Halt],
+            0,
+        );
+        world.get_entity_mut(caster).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"enough skeletons".to_string()), "Should match 2 skeletons: {:?}", texts);
+    }
+
+    #[test]
+    fn if_effect_stat_condition() {
+        use crate::action::{CommandDef, CommandEffect, Condition, CompareOp, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+        // Default health is 100.
+
+        let cmd = CommandDef {
+            name: "stattest".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![CommandEffect::If {
+                condition: Condition::Stat {
+                    stat: "health".into(),
+                    compare: CompareOp::Gt,
+                    amount: DynInt::Fixed(50),
+                },
+                then_effects: vec![CommandEffect::Output { message: "healthy".into() }],
+                otherwise: vec![CommandEffect::Output { message: "injured".into() }],
+            }],
+            phases: vec![],
+            unlisted: false,
+        };
+        world.register_custom_command(&cmd);
+
+        let program = CompiledScript::new(
+            vec![Instruction::ActionCustom("stattest".into()), Instruction::Halt],
+            0,
+        );
+        world.get_entity_mut(caster).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"healthy".to_string()), "Health 100 > 50: {:?}", texts);
+    }
+
+    #[test]
+    fn if_effect_abort_propagates_from_branch() {
+        use crate::action::{CommandDef, CommandEffect, Condition, CompareOp, DynInt};
+
+        let mut world = SimWorld::new(42);
+        world.resources.insert("mana".into(), 100);
+        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+
+        // use_global_resource inside then branch should abort the entire effect list.
+        let cmd = CommandDef {
+            name: "abort_test".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::If {
+                    condition: Condition::Resource {
+                        resource: "mana".into(),
+                        compare: CompareOp::Gte,
+                        amount: DynInt::Fixed(1),
+                    },
+                    then_effects: vec![
+                        CommandEffect::UseGlobalResource { resource: "mana".into(), amount: DynInt::Fixed(999) },
+                    ],
+                    otherwise: vec![],
+                },
+                CommandEffect::Output { message: "should not reach".into() },
+            ],
+            phases: vec![],
+            unlisted: false,
+        };
+        world.register_custom_command(&cmd);
+
+        let program = CompiledScript::new(
+            vec![Instruction::ActionCustom("abort_test".into()), Instruction::Halt],
+            0,
+        );
+        world.get_entity_mut(caster).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert!(!texts.contains(&"should not reach".to_string()), "Abort should propagate: {:?}", texts);
+    }
+
+    #[test]
+    fn start_channel_from_effects_creates_channel() {
+        use crate::action::{CommandDef, CommandEffect, PhaseDef};
+
+        let mut world = SimWorld::new(42);
+        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+
+        let cmd = CommandDef {
+            name: "inline_channel".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::Output { message: "before channel".into() },
+                CommandEffect::StartChannel {
+                    phases: vec![PhaseDef {
+                        ticks: 2,
+                        interruptible: false,
+                        on_start: vec![CommandEffect::Output { message: "phase-start".into() }],
+                        per_update: vec![CommandEffect::Output { message: "phase-tick".into() }],
+                        update_interval: 1,
+                    }],
+                },
+                // This should not run — start_channel returns immediately.
+                CommandEffect::Output { message: "after channel".into() },
+            ],
+            phases: vec![],
+            unlisted: false,
+        };
+        world.register_custom_command(&cmd);
+
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("inline_channel".into()),
+                Instruction::ActionWait,
+                Instruction::Jump(1),
+            ],
+            0,
+        );
+        world.get_entity_mut(caster).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+
+        // Tick 1: script calls inline_channel() → effects run, start_channel sets up channel.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"before channel".to_string()), "Effects before start_channel should run: {:?}", texts);
+        assert!(!texts.contains(&"after channel".to_string()), "Effects after start_channel should not run: {:?}", texts);
+        assert!(world.get_entity(caster).unwrap().active_channel.is_some(), "Channel should be active");
+
+        // Tick 2: phase 0, tick 0 → on_start + per_update.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"phase-start".to_string()));
+        assert!(texts.contains(&"phase-tick".to_string()));
+
+        // Tick 3: phase 0, tick 1 → per_update only.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(!texts.contains(&"phase-start".to_string()));
+        assert!(texts.contains(&"phase-tick".to_string()));
+
+        // Channel should be done now.
+        assert!(world.get_entity(caster).unwrap().active_channel.is_none());
+    }
+
+    #[test]
+    fn conditional_start_channel_picks_branch() {
+        use crate::action::{CommandDef, CommandEffect, Condition, CompareOp, DynInt, PhaseDef};
+
+        let mut world = SimWorld::new(42);
+        world.resources.insert("mana".into(), 50);
+        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+
+        // If mana >= 20: spend mana and start a channel.
+        // Else: just output a message.
+        let cmd = CommandDef {
+            name: "branch_channel".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![CommandEffect::If {
+                condition: Condition::Resource {
+                    resource: "mana".into(),
+                    compare: CompareOp::Gte,
+                    amount: DynInt::Fixed(20),
+                },
+                then_effects: vec![
+                    CommandEffect::UseGlobalResource { resource: "mana".into(), amount: DynInt::Fixed(20) },
+                    CommandEffect::StartChannel {
+                        phases: vec![PhaseDef {
+                            ticks: 1,
+                            interruptible: false,
+                            on_start: vec![CommandEffect::Output { message: "channeling!".into() }],
+                            per_update: vec![],
+                            update_interval: 1,
+                        }],
+                    },
+                ],
+                otherwise: vec![CommandEffect::Output { message: "not enough mana!".into() }],
+            }],
+            phases: vec![],
+            unlisted: false,
+        };
+        world.register_custom_command(&cmd);
+
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("branch_channel".into()),
+                Instruction::ActionWait,
+                Instruction::Jump(1),
+            ],
+            0,
+        );
+        world.get_entity_mut(caster).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+
+        // Tick 1: condition true → spend 20 mana, start channel.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(!texts.contains(&"not enough mana!".to_string()));
+        assert_eq!(world.get_resource("mana"), 30);
+        assert!(world.get_entity(caster).unwrap().active_channel.is_some());
+
+        // Tick 2: channel phase runs.
+        world.tick();
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"channeling!".to_string()));
+        assert!(world.get_entity(caster).unwrap().active_channel.is_none());
+    }
+
+    #[test]
+    fn nested_if_effects() {
+        use crate::action::{CommandDef, CommandEffect, Condition, CompareOp, DynInt};
+
+        let mut world = SimWorld::new(42);
+        world.resources.insert("mana".into(), 30);
+        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+        let _sk = world.spawn_entity("skeleton".into(), "sk1".into(), 100);
+
+        let cmd = CommandDef {
+            name: "nested".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![CommandEffect::If {
+                condition: Condition::Resource {
+                    resource: "mana".into(),
+                    compare: CompareOp::Gte,
+                    amount: DynInt::Fixed(10),
+                },
+                then_effects: vec![CommandEffect::If {
+                    condition: Condition::EntityCount {
+                        entity_type: "skeleton".into(),
+                        compare: CompareOp::Gt,
+                        amount: DynInt::Fixed(0),
+                    },
+                    then_effects: vec![CommandEffect::Output { message: "mana+skeletons".into() }],
+                    otherwise: vec![CommandEffect::Output { message: "mana only".into() }],
+                }],
+                otherwise: vec![CommandEffect::Output { message: "no mana".into() }],
+            }],
+            phases: vec![],
+            unlisted: false,
+        };
+        world.register_custom_command(&cmd);
+
+        let program = CompiledScript::new(
+            vec![Instruction::ActionCustom("nested".into()), Instruction::Halt],
+            0,
+        );
+        world.get_entity_mut(caster).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"mana+skeletons".to_string()), "Nested conditions: {:?}", texts);
     }
 
     #[test]

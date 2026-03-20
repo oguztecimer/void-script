@@ -76,7 +76,7 @@ src/
   ir.rs           — 60+ stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
   world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots, global resources
-  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/DynInt types for mod-defined commands
+  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/DynInt/CompareOp/Condition/EffectOutcome types for mod-defined commands
   query.rs        — scan(), nearest(), distance() — linear scan over entities
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
     mod.rs        — compile(), compile_source(), compile_source_with(), compile_source_full(), initial_variables()
@@ -98,7 +98,7 @@ src/
 
 **Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available. Game commands (queries/actions) and custom mod commands are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set defined in `[initial].commands` in `mod.toml`. In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set + command info received via IPC.
 
-**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, use_resource, output, animate, list_commands, sacrifice). Integer fields in effects use `DynInt`: plain integers or `"rand(min,max)"` for deterministic randomness. These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, then effects are resolved in order against world state. The `use_resource` effect checks and deducts a resource, aborting remaining effects if insufficient. The `animate` effect triggers sprite animations on target entities via `PlayAnimation` sim events. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
+**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, use_resource, output, animate, list_commands, sacrifice, modify_resource, use_global_resource, if, start_channel). Integer fields in effects use `DynInt`: plain integers or `"rand(min,max)"` for deterministic randomness. These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, then effects are resolved in order against world state. The `use_resource` effect checks and deducts a resource, aborting remaining effects if insufficient. The `animate` effect triggers sprite animations on target entities via `PlayAnimation` sim events. The `if` effect evaluates a condition (resource, entity_count, stat) and runs one of two effect lists (then/else), with full nesting support. The `start_channel` effect initiates a phased channel from within an effect list, enabling conditional phase branching when combined with `if`. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
 
 **Phased commands:** Commands can use `phases` instead of `effects` for multi-tick abilities (mutually exclusive, validated at load). Each `PhaseDef` has `ticks`, `interruptible`, `on_start`, `per_update` effect lists, and `update_interval` (default 1). `per_update` effects fire after every `update_interval` ticks within a phase (interval=1: every tick; interval=2: ticks 1,3,5; interval=3: ticks 2,5,8). On initiation, a `ChannelState` is stored on the entity. The tick loop processes channels before script execution: interruptible phases run the script and cancel if it yields a real action; non-interruptible phases skip script execution. `use_resource` failure mid-phase cancels the channel. Hot-reload clears active channels.
 
@@ -179,7 +179,8 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 | Gate a new game builtin | Add to `is_builtin()`, `is_game_builtin()` returns true, `is_stdlib()` returns false |
 | Add custom mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, effects or phases |
 | Add phased mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, phases (see `docs/modding.md`) |
-| Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + handler in `resolve_custom_effects()` |
+| Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + handler in `resolve_effects_inner()` |
+| Add conditional effect logic | `crates/deadcode-sim/src/action.rs` → `Condition` enum + `evaluate_condition()` |
 | Add instant effect builtin | `ir.rs` (InstantXxx) + `executor.rs` + `action.rs` (UnitAction) + `builtins.rs` (InstantEffectBuiltin) + `world.rs` (try_handle_instant) |
 | Define mod resources | `mods/<mod>/mod.toml` → `[resources]` table (name = initial_value), `[initial] resources` list for availability |
 

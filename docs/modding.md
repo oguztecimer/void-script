@@ -315,6 +315,10 @@ Effects are resolved in order when the command executes.
 | `list_commands` | *(none)* | List all registered commands and descriptions (in unlock order) |
 | `animate` | `target`, `animation` | Trigger a sprite animation on the target entity (e.g., `"cast"`, `"attack"`) |
 | `sacrifice` | `entity_type`, `resource`, `per_kill` | Kill all alive, non-spawning entities of a type and gain `per_kill` of `resource` per kill. Outputs a summary or "Nothing to sacrifice" if none found. |
+| `modify_resource` | `resource`, `amount` | Add to a global resource (clamped to cap if capped). Can be negative. |
+| `use_global_resource` | `resource`, `amount` | Check and deduct a global resource; aborts remaining effects if insufficient. |
+| `if` | `condition`, `then`, `else` | Evaluate a condition and run one of two effect lists. `else` is optional. Supports nesting. |
+| `start_channel` | `phases` | Start a phased channel from within an effect list. Remaining effects after `start_channel` are skipped. |
 
 **DynInt fields:** The `amount` and `offset` fields accept either a plain integer or `"rand(min,max)"` for a random value in [min, max] inclusive. Randomness is deterministic (seeded from tick + entity ID).
 
@@ -351,6 +355,9 @@ After all mods are loaded, the engine validates:
 - **Stat names in `modify_stat` and `use_resource` effects**: must be one of `health`, `mana`, `shield`, `speed`. Unknown stat names produce a warning.
 - **Target references in effects**: `target` fields must be `"self"` or `"arg:<ref>"` where `<ref>` is a valid numeric index or a name matching one of the command's `args` entries. Invalid references produce a warning.
 - **`use_resource` amounts**: must be positive. Non-positive values produce a warning.
+- **`if` conditions**: stat names in `stat` conditions must be valid (`health`, `shield`, `speed`). Empty resource or entity_type names produce a warning.
+- **`start_channel` phases**: phase ticks must be > 0, update_interval must be > 0. Effects within phases are validated recursively.
+- **Nested validation**: validation recurses into `if` branches and `start_channel` phase effect lists.
 
 ## Runtime Entity Spawning
 
@@ -442,6 +449,103 @@ The `use_resource` effect checks and deducts the resource atomically. Valid stat
 
 Since `use_resource` is just an effect, you can place multiple resource checks or interleave them with other effects for fine-grained control.
 
+## Conditional Effects
+
+The `if` effect type enables branching based on game state. Effects inside `then` or `else` are resolved recursively, so nesting is supported.
+
+### Syntax
+
+```toml
+effects = [
+  { type = "if",
+    condition = { type = "resource", resource = "mana", compare = "gte", amount = 20 },
+    then = [
+      { type = "spawn", entity_type = "skeleton", offset = "rand(-100,100)" },
+    ],
+    else = [
+      { type = "output", message = "Not enough mana..." },
+    ]
+  }
+]
+```
+
+The `else` branch is optional (defaults to empty — nothing happens if the condition is false).
+
+### Condition Types
+
+| Type | Fields | Evaluates |
+|------|--------|-----------|
+| `resource` | `resource`, `compare`, `amount` | Global resource value vs threshold |
+| `entity_count` | `entity_type`, `compare`, `amount` | Count of alive, ready entities of type vs threshold |
+| `stat` | `stat`, `compare`, `amount` | Caster's stat (`health`, `shield`, `speed`) vs threshold |
+
+### Compare Operators
+
+`eq`, `ne`, `gt`, `gte`, `lt`, `lte`
+
+The `amount` field supports `DynInt` (plain integer or `"rand(min,max)"`).
+
+### Abort Propagation
+
+If a `use_resource` or `use_global_resource` effect inside a branch fails (insufficient resource), the entire command aborts — not just the branch. Effects after the `if` are also skipped.
+
+### Nested Conditions
+
+```toml
+effects = [
+  { type = "if",
+    condition = { type = "resource", resource = "mana", compare = "gte", amount = 10 },
+    then = [
+      { type = "if",
+        condition = { type = "entity_count", entity_type = "skeleton", compare = "gt", amount = 0 },
+        then = [
+          { type = "output", message = "Has mana and skeletons!" },
+        ],
+      },
+    ],
+  }
+]
+```
+
+## Conditional Phase Branching (`start_channel`)
+
+The `start_channel` effect initiates a phased channel from within an effect list. Combined with `if`, this enables conditional phase selection — different branches can start different channels.
+
+```toml
+effects = [
+  { type = "if",
+    condition = { type = "resource", resource = "mana", compare = "gte", amount = 20 },
+    then = [
+      { type = "use_global_resource", resource = "mana", amount = 20 },
+      { type = "start_channel", phases = [
+        { ticks = 12, on_start = [{ type = "animate", target = "self", animation = "cast" }] },
+        { ticks = 18, on_start = [{ type = "spawn", entity_type = "skeleton", offset = "rand(-300,300)" }] },
+      ]},
+    ],
+    else = [
+      { type = "output", message = "Not enough mana!" },
+    ]
+  }
+]
+```
+
+`start_channel` can also be used without `if` to define phases inline:
+
+```toml
+effects = [
+  { type = "use_global_resource", resource = "mana", amount = 20 },
+  { type = "start_channel", phases = [
+    { ticks = 12, on_start = [{ type = "animate", target = "self", animation = "cast" }] },
+  ]},
+]
+```
+
+**Behavior:**
+- Effects before `start_channel` run normally.
+- When `start_channel` is reached, remaining effects are skipped and the channel begins.
+- The phase definitions use the same schema as top-level `phases` (see Phased Commands below).
+- `start_channel` inside an already-active channel (e.g., in phase `on_start`/`per_update`) is ignored — entities can only have one active channel.
+
 ## Phased Commands
 
 Commands can optionally use **phases** instead of instant effects to create multi-tick abilities with distinct stages — e.g., a windup, impact, and recovery. Commands with `phases` use the phased system; commands with only `effects` use the instant system. They are mutually exclusive (validated at load time).
@@ -479,7 +583,7 @@ phases = [
 | `per_update` | No | `[]` | Effects that run on update ticks of the phase (frequency controlled by `update_interval`) |
 | `update_interval` | No | `1` | Run `per_update` effects every N ticks (1 = every tick, 2 = every other tick, etc.) |
 
-Effects inside `on_start` and `per_update` use the same effect types as instant commands (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice).
+Effects inside `on_start` and `per_update` use the same effect types as instant commands (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice, modify_resource, use_global_resource, if). Note: `start_channel` inside an active channel's phase effects is ignored since the entity is already channeling.
 
 ### Execution Model
 
@@ -654,7 +758,9 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `CommandDef` | Custom command definition (name, description, args, effects, phases, unlisted) — lives in `deadcode-sim/action.rs` |
 | `PhaseDef` | Single phase in a multi-tick phased command (ticks, interruptible, on_start, per_update, update_interval) — lives in `deadcode-sim/action.rs` |
 | `ChannelState` | Active channel state on an entity during phased execution — lives in `deadcode-sim/entity.rs` |
-| `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice) — lives in `deadcode-sim/action.rs` |
+| `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice, modify_resource, use_global_resource, if, start_channel) — lives in `deadcode-sim/action.rs` |
+| `Condition` | Condition enum for `if` effects (resource, entity_count, stat) with `CompareOp` — lives in `deadcode-sim/action.rs` |
+| `EffectOutcome` | Result of effect resolution: Complete, Aborted, or StartChannel — lives in `deadcode-sim/action.rs` |
 | `DynInt` | Integer value: fixed or `rand(min,max)` — deserialized from TOML, resolved at effect execution time — lives in `deadcode-sim/action.rs` |
 | `SpriteData` | Loaded PNG bytes + JSON metadata string |
 | `LoadedMod` | Fully resolved mod with sprite/pivot/config/command registries |
@@ -666,7 +772,7 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 2. Each manifest is parsed, sprite files are read from disk
 3. Registries (sprites, pivots, entity configs) are merged into `App`, with collision warnings on duplicates
 4. `modding::validate_spawns()` checks all spawn entity types and spawn effects against known types
-5. `modding::validate_command_defs()` checks stat names, target references, `use_resource` amounts, phase ticks > 0, phase update_interval > 0, effects/phases mutual exclusivity, and effects within phase `on_start`/`per_update` lists
+5. `modding::validate_command_defs()` checks stat names, target references, `use_resource` amounts, phase ticks > 0, phase update_interval > 0, effects/phases mutual exclusivity, effects within phase `on_start`/`per_update` lists, `if` conditions (empty names, unknown stats), and `start_channel` phase parameters. Validation recurses into `if` branches and `start_channel` phases.
 6. `[[spawn]]` entries create both sim entities and render units
 7. `[initial].commands` entries populate `App::available_commands`
 8. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld` (effects, arg counts), with collision warnings on duplicate command names
@@ -678,7 +784,7 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 2. At sim init, each def is registered via `SimWorld::register_custom_command()` — stores effects, arg counts, and phases
 3. The compiler receives custom command arg counts, emits `ActionCustom(name)` IR instructions
 4. The executor pops args and yields `UnitAction::Custom { name, args }`
-5. `resolve_action()` checks if the command has phases: if yes, creates a `ChannelState` on the entity (effects start next tick); if no, resolves instant effects in order; `use_resource` effects abort the command early if the resource check fails
+5. `resolve_action()` checks if the command has phases: if yes, creates a `ChannelState` on the entity (effects start next tick); if no, resolves instant effects in order; `use_resource` effects abort the command early if the resource check fails; `if` effects branch on conditions; `start_channel` effects initiate a channel from within instant effects
 6. **Phased commands:** each tick, the tick loop processes active channels before script execution — runs `on_start`/`per_update` effects (respecting `update_interval`), handles interruption for interruptible phases, advances phase counters
 7. Custom command metadata (name, description, args) is sent to the frontend via `AvailableCommands` IPC for autocomplete
 

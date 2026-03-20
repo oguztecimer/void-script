@@ -78,6 +78,68 @@ impl<'de> Deserialize<'de> for DynInt {
     }
 }
 
+/// Comparison operator for condition evaluation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompareOp {
+    Eq,
+    Ne,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+}
+
+impl CompareOp {
+    pub fn evaluate(&self, lhs: i64, rhs: i64) -> bool {
+        match self {
+            CompareOp::Eq => lhs == rhs,
+            CompareOp::Ne => lhs != rhs,
+            CompareOp::Gt => lhs > rhs,
+            CompareOp::Gte => lhs >= rhs,
+            CompareOp::Lt => lhs < rhs,
+            CompareOp::Lte => lhs <= rhs,
+        }
+    }
+}
+
+/// A condition that can be evaluated against game state for branching in effects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum Condition {
+    /// Compare a global resource value against a threshold.
+    #[serde(rename = "resource")]
+    Resource {
+        resource: String,
+        compare: CompareOp,
+        amount: DynInt,
+    },
+    /// Compare the count of alive, ready entities of a type against a threshold.
+    #[serde(rename = "entity_count")]
+    EntityCount {
+        entity_type: String,
+        compare: CompareOp,
+        amount: DynInt,
+    },
+    /// Compare the caster's stat (health, shield, speed) against a threshold.
+    #[serde(rename = "stat")]
+    Stat {
+        stat: String,
+        compare: CompareOp,
+        amount: DynInt,
+    },
+}
+
+/// Outcome of resolving a list of effects.
+pub enum EffectOutcome {
+    /// All effects completed normally.
+    Complete,
+    /// A use_resource/use_global_resource effect failed — abort.
+    Aborted,
+    /// A start_channel effect was encountered — initiate a channel.
+    StartChannel { phases: Vec<PhaseDef> },
+}
+
 /// An action a unit wants to perform this tick.
 #[derive(Debug, Clone)]
 pub enum UnitAction {
@@ -141,6 +203,18 @@ pub enum CommandEffect {
     /// Check and deduct a global resource; if insufficient, abort remaining effects.
     #[serde(rename = "use_global_resource")]
     UseGlobalResource { resource: String, amount: DynInt },
+    /// Conditional branching: evaluate a condition and run one of two effect lists.
+    #[serde(rename = "if")]
+    If {
+        condition: Condition,
+        #[serde(rename = "then")]
+        then_effects: Vec<CommandEffect>,
+        #[serde(default, rename = "else")]
+        otherwise: Vec<CommandEffect>,
+    },
+    /// Start a phased channel from within an effect list.
+    #[serde(rename = "start_channel")]
+    StartChannel { phases: Vec<PhaseDef> },
 }
 
 /// A single phase in a multi-tick phased command.
@@ -299,7 +373,18 @@ pub fn resolve_action(
             }
             // Instant (non-phased) command.
             if let Some(effects) = world.custom_commands.get(&name).cloned() {
-                resolve_custom_effects(world, entity_id, &name, &effects, &args, &mut events);
+                let outcome = resolve_custom_effects(world, entity_id, &name, &effects, &args, &mut events);
+                if let EffectOutcome::StartChannel { phases } = outcome {
+                    if let Some(entity) = world.get_entity_mut(entity_id) {
+                        entity.active_channel = Some(crate::entity::ChannelState {
+                            command_name: name,
+                            args,
+                            phases,
+                            phase_index: 0,
+                            ticks_elapsed_in_phase: 0,
+                        });
+                    }
+                }
             } else {
                 events.push(SimEvent::ScriptOutput {
                     entity_id,
@@ -312,10 +397,43 @@ pub fn resolve_action(
     events
 }
 
+/// Evaluate a condition against the current world state.
+fn evaluate_condition(
+    condition: &Condition,
+    world: &SimWorld,
+    entity_id: EntityId,
+    rng: &mut SimRng,
+) -> bool {
+    match condition {
+        Condition::Resource { resource, compare, amount } => {
+            let current = world.get_resource(resource);
+            let threshold = amount.resolve(rng);
+            compare.evaluate(current, threshold)
+        }
+        Condition::EntityCount { entity_type, compare, amount } => {
+            let count = world.entities()
+                .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.entity_type == *entity_type)
+                .count() as i64;
+            let threshold = amount.resolve(rng);
+            compare.evaluate(count, threshold)
+        }
+        Condition::Stat { stat, compare, amount } => {
+            let current = world.get_entity(entity_id).map_or(0, |e| match stat.as_str() {
+                "health" => e.health,
+                "shield" => e.shield,
+                "speed" => e.speed,
+                _ => 0,
+            });
+            let threshold = amount.resolve(rng);
+            compare.evaluate(current, threshold)
+        }
+    }
+}
+
 /// Resolve custom command effects against the world.
 /// Effects are resolved in order. A `UseResource` effect that fails (insufficient
 /// resource) aborts the remaining effects — the command ends early.
-/// Returns `true` if the effects were aborted (use_resource failure).
+/// Returns an `EffectOutcome` indicating completion, abort, or channel start.
 pub fn resolve_custom_effects(
     world: &mut SimWorld,
     entity_id: EntityId,
@@ -323,10 +441,22 @@ pub fn resolve_custom_effects(
     effects: &[CommandEffect],
     args: &[SimValue],
     events: &mut Vec<SimEvent>,
-) -> bool {
+) -> EffectOutcome {
     // Derive an RNG from the world's current tick for deterministic randomness.
     let mut rng = SimRng::new(world.tick_seed() ^ entity_id.0 as u64);
+    resolve_effects_inner(world, entity_id, cmd_name, effects, args, events, &mut rng)
+}
 
+/// Inner recursive effect resolver, sharing an RNG across nested calls.
+fn resolve_effects_inner(
+    world: &mut SimWorld,
+    entity_id: EntityId,
+    cmd_name: &str,
+    effects: &[CommandEffect],
+    args: &[SimValue],
+    events: &mut Vec<SimEvent>,
+    rng: &mut SimRng,
+) -> EffectOutcome {
     for effect in effects {
         match effect {
             CommandEffect::Output { message } => {
@@ -336,7 +466,7 @@ pub fn resolve_custom_effects(
                 });
             }
             CommandEffect::Damage { target, amount } => {
-                let amount = amount.resolve(&mut rng);
+                let amount = amount.resolve(rng);
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
@@ -363,7 +493,7 @@ pub fn resolve_custom_effects(
                 }
             }
             CommandEffect::Heal { target, amount } => {
-                let amount = amount.resolve(&mut rng);
+                let amount = amount.resolve(rng);
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
@@ -372,7 +502,7 @@ pub fn resolve_custom_effects(
                 }
             }
             CommandEffect::Spawn { entity_type, offset } => {
-                let offset = offset.resolve(&mut rng);
+                let offset = offset.resolve(rng);
                 let position = world.get_entity(entity_id)
                     .map(|e| e.position + offset)
                     .unwrap_or(offset);
@@ -393,7 +523,7 @@ pub fn resolve_custom_effects(
                 world.queue_spawn(spawned);
             }
             CommandEffect::ModifyStat { target, stat, amount } => {
-                let amount = amount.resolve(&mut rng);
+                let amount = amount.resolve(rng);
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
@@ -415,7 +545,7 @@ pub fn resolve_custom_effects(
                 }
             }
             CommandEffect::UseResource { stat, amount } => {
-                let amount = amount.resolve(&mut rng);
+                let amount = amount.resolve(rng);
                 let has_enough = world.get_entity(entity_id).map_or(false, |e| {
                     let current = match stat.as_str() {
                         "health" => e.health,
@@ -429,7 +559,7 @@ pub fn resolve_custom_effects(
                         entity_id,
                         text: format!("[{cmd_name}] not enough {stat}"),
                     });
-                    return true; // Abort remaining effects.
+                    return EffectOutcome::Aborted;
                 }
                 // Deduct the resource.
                 if let Some(entity) = world.get_entity_mut(entity_id) {
@@ -495,7 +625,7 @@ pub fn resolve_custom_effects(
                             entity_id: *vid,
                             name: vname.clone(),
                         });
-                        total_gained += per_kill.resolve(&mut rng);
+                        total_gained += per_kill.resolve(rng);
                     }
 
                     world.gain_resource(resource, total_gained);
@@ -510,22 +640,38 @@ pub fn resolve_custom_effects(
                 }
             }
             CommandEffect::ModifyResource { resource, amount } => {
-                let amount = amount.resolve(&mut rng);
+                let amount = amount.resolve(rng);
                 world.gain_resource(resource, amount);
             }
             CommandEffect::UseGlobalResource { resource, amount } => {
-                let amount = amount.resolve(&mut rng);
+                let amount = amount.resolve(rng);
                 if !world.try_spend_resource(resource, amount) {
                     events.push(SimEvent::ScriptOutput {
                         entity_id,
                         text: format!("[{cmd_name}] not enough {resource}"),
                     });
-                    return true; // Abort remaining effects.
+                    return EffectOutcome::Aborted;
                 }
+            }
+            CommandEffect::If { condition, then_effects, otherwise } => {
+                let branch = if evaluate_condition(condition, world, entity_id, rng) {
+                    then_effects
+                } else {
+                    otherwise
+                };
+                if !branch.is_empty() {
+                    let outcome = resolve_effects_inner(world, entity_id, cmd_name, branch, args, events, rng);
+                    if !matches!(outcome, EffectOutcome::Complete) {
+                        return outcome;
+                    }
+                }
+            }
+            CommandEffect::StartChannel { phases } => {
+                return EffectOutcome::StartChannel { phases: phases.clone() };
             }
         }
     }
-    false
+    EffectOutcome::Complete
 }
 
 /// Resolve target string to EntityId using positional args.

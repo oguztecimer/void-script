@@ -363,6 +363,27 @@ pub fn collect_command_defs(mods: &[LoadedMod]) -> HashMap<String, CommandDef> {
     defs
 }
 
+/// Recursively collect all effects from a list, including those nested inside
+/// `If` branches and `StartChannel` phases.
+fn collect_all_effects_recursive<'a>(effects: &'a [CommandEffect], out: &mut Vec<&'a CommandEffect>) {
+    for effect in effects {
+        out.push(effect);
+        match effect {
+            CommandEffect::If { then_effects, otherwise, .. } => {
+                collect_all_effects_recursive(then_effects, out);
+                collect_all_effects_recursive(otherwise, out);
+            }
+            CommandEffect::StartChannel { phases } => {
+                for phase in phases {
+                    collect_all_effects_recursive(&phase.on_start, out);
+                    collect_all_effects_recursive(&phase.per_update, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Validate that spawn definitions reference known entity types.
 pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
     for m in mods {
@@ -374,13 +395,15 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
                 );
             }
         }
-        // Also validate spawn effects in custom command definitions (effects + phases).
+        // Also validate spawn effects in custom command definitions (effects + phases),
+        // recursively including If branches and StartChannel phases.
         if let Some(cmds) = &m.manifest.commands {
             for def in &cmds.definitions {
-                let mut all_effects: Vec<&CommandEffect> = def.effects.iter().collect();
+                let mut all_effects = Vec::new();
+                collect_all_effects_recursive(&def.effects, &mut all_effects);
                 for phase in &def.phases {
-                    all_effects.extend(phase.on_start.iter());
-                    all_effects.extend(phase.per_update.iter());
+                    collect_all_effects_recursive(&phase.on_start, &mut all_effects);
+                    collect_all_effects_recursive(&phase.per_update, &mut all_effects);
                 }
                 for effect in all_effects {
                     let referenced_type = match effect {
@@ -403,6 +426,7 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
 }
 
 /// Validate a list of effects against known stat names, target references, and arg names.
+/// Recurses into `If` branches and `StartChannel` phases.
 fn validate_effects(
     effects: &[CommandEffect],
     args: &[String],
@@ -444,6 +468,64 @@ fn validate_effects(
         };
         if let Some(target) = target_str {
             validate_target(target, args, cmd_name, mod_id);
+        }
+        // Validate condition in If effects, then recurse into both branches.
+        if let CommandEffect::If { condition, then_effects, otherwise } = effect {
+            validate_condition(condition, cmd_name, mod_id, valid_stats);
+            validate_effects(then_effects, args, cmd_name, mod_id, valid_stats);
+            validate_effects(otherwise, args, cmd_name, mod_id, valid_stats);
+        }
+        // Validate StartChannel phases.
+        if let CommandEffect::StartChannel { phases } = effect {
+            for (i, phase) in phases.iter().enumerate() {
+                if phase.ticks <= 0 {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: command '{cmd_name}' start_channel phase {i} has non-positive ticks ({})",
+                        phase.ticks
+                    );
+                }
+                if phase.update_interval <= 0 {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: command '{cmd_name}' start_channel phase {i} has non-positive update_interval ({})",
+                        phase.update_interval
+                    );
+                }
+                validate_effects(&phase.on_start, args, cmd_name, mod_id, valid_stats);
+                validate_effects(&phase.per_update, args, cmd_name, mod_id, valid_stats);
+            }
+        }
+    }
+}
+
+/// Validate a condition's fields.
+fn validate_condition(
+    condition: &deadcode_sim::action::Condition,
+    cmd_name: &str,
+    mod_id: &str,
+    valid_stats: &HashSet<&str>,
+) {
+    match condition {
+        deadcode_sim::action::Condition::Resource { resource, .. } => {
+            if resource.is_empty() {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition with empty resource name",
+                );
+            }
+        }
+        deadcode_sim::action::Condition::EntityCount { entity_type, .. } => {
+            if entity_type.is_empty() {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition with empty entity_type",
+                );
+            }
+        }
+        deadcode_sim::action::Condition::Stat { stat, .. } => {
+            if !valid_stats.contains(stat.as_str()) {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition referencing unknown stat '{stat}' \
+                     (valid: health, shield, speed)",
+                );
+            }
         }
     }
 }
@@ -487,45 +569,8 @@ pub fn validate_command_defs(mods: &[LoadedMod]) {
                 validate_effects(&phase.per_update, &def.args, &def.name, mod_id, &valid_stats);
             }
 
-            // Validate instant effects.
-            for effect in &def.effects {
-                // Validate stat names in ModifyStat and UseResource effects.
-                let stat_name = match effect {
-                    CommandEffect::ModifyStat { stat, .. }
-                    | CommandEffect::UseResource { stat, .. } => Some(stat.as_str()),
-                    _ => None,
-                };
-                if let Some(stat) = stat_name {
-                    if !valid_stats.contains(stat) {
-                        eprintln!(
-                            "[mod:{mod_id}] warning: command '{}' references unknown stat '{stat}' \
-                             (valid: health, energy, shield, speed)",
-                            def.name
-                        );
-                    }
-                }
-                // Validate UseResource amounts (only check fixed values).
-                if let CommandEffect::UseResource { stat, amount } = effect {
-                    if let deadcode_sim::action::DynInt::Fixed(v) = amount {
-                        if *v <= 0 {
-                            eprintln!(
-                                "[mod:{mod_id}] warning: command '{}' has non-positive use_resource amount {v} for {stat}",
-                                def.name
-                            );
-                        }
-                    }
-                }
-                // Validate target strings in effects that have them.
-                let target_str = match effect {
-                    CommandEffect::Damage { target, .. }
-                    | CommandEffect::Heal { target, .. }
-                    | CommandEffect::ModifyStat { target, .. } => Some(target.as_str()),
-                    _ => None,
-                };
-                if let Some(target) = target_str {
-                    validate_target(target, &def.args, &def.name, mod_id);
-                }
-            }
+            // Validate instant effects (reuses validate_effects which handles If/StartChannel recursion).
+            validate_effects(&def.effects, &def.args, &def.name, mod_id, &valid_stats);
         }
     }
 }

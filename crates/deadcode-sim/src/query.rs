@@ -33,7 +33,11 @@ pub fn nearest(world: &SimWorld, self_id: EntityId, filter: &str) -> SimValue {
             continue;
         }
         let dist = (e.position - self_pos).abs();
-        if best.is_none() || dist < best.unwrap().1 {
+        if let Some((best_id, best_dist)) = best {
+            if dist < best_dist || (dist == best_dist && e.id.0 < best_id.0) {
+                best = Some((e.id, dist));
+            }
+        } else {
             best = Some((e.id, dist));
         }
     }

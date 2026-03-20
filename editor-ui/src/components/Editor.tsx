@@ -324,13 +324,29 @@ export function Editor() {
     }
 
     const diagnostics = activeTab.diagnostics;
-    const grimScriptLinter = linter(() => {
-      return diagnostics.map((d): CmDiagnostic => ({
-        from: 0, // Will be computed properly with line info
-        to: 0,
-        severity: d.severity === 'error' ? 'error' : d.severity === 'warning' ? 'warning' : 'info',
-        message: d.message,
-      }));
+    const grimScriptLinter = linter((view) => {
+      const doc = view.state.doc;
+      return diagnostics.map((d): CmDiagnostic => {
+        const severity = d.severity === 'error' ? 'error' : d.severity === 'warning' ? 'warning' : 'info';
+
+        // Validate line number is in range
+        if (d.line < 1 || d.line > doc.lines) {
+          return { from: 0, to: 0, severity, message: d.message };
+        }
+
+        const line = doc.line(d.line);
+
+        // If col_start and col_end are both 0, highlight the whole line
+        if (d.col_start === 0 && d.col_end === 0) {
+          return { from: line.from, to: line.to, severity, message: d.message };
+        }
+
+        // Compute positions, clamping to line bounds
+        const from = Math.min(line.from + Math.max(d.col_start - 1, 0), line.to);
+        const to = Math.min(line.from + Math.max(d.col_end - 1, 0), line.to);
+
+        return { from, to: Math.max(to, from), severity, message: d.message };
+      });
     });
 
     // Check if we have a cached state for this tab

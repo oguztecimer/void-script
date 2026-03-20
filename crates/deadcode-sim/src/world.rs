@@ -2516,7 +2516,7 @@ mod tests {
     #[test]
     fn buff_apply_modifies_stats_and_expires() {
         use crate::action::BuffDef;
-        use std::collections::HashMap as StdMap;
+        use indexmap::IndexMap as StdMap;
 
         let mut world = SimWorld::new(42);
         let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
@@ -2581,7 +2581,7 @@ mod tests {
     #[test]
     fn buff_stackable_adds_multiple_stacks() {
         use crate::action::BuffDef;
-        use std::collections::HashMap as StdMap;
+        use indexmap::IndexMap as StdMap;
 
         let mut world = SimWorld::new(42);
         let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
@@ -2645,7 +2645,7 @@ mod tests {
         world.register_buff(BuffDef {
             name: "shield_up".into(),
             duration: 5,
-            modifiers: std::collections::HashMap::new(),
+            modifiers: indexmap::IndexMap::new(),
             per_tick: vec![],
             on_apply: vec![],
             on_expire: vec![],
@@ -2692,7 +2692,7 @@ mod tests {
     #[test]
     fn buff_remove_reverses_modifiers() {
         use crate::action::BuffDef;
-        use std::collections::HashMap as StdMap;
+        use indexmap::IndexMap as StdMap;
 
         let mut world = SimWorld::new(42);
         let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
@@ -2764,7 +2764,7 @@ mod tests {
         world.register_buff(BuffDef {
             name: "berserk".into(),
             duration: 10,
-            modifiers: std::collections::HashMap::new(),
+            modifiers: indexmap::IndexMap::new(),
             per_tick: vec![],
             on_apply: vec![],
             on_expire: vec![],
@@ -2959,7 +2959,7 @@ mod tests {
         let mut world = SimWorld::new(42);
         let config = crate::entity::EntityConfig {
             stats: {
-                let mut m = std::collections::HashMap::new();
+                let mut m = indexmap::IndexMap::new();
                 m.insert("armor".into(), 10);
                 m.insert("crit".into(), 5);
                 m
@@ -3033,5 +3033,183 @@ mod tests {
         let mut rng = crate::rng::SimRng::new(42);
         let dyn_val = DynInt::CasterStat { stat: "armor".into(), multiplier: 3 };
         assert_eq!(dyn_val.resolve_with_world(&mut rng, &world, summoner), 21);
+    }
+
+    // -----------------------------------------------------------------------
+    // Contains / NotContains executor tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn contains_in_list() {
+        let (state, _) = run_instructions(vec![
+            // Push item, then container => Contains pops container (top), then item
+            Instruction::LoadConst(SimValue::Int(2)),
+            Instruction::LoadConst(SimValue::List(vec![
+                SimValue::Int(1),
+                SimValue::Int(2),
+                SimValue::Int(3),
+            ])),
+            Instruction::Contains,
+            Instruction::Halt,
+        ]);
+        assert_eq!(state.stack.last(), Some(&SimValue::Bool(true)));
+    }
+
+    #[test]
+    fn not_contains_in_list() {
+        let (state, _) = run_instructions(vec![
+            Instruction::LoadConst(SimValue::Int(99)),
+            Instruction::LoadConst(SimValue::List(vec![
+                SimValue::Int(1),
+                SimValue::Int(2),
+            ])),
+            Instruction::NotContains,
+            Instruction::Halt,
+        ]);
+        assert_eq!(state.stack.last(), Some(&SimValue::Bool(true)));
+    }
+
+    #[test]
+    fn contains_in_string_and_dict() {
+        // String: "el" in "hello" => true
+        let (state, _) = run_instructions(vec![
+            Instruction::LoadConst(SimValue::Str("el".into())),
+            Instruction::LoadConst(SimValue::Str("hello".into())),
+            Instruction::Contains,
+            Instruction::Halt,
+        ]);
+        assert_eq!(state.stack.last(), Some(&SimValue::Bool(true)));
+
+        // Dict: "key" in {"key": 1} => true
+        let mut dict = indexmap::IndexMap::new();
+        dict.insert("key".to_string(), SimValue::Int(1));
+        let (state, _) = run_instructions(vec![
+            Instruction::LoadConst(SimValue::Str("key".into())),
+            Instruction::LoadConst(SimValue::Dict(dict)),
+            Instruction::Contains,
+            Instruction::Halt,
+        ]);
+        assert_eq!(state.stack.last(), Some(&SimValue::Bool(true)));
+    }
+
+    // -----------------------------------------------------------------------
+    // evaluate_condition with game-state DynInt
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn condition_resource_with_dynint_entity_count() {
+        use crate::action::{Condition, CompareOp, DynInt, evaluate_condition};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        world.spawn_entity("skeleton".into(), "s1".into(), 100);
+        world.spawn_entity("skeleton".into(), "s2".into(), 200);
+        world.resources.insert("souls".into(), 5);
+
+        let mut rng = crate::rng::SimRng::new(42);
+
+        // Resource condition: souls (5) >= entity_count(skeleton)*2 (2*2=4) => true
+        let cond = Condition::Resource {
+            resource: "souls".into(),
+            compare: CompareOp::Gte,
+            amount: DynInt::EntityCount { entity_type: "skeleton".into(), multiplier: 2 },
+        };
+        assert!(evaluate_condition(&cond, &world, summoner, &mut rng));
+    }
+
+    #[test]
+    fn condition_stat_with_dynint_resource_value() {
+        use crate::action::{Condition, CompareOp, DynInt, evaluate_condition};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        // summoner health defaults to 100
+        world.resources.insert("mana".into(), 50);
+
+        let mut rng = crate::rng::SimRng::new(42);
+
+        // Stat condition: health (100) > resource(mana)*1 (50) => true
+        let cond = Condition::Stat {
+            stat: "health".into(),
+            compare: CompareOp::Gt,
+            amount: DynInt::ResourceValue { resource: "mana".into(), multiplier: 1 },
+        };
+        assert!(evaluate_condition(&cond, &world, summoner, &mut rng));
+
+        // Flip: health (100) < resource(mana)*1 (50) => false
+        let cond2 = Condition::Stat {
+            stat: "health".into(),
+            compare: CompareOp::Lt,
+            amount: DynInt::ResourceValue { resource: "mana".into(), multiplier: 1 },
+        };
+        assert!(!evaluate_condition(&cond2, &world, summoner, &mut rng));
+    }
+
+    #[test]
+    fn condition_entity_count_with_dynint_caster_stat() {
+        use crate::action::{Condition, CompareOp, DynInt, evaluate_condition};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        world.get_entity_mut(summoner).unwrap().set_stat("army_size", 3);
+        world.spawn_entity("skeleton".into(), "s1".into(), 100);
+        world.spawn_entity("skeleton".into(), "s2".into(), 200);
+
+        let mut rng = crate::rng::SimRng::new(42);
+
+        // EntityCount condition: skeleton count (2) < stat(army_size)*1 (3) => true
+        let cond = Condition::EntityCount {
+            entity_type: "skeleton".into(),
+            compare: CompareOp::Lt,
+            amount: DynInt::CasterStat { stat: "army_size".into(), multiplier: 1 },
+        };
+        assert!(evaluate_condition(&cond, &world, summoner, &mut rng));
+    }
+
+    // -----------------------------------------------------------------------
+    // nearest() deterministic tie-breaking
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn nearest_tiebreak_lower_entity_id_wins() {
+        use crate::query::nearest;
+
+        let mut world = SimWorld::new(42);
+        // Querier at position 100
+        let querier = world.spawn_entity("summoner".into(), "me".into(), 100);
+        // Two entities equidistant at 90 and 110 (both distance 10 from querier)
+        let e_left = world.spawn_entity("skeleton".into(), "left".into(), 90);
+        let e_right = world.spawn_entity("skeleton".into(), "right".into(), 110);
+
+        let result = nearest(&world, querier, "skeleton");
+        // The one with the lower entity ID should win the tie.
+        let expected_winner = if e_left.0 < e_right.0 { e_left } else { e_right };
+        assert_eq!(result, SimValue::EntityRef(expected_winner));
+    }
+
+    #[test]
+    fn nearest_tiebreak_reversed_spawn_order() {
+        use crate::query::nearest;
+
+        let mut world = SimWorld::new(99);
+        // Spawn far entity first, then close, then another at same distance as close.
+        let querier = world.spawn_entity("summoner".into(), "me".into(), 0);
+        let _far = world.spawn_entity("zombie".into(), "far".into(), 100);
+        let close_a = world.spawn_entity("zombie".into(), "a".into(), 50);
+        let _close_b = world.spawn_entity("zombie".into(), "b".into(), -50); // abs(-50 - 0) = 50
+
+        let result = nearest(&world, querier, "zombie");
+        // close_a and close_b are equidistant (50). close_a has lower ID => wins.
+        assert_eq!(result, SimValue::EntityRef(close_a));
+    }
+
+    /// Helper: run instructions on a fresh world (single entity) and return final state.
+    fn run_instructions(instructions: Vec<Instruction>) -> (ScriptState, Option<UnitAction>) {
+        let mut world = SimWorld::new(42);
+        let eid = world.spawn_entity("skeleton".into(), "test".into(), 0);
+        let program = CompiledScript::new(instructions, 0);
+        let mut state = ScriptState::new(program, 0);
+        let action = crate::executor::execute_unit(eid, &mut state, &world).unwrap();
+        (state, action)
     }
 }

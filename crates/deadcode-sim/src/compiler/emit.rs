@@ -577,6 +577,8 @@ impl<'a> Compiler<'a> {
                     CmpOp::Gt => self.emit(Instruction::CmpGt),
                     CmpOp::LtEq => self.emit(Instruction::CmpLe),
                     CmpOp::GtEq => self.emit(Instruction::CmpGe),
+                    CmpOp::In => self.emit(Instruction::Contains),
+                    CmpOp::NotIn => self.emit(Instruction::NotContains),
                 };
             }
 

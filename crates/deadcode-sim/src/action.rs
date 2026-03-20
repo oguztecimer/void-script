@@ -438,7 +438,7 @@ pub struct BuffDef {
     pub duration: i64,
     /// Stat modifiers applied while active (stat → amount).
     #[serde(default)]
-    pub modifiers: std::collections::HashMap<String, i64>,
+    pub modifiers: indexmap::IndexMap<String, i64>,
     /// Effects that run each tick while the buff is active.
     #[serde(default)]
     pub per_tick: Vec<CommandEffect>,
@@ -615,19 +615,19 @@ pub fn evaluate_condition(
     match condition {
         Condition::Resource { resource, compare, amount } => {
             let current = world.get_resource(resource);
-            let threshold = amount.resolve(rng);
+            let threshold = amount.resolve_with_world(rng, world, entity_id);
             compare.evaluate(current, threshold)
         }
         Condition::EntityCount { entity_type, compare, amount } => {
             let count = world.entities()
                 .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.entity_type == *entity_type)
                 .count() as i64;
-            let threshold = amount.resolve(rng);
+            let threshold = amount.resolve_with_world(rng, world, entity_id);
             compare.evaluate(count, threshold)
         }
         Condition::Stat { stat, compare, amount } => {
             let current = world.get_entity(entity_id).map_or(0, |e| e.stat(stat));
-            let threshold = amount.resolve(rng);
+            let threshold = amount.resolve_with_world(rng, world, entity_id);
             compare.evaluate(current, threshold)
         }
         Condition::HasBuff { buff } => {

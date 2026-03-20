@@ -123,6 +123,18 @@ pub fn execute_unit(
             Instruction::CmpGt => cmp_int(&mut state.stack, |a, b| a > b)?,
             Instruction::CmpLe => cmp_int(&mut state.stack, |a, b| a <= b)?,
             Instruction::CmpGe => cmp_int(&mut state.stack, |a, b| a >= b)?,
+            Instruction::Contains => {
+                let container = pop(&mut state.stack)?;
+                let item = pop(&mut state.stack)?;
+                let result = sim_contains(&container, &item)?;
+                state.stack.push(SimValue::Bool(result));
+            }
+            Instruction::NotContains => {
+                let container = pop(&mut state.stack)?;
+                let item = pop(&mut state.stack)?;
+                let result = sim_contains(&container, &item)?;
+                state.stack.push(SimValue::Bool(!result));
+            }
 
             // --- Boolean ---
             Instruction::Not => {
@@ -775,6 +787,37 @@ fn cmp_int(
             "cannot compare {} and {}",
             a.type_name(),
             b.type_name()
+        ))),
+    }
+}
+
+/// Check if `container` contains `item` (for `in` / `not in` operators).
+fn sim_contains(container: &SimValue, item: &SimValue) -> Result<bool, SimError> {
+    match container {
+        SimValue::List(list) => Ok(list.iter().any(|v| v == item)),
+        SimValue::Str(s) => {
+            if let SimValue::Str(sub) = item {
+                Ok(s.contains(sub.as_str()))
+            } else {
+                Err(SimError::type_error(format!(
+                    "'in <str>' requires str as left operand, not {}",
+                    item.type_name()
+                )))
+            }
+        }
+        SimValue::Dict(d) => {
+            if let SimValue::Str(key) = item {
+                Ok(d.contains_key(key.as_str()))
+            } else {
+                Err(SimError::type_error(format!(
+                    "'in <dict>' requires str as left operand, not {}",
+                    item.type_name()
+                )))
+            }
+        }
+        _ => Err(SimError::type_error(format!(
+            "argument of type '{}' is not iterable",
+            container.type_name()
         ))),
     }
 }

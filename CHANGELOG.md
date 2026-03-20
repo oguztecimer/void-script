@@ -4,6 +4,27 @@
 
 ### Simulation Engine
 
+#### Fixed
+- **S-12: `evaluate_condition()` DynInt resolution** — Conditions with game-state `DynInt` thresholds (`entity_count(...)`, `resource(...)`, `stat(...)`) now use `resolve_with_world()` instead of `resolve()`. Previously these always resolved to 0, making all game-state-aware condition thresholds broken.
+- **S-13: `nearest()` deterministic tie-breaking** — When multiple entities are equidistant, the one with the lower `EntityId` now wins. Previously tie-breaking depended on iteration order, which could vary with spawn/despawn patterns, breaking seed-based determinism.
+- **S-14: Entity stats HashMap → IndexMap** — `SimEntity.stats` and `EntityConfig.stats` now use `IndexMap<String, i64>` for deterministic iteration order. `BuffDef.modifiers` also converted. Prevents future determinism regressions if stats are ever iterated during simulation.
+- **S-15: `in`/`not in` operators** — Added `Contains` and `NotContains` IR instructions and implemented membership testing in both the interpreter and compiler/executor. `in` works for lists (element membership), strings (substring), and dicts (key lookup). Previously `in` was parsed but mapped to `==`, always returning wrong results.
+- **S-16: Unicode string `len()` and negative indexing** — `len()` on strings now returns character count instead of UTF-8 byte count. Negative string indexing uses character count for bounds calculation. Negative list/tuple index underflow now returns an error instead of wrapping to a huge value and panicking.
+
+### Desktop / Rendering
+
+#### Fixed
+- **D-01: Hit test negative coordinate guard** — `hit_test_at()` now checks for negative coordinates before casting to `u32`, preventing an out-of-bounds read when mouse coordinates are negative.
+- **D-02: macOS pixel buffer bounds validation** — Added `debug_assert` for canvas/buffer size parity and bounds-checked the pixel conversion loop and `copy_nonoverlapping` call to prevent buffer overflows on size mismatches.
+- **D-03: Entity position sync by ID** — Position sync between sim entities and render units now uses an `EntityId→UnitId` mapping instead of string name matching. Fixes incorrect syncing when multiple entities share the same name. Death handling and animation targeting also use the ID map.
+
+### Editor UI
+
+#### Fixed
+- **E-01: Error boundary** — Added React error boundary wrapping the editor UI. Rendering errors are caught and display a fallback with an error message and reload button instead of crashing the entire UI.
+- **E-02: Diagnostic line positioning** — CodeMirror linter now computes proper `from`/`to` positions from diagnostic line/column data instead of hardcoding position 0. Falls back to highlighting the whole line when column info is missing.
+- **E-03: IPC bridge default case** — Unknown IPC message types are now logged via `console.warn` instead of silently ignored.
+
 #### Changed
 - **S-XX: Unified entity stats into single HashMap** — Removed 9 hardcoded stat fields (`health`, `max_health`, `shield`, `max_shield`, `speed`, `attack_damage`, `attack_range`, `attack_cooldown`, `cooldown_remaining`) from `SimEntity` and the separate `custom_stats: HashMap<String, i64>`. All stats now live in a single `stats: HashMap<String, i64>` accessed via `stat()`, `set_stat()`, and `clamp_stat()` helpers. `EntityConfig` simplified to `{ stats: HashMap<String, i64> }`. Eliminated parallel effect/condition systems: `ModifyCustomStat`/`UseCustomStat`/`Condition::CustomStat` removed — `ModifyStat`/`UseResource`/`Condition::Stat` now handle all stats generically. Serde aliases preserve backward compatibility for existing `mod.toml` files (`modify_custom_stat`, `use_custom_stat`, `custom_stat` still parse correctly). Renamed `get_custom_stat` GrimScript builtin to `get_stat` (old name kept as alias). Fixed pre-existing bug: `Spawn` effect now applies `EntityConfig` to dynamically spawned entities. 182 tests pass.
 

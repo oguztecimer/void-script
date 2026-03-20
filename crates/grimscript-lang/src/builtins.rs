@@ -94,7 +94,7 @@ pub fn call_builtin(
             }
             match &args[0] {
                 Value::List(l) => Ok(Value::Int(l.len() as i64)),
-                Value::String(s) => Ok(Value::Int(s.len() as i64)),
+                Value::String(s) => Ok(Value::Int(s.chars().count() as i64)),
                 Value::Dict(d) => Ok(Value::Int(d.len() as i64)),
                 Value::Tuple(t) => Ok(Value::Int(t.len() as i64)),
                 other => Err(GrimScriptError::type_error(

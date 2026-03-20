@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -76,7 +76,7 @@ pub struct ChannelState {
 /// Stat overrides applied at spawn time. All stats live in a single HashMap.
 #[derive(Debug, Clone, Default)]
 pub struct EntityConfig {
-    pub stats: HashMap<String, i64>,
+    pub stats: IndexMap<String, i64>,
 }
 
 /// A game entity — theme-agnostic. Entity type is a free-form string.
@@ -92,7 +92,7 @@ pub struct SimEntity {
     pub position: i64,
 
     /// All entity stats in a single HashMap (health, max_health, shield, speed, etc.).
-    pub stats: HashMap<String, i64>,
+    pub stats: IndexMap<String, i64>,
 
     // State
     pub target: Option<EntityId>,
@@ -112,7 +112,7 @@ pub struct SimEntity {
 
 impl SimEntity {
     pub fn new(id: EntityId, entity_type: String, name: String, position: i64) -> Self {
-        let stats = HashMap::from([
+        let stats = IndexMap::from([
             ("health".to_string(), 100),
             ("max_health".to_string(), 100),
             ("shield".to_string(), 0),

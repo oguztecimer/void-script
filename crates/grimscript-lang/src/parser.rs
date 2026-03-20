@@ -452,7 +452,7 @@ impl Parser {
             Token::In => {
                 self.advance();
                 let r = self.parse_expr(r_bp)?;
-                Ok(self.make_cmp(lhs, CmpOp::Eq, r))
+                Ok(self.make_cmp(lhs, CmpOp::In, r))
             }
 
             // `not in` (compound)
@@ -460,7 +460,7 @@ impl Parser {
                 self.advance(); // not
                 self.advance(); // in  (guaranteed by infix_bp guard)
                 let r = self.parse_expr(r_bp)?;
-                Ok(self.make_cmp(lhs, CmpOp::NotEq, r))
+                Ok(self.make_cmp(lhs, CmpOp::NotIn, r))
             }
 
             // Postfix: call

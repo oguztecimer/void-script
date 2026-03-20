@@ -404,7 +404,14 @@ impl Interpreter {
                     match (&mut obj_val, &idx) {
                         (Value::List(list), Value::Int(i)) => {
                             let index = if *i < 0 {
-                                (list.len() as i64 + *i) as usize
+                                let adjusted = list.len() as i64 + *i;
+                                if adjusted < 0 {
+                                    return Err(GrimScriptError::index_error(
+                                        line,
+                                        "list index out of range",
+                                    ));
+                                }
+                                adjusted as usize
                             } else {
                                 *i as usize
                             };
@@ -590,6 +597,8 @@ impl Interpreter {
                     CmpOp::Gt => self.compare_gt(&lval, &rval, expr.line)?,
                     CmpOp::LtEq => !self.compare_gt(&lval, &rval, expr.line)?,
                     CmpOp::GtEq => !self.compare_lt(&lval, &rval, expr.line)?,
+                    CmpOp::In => self.check_contains(&rval, &lval, expr.line)?,
+                    CmpOp::NotIn => !self.check_contains(&rval, &lval, expr.line)?,
                 };
                 Ok(Value::Bool(result))
             }
@@ -1297,6 +1306,38 @@ impl Interpreter {
         }
     }
 
+    /// Check if `container` contains `item` (for `in` / `not in` operators).
+    fn check_contains(&self, container: &Value, item: &Value, line: u32) -> Result<bool, GrimScriptError> {
+        match container {
+            Value::List(list) => Ok(list.iter().any(|v| v == item)),
+            Value::Tuple(items) => Ok(items.iter().any(|v| v == item)),
+            Value::String(s) => {
+                if let Value::String(sub) = item {
+                    Ok(s.contains(sub.as_str()))
+                } else {
+                    Err(GrimScriptError::type_error(
+                        line,
+                        format!("'in <string>' requires string as left operand, not {}", item.type_name()),
+                    ))
+                }
+            }
+            Value::Dict(d) => {
+                if let Value::String(key) = item {
+                    Ok(d.contains_key(key.as_str()))
+                } else {
+                    Err(GrimScriptError::type_error(
+                        line,
+                        format!("'in <dict>' requires string as left operand, not {}", item.type_name()),
+                    ))
+                }
+            }
+            _ => Err(GrimScriptError::type_error(
+                line,
+                format!("argument of type '{}' is not iterable", container.type_name()),
+            )),
+        }
+    }
+
     fn index_value(
         &self,
         obj: &Value,
@@ -1306,7 +1347,11 @@ impl Interpreter {
         match (obj, index) {
             (Value::List(list), Value::Int(i)) => {
                 let idx = if *i < 0 {
-                    (list.len() as i64 + *i) as usize
+                    let adjusted = list.len() as i64 + *i;
+                    if adjusted < 0 {
+                        return Err(GrimScriptError::index_error(line, "list index out of range"));
+                    }
+                    adjusted as usize
                 } else {
                     *i as usize
                 };
@@ -1316,7 +1361,11 @@ impl Interpreter {
             }
             (Value::Tuple(items), Value::Int(i)) => {
                 let idx = if *i < 0 {
-                    (items.len() as i64 + *i) as usize
+                    let adjusted = items.len() as i64 + *i;
+                    if adjusted < 0 {
+                        return Err(GrimScriptError::index_error(line, "tuple index out of range"));
+                    }
+                    adjusted as usize
                 } else {
                     *i as usize
                 };
@@ -1325,8 +1374,13 @@ impl Interpreter {
                 })
             }
             (Value::String(s), Value::Int(i)) => {
+                let char_count = s.chars().count() as i64;
                 let idx = if *i < 0 {
-                    (s.len() as i64 + *i) as usize
+                    let adjusted = char_count + *i;
+                    if adjusted < 0 {
+                        return Err(GrimScriptError::index_error(line, "string index out of range"));
+                    }
+                    adjusted as usize
                 } else {
                     *i as usize
                 };

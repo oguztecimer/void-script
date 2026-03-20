@@ -136,7 +136,7 @@ pub struct EntityDef {
     pub shield: Option<i64>,
     /// Additional stats (e.g., armor = 5, crit_chance = 10).
     #[serde(default, alias = "custom_stats")]
-    pub stats: HashMap<String, i64>,
+    pub stats: indexmap::IndexMap<String, i64>,
 }
 
 impl EntityDef {
@@ -547,7 +547,7 @@ fn embedded_fallback() -> LoadedMod {
     };
 
     entity_configs.insert("skeleton".into(), EntityConfig {
-        stats: HashMap::from([
+        stats: indexmap::IndexMap::from([
             ("health".into(), 50),
             ("max_health".into(), 50),
             ("speed".into(), 2),

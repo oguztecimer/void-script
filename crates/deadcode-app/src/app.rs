@@ -97,6 +97,8 @@ pub struct App {
     command_defs: HashMap<String, CommandDef>,
     /// GrimScript library source (prepended to player scripts before compilation).
     library_source: String,
+    /// Mapping from sim EntityId to render UnitId for position sync.
+    entity_unit_map: HashMap<u64, u64>,
     /// Effects to run when the game opens (from [initial] sections in mods).
     initial_effects: Vec<deadcode_sim::action::CommandEffect>,
     /// Whether initial effects still need to be sent to the editor.
@@ -154,6 +156,7 @@ impl App {
             available_resources: Vec::new(),
             command_defs: HashMap::new(),
             library_source: String::new(),
+            entity_unit_map: HashMap::new(),
             initial_effects: Vec::new(),
             initial_effects_pending: true,
 
@@ -227,10 +230,7 @@ impl App {
                 if let Some(um) = &mut self.unit_manager {
                     for es in &snapshot.entities {
                         let render_x = es.position as f32;
-                        let matching_id = um.iter()
-                            .find(|unit| unit.name == es.name)
-                            .map(|unit| unit.id);
-                        if let Some(uid) = matching_id {
+                        if let Some(&uid) = self.entity_unit_map.get(&es.id.0) {
                             um.move_to(uid, render_x, 100.0);
                         }
                     }
@@ -521,7 +521,7 @@ impl ApplicationHandler<UserEvent> for App {
         });
         self.pivot_registry.insert("summoner".into(), [49.0, 2.0]);
         self.entity_configs.insert("summoner".into(), EntityConfig {
-            stats: std::collections::HashMap::from([
+            stats: indexmap::IndexMap::from([
                 ("health".into(), 100),
                 ("max_health".into(), 100),
                 ("speed".into(), 1),
@@ -563,40 +563,47 @@ impl ApplicationHandler<UserEvent> for App {
         let mut sim = SimWorld::new(42);
 
         // Spawn the summoner (hardcoded core entity, always first).
+        self.entity_unit_map.clear();
         {
             let sprite = self.sprite_registry.get("summoner").unwrap();
-            um.spawn("summoner", &sprite.png, &sprite.json, 500.0, 49.0, 2.0);
+            let uid = um.spawn("summoner", &sprite.png, &sprite.json, 500.0, 49.0, 2.0);
             let config = self.entity_configs.get("summoner");
-            sim.spawn_entity_with_config("summoner".into(), "summoner".into(), 500, config);
+            let eid = sim.spawn_entity_with_config("summoner".into(), "summoner".into(), 500, config);
+            self.entity_unit_map.insert(eid.0, uid);
         }
 
         // Spawn entities defined in mod manifests.
         for loaded_mod in &mods {
             for spawn_def in &loaded_mod.manifest.spawn {
                 // Spawn render unit if sprite data is available.
-                if let Some(sprite) = self.sprite_registry.get(&spawn_def.entity_type) {
+                let maybe_uid = if let Some(sprite) = self.sprite_registry.get(&spawn_def.entity_type) {
                     let [px, py] = self.pivot_registry
                         .get(&spawn_def.entity_type)
                         .copied()
                         .unwrap_or([24.0, 0.0]);
-                    um.spawn(
+                    Some(um.spawn(
                         &spawn_def.name,
                         &sprite.png,
                         &sprite.json,
                         spawn_def.position as f32,
                         px,
                         py,
-                    );
-                }
+                    ))
+                } else {
+                    None
+                };
 
                 // Spawn sim entity with optional stat overrides.
                 let config = self.entity_configs.get(&spawn_def.entity_type);
-                sim.spawn_entity_with_config(
+                let eid = sim.spawn_entity_with_config(
                     spawn_def.entity_type.clone(),
                     spawn_def.name.clone(),
                     spawn_def.position,
                     config,
                 );
+                if let Some(uid) = maybe_uid {
+                    self.entity_unit_map.insert(eid.0, uid);
+                }
             }
         }
 
@@ -1020,14 +1027,14 @@ impl App {
     /// Apply a sim event to the render units (spawn, death, animations).
     fn apply_sim_event_to_units(&mut self, event: &deadcode_sim::SimEvent) {
         match event {
-            deadcode_sim::SimEvent::EntitySpawned { entity_type, name, position, .. } => {
+            deadcode_sim::SimEvent::EntitySpawned { entity_id, entity_type, name, position } => {
                 if let Some(sprite) = self.sprite_registry.get(entity_type) {
                     if let Some(um) = &mut self.unit_manager {
                         let [px, py] = self.pivot_registry
                             .get(entity_type)
                             .copied()
                             .unwrap_or([24.0, 0.0]);
-                        um.spawn(
+                        let uid = um.spawn(
                             name,
                             &sprite.png,
                             &sprite.json,
@@ -1035,29 +1042,22 @@ impl App {
                             px,
                             py,
                         );
+                        self.entity_unit_map.insert(entity_id.0, uid);
                     }
                 }
             }
-            deadcode_sim::SimEvent::EntityDied { name, .. } => {
+            deadcode_sim::SimEvent::EntityDied { entity_id, .. } => {
                 if let Some(um) = &mut self.unit_manager {
-                    let uid = um.iter()
-                        .find(|unit| unit.name == *name)
-                        .map(|unit| unit.id);
-                    if let Some(uid) = uid {
+                    if let Some(&uid) = self.entity_unit_map.get(&entity_id.0) {
                         um.kill(uid);
+                        self.entity_unit_map.remove(&entity_id.0);
                     }
                 }
             }
             deadcode_sim::SimEvent::PlayAnimation { entity_id, animation } => {
-                if let (Some(sim), Some(um)) = (&self.sim_world, &mut self.unit_manager) {
-                    let entity_name = sim.get_entity(*entity_id).map(|e| e.name.as_str());
-                    if let Some(name) = entity_name {
-                        let uid = um.iter()
-                            .find(|unit| unit.name == name)
-                            .map(|unit| unit.id);
-                        if let Some(uid) = uid {
-                            um.play_animation(uid, animation);
-                        }
+                if let Some(um) = &mut self.unit_manager {
+                    if let Some(&uid) = self.entity_unit_map.get(&entity_id.0) {
+                        um.play_animation(uid, animation);
                     }
                 }
             }

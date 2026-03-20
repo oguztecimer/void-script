@@ -160,4 +160,6 @@ pub enum CmpOp {
     Gt,
     LtEq,
     GtEq,
+    In,
+    NotIn,
 }

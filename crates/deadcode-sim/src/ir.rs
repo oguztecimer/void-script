@@ -33,6 +33,10 @@ pub enum Instruction {
     CmpGt,
     CmpLe,
     CmpGe,
+    /// `in` operator: pop item and container, push Bool (item in container).
+    Contains,
+    /// `not in` operator: pop item and container, push Bool (item not in container).
+    NotContains,
 
     // --- Boolean (pop 1, push Bool) ---
     Not,

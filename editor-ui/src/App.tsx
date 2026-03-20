@@ -16,6 +16,7 @@ import { DebugPanel } from './components/DebugPanel';
 import { StatusBar } from './components/StatusBar';
 import { BottomTabStrip } from './components/BottomTabStrip';
 import { WindowResizeBorder } from './components/WindowResizeBorder';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { initIpcBridge, sendToRust } from './ipc/bridge';
 import { useStore } from './state/store';
 import { useTierVisibility } from './state/useTier';
@@ -228,6 +229,7 @@ export function App() {
   }, [toggleBottomPanel]);
 
   return (
+    <ErrorBoundary>
     <div className={styles.app} data-tier={tier}>
       {/* CRT scanline + vignette overlay */}
       {tv.showCrtEffects && <div className={styles.crtOverlay} />}
@@ -389,5 +391,6 @@ export function App() {
       {/* Status bar */}
       {tv.showStatusBar && <StatusBar />}
     </div>
+    </ErrorBoundary>
   );
 }

@@ -98,6 +98,9 @@ impl Renderer {
 
     /// Check whether the pixel at (x, y) in logical coordinates is non-transparent.
     pub fn hit_test_at(&self, x: f64, y: f64) -> bool {
+        if x < 0.0 || y < 0.0 {
+            return false;
+        }
         let ix = x as u32;
         let iy = y as u32;
         let w = self.canvas.width();
@@ -271,8 +274,14 @@ impl Renderer {
         // Convert tiny_skia premultiplied RGBA → CoreGraphics premultiplied BGRA.
         let w = width as usize;
         let h = height as usize;
+        let pixel_count = self.canvas.pixels().len();
+        debug_assert_eq!(pixel_count, w * h, "Canvas pixel count mismatch");
+        let buf_len = self.pixel_buf.len();
         for (i, px) in self.canvas.pixels().iter().enumerate() {
             let base = i * 4;
+            if base + 3 >= buf_len {
+                break;
+            }
             self.pixel_buf[base]     = px.blue();
             self.pixel_buf[base + 1] = px.green();
             self.pixel_buf[base + 2] = px.red();
@@ -306,11 +315,12 @@ impl Renderer {
         use objc2_core_graphics::CGBitmapContextGetData;
         let ctx_data_ptr = CGBitmapContextGetData(Some(&ctx));
         if !ctx_data_ptr.is_null() {
+            let copy_len = (w * h * 4).min(self.pixel_buf.len());
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     self.pixel_buf.as_ptr(),
                     ctx_data_ptr as *mut u8,
-                    w * h * 4,
+                    copy_len,
                 );
             }
         }

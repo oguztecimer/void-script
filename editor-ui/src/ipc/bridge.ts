@@ -82,6 +82,9 @@ export function initIpcBridge(): void {
         store.setCommandInfo(msg.command_info || []);
         store.setDevMode(msg.dev_mode);
         break;
+      default:
+        console.warn('[IPC] Unknown message type:', (msg as { type: string }).type, msg);
+        break;
     }
   };
 

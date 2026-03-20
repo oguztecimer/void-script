@@ -98,7 +98,7 @@ src/
 
 **Available commands:** Not all builtins are available from the start. Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available. Game commands (queries/actions) and custom mod commands are gated by an `available_commands: Option<HashSet<String>>` passed to both the interpreter and the IR compiler. Initial set defined in `[initial].commands` in `mod.toml`. In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set + command info received via IPC.
 
-**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, use_resource, output, animate, list_commands). Integer fields in effects use `DynInt`: plain integers or `"rand(min,max)"` for deterministic randomness. These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, then effects are resolved in order against world state. The `use_resource` effect checks and deducts a resource, aborting remaining effects if insufficient. The `animate` effect triggers sprite animations on target entities via `PlayAnimation` sim events. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
+**Custom commands:** Mods define new commands via `[[commands.definitions]]` in `mod.toml` with data-driven effects (damage, heal, spawn, modify_stat, use_resource, output, animate, list_commands, sacrifice). Integer fields in effects use `DynInt`: plain integers or `"rand(min,max)"` for deterministic randomness. These compile to `ActionCustom(name)` IR instructions. The executor yields `UnitAction::Custom { name, args }`, then effects are resolved in order against world state. The `use_resource` effect checks and deducts a resource, aborting remaining effects if insufficient. The `animate` effect triggers sprite animations on target entities via `PlayAnimation` sim events. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
 
 **Phased commands:** Commands can use `phases` instead of `effects` for multi-tick abilities (mutually exclusive, validated at load). Each `PhaseDef` has `ticks`, `interruptible`, `on_start`, and `per_tick` effect lists. On initiation, a `ChannelState` is stored on the entity. The tick loop processes channels before script execution: interruptible phases run the script and cancel if it yields a real action; non-interruptible phases skip script execution. `use_resource` failure mid-phase cancels the channel. Hot-reload clears active channels.
 
@@ -107,6 +107,8 @@ src/
 **Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
 
 **Spawn state:** Dynamically spawned entities (from effects) have `spawn_ticks_remaining > 0` — they play their spawn animation and can't act or be targeted by queries until the timer reaches 0. Duration is computed from the entity type's atlas JSON spawn animation. Initial mod spawns start ready (`spawn_ticks_remaining = 0`).
+
+**Death lifecycle:** When an entity dies (`alive = false`), a `SimEvent::EntityDied { entity_id, name }` is emitted. The sim removes the entity at end-of-tick via `flush_pending()`. The game loop handles the event by calling `UnitManager::kill(uid)`, which plays the "death" animation (if the atlas has one) and marks the unit `pending_destroy`. Units with `pending_destroy` are reaped by `reap_dead()` after their death animation finishes. If no death animation exists, the unit is destroyed immediately.
 
 **Fixed timestep:** The sim runs at exactly 30 TPS via an accumulator in `do_tick()`. Wall-clock delta is accumulated; `sim.tick()` fires once per 33ms. Capped at 4 sim ticks per frame to prevent spiral of death. Animations are sim-driven (advanced once per sim tick via `UnitManager::tick_animations()`), movement interpolation remains render-driven.
 
@@ -135,7 +137,7 @@ Message categories:
 
 `App::do_tick()` in `deadcode-app/src/app.rs`:
 1. Unit movement tick (render-driven, uses wall-clock delta)
-2. Simulation tick (fixed 30 TPS via accumulator) → animations tick → snapshot → sync positions to UnitManager → forward events (spawn, output, animation) to editor
+2. Simulation tick (fixed 30 TPS via accumulator) → animations tick → reap dead units → snapshot → sync positions to UnitManager → forward events (spawn, death, output, animation) to editor
 3. Auto-save timer
 4. Fullscreen detection
 5. Per-pixel hit testing

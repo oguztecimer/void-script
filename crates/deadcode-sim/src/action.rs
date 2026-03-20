@@ -132,6 +132,9 @@ pub enum CommandEffect {
     /// Trigger an animation on a target entity.
     #[serde(rename = "animate")]
     Animate { target: String, animation: String },
+    /// Kill all alive, non-spawning entities of a type and gain a resource per kill.
+    #[serde(rename = "sacrifice")]
+    Sacrifice { entity_type: String, resource: String, per_kill: DynInt },
 }
 
 /// A single phase in a multi-tick phased command.
@@ -219,7 +222,10 @@ pub fn resolve_action(
 
                 if target_entity.health <= 0 {
                     target_entity.alive = false;
-                    events.push(SimEvent::EntityDied { entity_id: target });
+                    events.push(SimEvent::EntityDied {
+                        entity_id: target,
+                        name: target_entity.name.clone(),
+                    });
                 }
             }
 
@@ -333,7 +339,10 @@ pub fn resolve_custom_effects(
                         });
                         if target_entity.health <= 0 {
                             target_entity.alive = false;
-                            events.push(SimEvent::EntityDied { entity_id: tid });
+                            events.push(SimEvent::EntityDied {
+                                entity_id: tid,
+                                name: target_entity.name.clone(),
+                            });
                         }
                     }
                 }
@@ -352,10 +361,11 @@ pub fn resolve_custom_effects(
                 let position = world.get_entity(entity_id)
                     .map(|e| e.position + offset)
                     .unwrap_or(offset);
+                let id = EntityId(world.next_entity_id());
                 let mut spawned = SimEntity::new(
-                    EntityId(world.next_entity_id()),
+                    id,
                     entity_type.clone(),
-                    format!("{}_{}", entity_type, position),
+                    format!("{}_{}", entity_type, id.0),
                     position,
                 );
                 // Set spawn duration so entity can't act until animation finishes.
@@ -363,13 +373,9 @@ pub fn resolve_custom_effects(
                     .get(entity_type)
                     .copied()
                     .unwrap_or(0);
-                let spawned_id = spawned.id;
+                // EntitySpawned event is emitted by flush_pending() when the
+                // queued entity is actually added to the world.
                 world.queue_spawn(spawned);
-                events.push(SimEvent::EntitySpawned {
-                    entity_id: spawned_id,
-                    entity_type: entity_type.clone(),
-                    position,
-                });
             }
             CommandEffect::ModifyStat { target, stat, amount } => {
                 let amount = amount.resolve(&mut rng);
@@ -450,6 +456,44 @@ pub fn resolve_custom_effects(
                     events.push(SimEvent::PlayAnimation {
                         entity_id: tid,
                         animation: animation.clone(),
+                    });
+                }
+            }
+            CommandEffect::Sacrifice { entity_type, resource, per_kill } => {
+                // Collect IDs and names of all alive, non-spawning entities matching entity_type.
+                let victims: Vec<(EntityId, String)> = world.entities()
+                    .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.entity_type == *entity_type)
+                    .map(|e| (e.id, e.name.clone()))
+                    .collect();
+
+                if victims.is_empty() {
+                    events.push(SimEvent::ScriptOutput {
+                        entity_id,
+                        text: format!("[{cmd_name}] Nothing to sacrifice"),
+                    });
+                } else {
+                    let count = victims.len();
+                    let mut total_gained: i64 = 0;
+
+                    for (vid, vname) in &victims {
+                        if let Some(victim) = world.get_entity_mut(*vid) {
+                            victim.alive = false;
+                        }
+                        events.push(SimEvent::EntityDied {
+                            entity_id: *vid,
+                            name: vname.clone(),
+                        });
+                        total_gained += per_kill.resolve(&mut rng);
+                    }
+
+                    world.gain_resource(resource, total_gained);
+
+                    events.push(SimEvent::ScriptOutput {
+                        entity_id,
+                        text: format!(
+                            "[{cmd_name}] Sacrificed {count} {entity_type}{}, gained {total_gained} {resource}",
+                            if count != 1 { "s" } else { "" }
+                        ),
                     });
                 }
             }

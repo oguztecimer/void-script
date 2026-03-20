@@ -204,69 +204,14 @@ impl App {
                     // Advance animations by one sim tick (deterministic).
                     if let Some(um) = &mut self.unit_manager {
                         um.tick_animations();
+                        um.reap_dead();
                     }
 
-                    // Forward script output events to editor console and
-                    // spawn render units for newly-spawned sim entities.
-                    let snapshot = sim.snapshot();
+                    // Forward events to editor console and apply to render units.
                     let events = sim.take_events();
                     for event in &events {
-                        match event {
-                            deadcode_sim::SimEvent::EntitySpawned { entity_type, position, .. } => {
-                                if let Some(sprite) = self.sprite_registry.get(entity_type) {
-                                    if let Some(um) = &mut self.unit_manager {
-                                        let [px, py] = self.pivot_registry
-                                            .get(entity_type)
-                                            .copied()
-                                            .unwrap_or([24.0, 0.0]);
-                                        let name = format!("{}_{}", entity_type, position);
-                                        um.spawn(
-                                            &name,
-                                            &sprite.png,
-                                            &sprite.json,
-                                            *position as f32,
-                                            px,
-                                            py,
-                                        );
-                                    }
-                                }
-                            }
-                            deadcode_sim::SimEvent::ScriptOutput { text, .. } => {
-                                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
-                                    text: text.clone(),
-                                    level: "info".to_string(),
-                                });
-                            }
-                            deadcode_sim::SimEvent::ScriptError { error, .. } => {
-                                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
-                                    text: format!("[sim error] {error}"),
-                                    level: "error".to_string(),
-                                });
-                            }
-                            deadcode_sim::SimEvent::ScriptFinished { success, error, .. } => {
-                                self.webview_manager.send_to_all(&RustToJs::ScriptFinished {
-                                    script_id: String::new(),
-                                    success: *success,
-                                    error: error.clone(),
-                                });
-                            }
-                            deadcode_sim::SimEvent::PlayAnimation { entity_id, animation } => {
-                                if let Some(um) = &mut self.unit_manager {
-                                    let entity_name = snapshot.entities.iter()
-                                        .find(|es| es.id == *entity_id)
-                                        .map(|es| es.name.as_str());
-                                    if let Some(name) = entity_name {
-                                        let uid = um.iter()
-                                            .find(|unit| unit.name == name)
-                                            .map(|unit| unit.id);
-                                        if let Some(uid) = uid {
-                                            um.play_animation(uid, animation);
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
+                        self.forward_sim_event_to_editor(event);
+                        self.apply_sim_event_to_units(event);
                     }
                 }
             }
@@ -1032,20 +977,51 @@ impl App {
         });
     }
 
-    /// Apply a sim event to the render units (e.g. play animations).
+    /// Apply a sim event to the render units (spawn, death, animations).
     fn apply_sim_event_to_units(&mut self, event: &deadcode_sim::SimEvent) {
-        if let deadcode_sim::SimEvent::PlayAnimation { entity_id, animation } = event {
-            if let (Some(sim), Some(um)) = (&self.sim_world, &mut self.unit_manager) {
-                let entity_name = sim.get_entity(*entity_id).map(|e| e.name.as_str());
-                if let Some(name) = entity_name {
-                    let uid = um.iter()
-                        .find(|unit| unit.name == name)
-                        .map(|unit| unit.id);
-                    if let Some(uid) = uid {
-                        um.play_animation(uid, animation);
+        match event {
+            deadcode_sim::SimEvent::EntitySpawned { entity_type, name, position, .. } => {
+                if let Some(sprite) = self.sprite_registry.get(entity_type) {
+                    if let Some(um) = &mut self.unit_manager {
+                        let [px, py] = self.pivot_registry
+                            .get(entity_type)
+                            .copied()
+                            .unwrap_or([24.0, 0.0]);
+                        um.spawn(
+                            name,
+                            &sprite.png,
+                            &sprite.json,
+                            *position as f32,
+                            px,
+                            py,
+                        );
                     }
                 }
             }
+            deadcode_sim::SimEvent::EntityDied { name, .. } => {
+                if let Some(um) = &mut self.unit_manager {
+                    let uid = um.iter()
+                        .find(|unit| unit.name == *name)
+                        .map(|unit| unit.id);
+                    if let Some(uid) = uid {
+                        um.kill(uid);
+                    }
+                }
+            }
+            deadcode_sim::SimEvent::PlayAnimation { entity_id, animation } => {
+                if let (Some(sim), Some(um)) = (&self.sim_world, &mut self.unit_manager) {
+                    let entity_name = sim.get_entity(*entity_id).map(|e| e.name.as_str());
+                    if let Some(name) = entity_name {
+                        let uid = um.iter()
+                            .find(|unit| unit.name == name)
+                            .map(|unit| unit.id);
+                        if let Some(uid) = uid {
+                            um.play_animation(uid, animation);
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1062,6 +1038,13 @@ impl App {
                 self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
                     text: format!("[sim error] {error}"),
                     level: "error".to_string(),
+                });
+            }
+            deadcode_sim::SimEvent::ScriptFinished { success, error, .. } => {
+                self.webview_manager.send_to_all(&RustToJs::ScriptFinished {
+                    script_id: String::new(),
+                    success: *success,
+                    error: error.clone(),
                 });
             }
             _ => {}

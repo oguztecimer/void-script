@@ -313,6 +313,7 @@ Effects are resolved in order when the command executes.
 | `use_resource` | `stat`, `amount` | Check and deduct a resource from self; aborts remaining effects if insufficient |
 | `list_commands` | *(none)* | List all registered commands and descriptions (in unlock order) |
 | `animate` | `target`, `animation` | Trigger a sprite animation on the target entity (e.g., `"cast"`, `"attack"`) |
+| `sacrifice` | `entity_type`, `resource`, `per_kill` | Kill all alive, non-spawning entities of a type and gain `per_kill` of `resource` per kill. Outputs a summary or "Nothing to sacrifice" if none found. |
 
 **DynInt fields:** The `amount` and `offset` fields accept either a plain integer or `"rand(min,max)"` for a random value in [min, max] inclusive. Randomness is deterministic (seeded from tick + entity ID).
 
@@ -476,7 +477,7 @@ phases = [
 | `on_start` | No | `[]` | Effects that run on the first tick of the phase |
 | `per_tick` | No | `[]` | Effects that run every tick of the phase (including the first) |
 
-Effects inside `on_start` and `per_tick` use the same effect types as instant commands (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate).
+Effects inside `on_start` and `per_tick` use the same effect types as instant commands (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice).
 
 ### Execution Model
 
@@ -651,7 +652,7 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `CommandDef` | Custom command definition (name, description, args, effects, phases) — lives in `deadcode-sim/action.rs` |
 | `PhaseDef` | Single phase in a multi-tick phased command (ticks, interruptible, on_start, per_tick) — lives in `deadcode-sim/action.rs` |
 | `ChannelState` | Active channel state on an entity during phased execution — lives in `deadcode-sim/entity.rs` |
-| `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate) — lives in `deadcode-sim/action.rs` |
+| `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice) — lives in `deadcode-sim/action.rs` |
 | `DynInt` | Integer value: fixed or `rand(min,max)` — deserialized from TOML, resolved at effect execution time — lives in `deadcode-sim/action.rs` |
 | `SpriteData` | Loaded PNG bytes + JSON metadata string |
 | `LoadedMod` | Fully resolved mod with sprite/pivot/config/command registries |

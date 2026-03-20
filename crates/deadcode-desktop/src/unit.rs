@@ -80,6 +80,14 @@ pub struct Unit {
     pub movement: Option<MovementState>,
     pub z_order: i32,
     pub visible: bool,
+    /// Marked for removal after death animation finishes.
+    pub pending_destroy: bool,
+    /// Current opacity (1.0 = fully visible, fades to 0.0 during death).
+    pub opacity: f32,
+    /// Sim ticks elapsed since kill() was called.
+    pub death_timer: u32,
+    /// Total ticks of the death animation (0 if no death anim).
+    pub death_anim_ticks: u32,
 }
 
 pub struct UnitManager {
@@ -123,6 +131,10 @@ impl UnitManager {
             movement: None,
             z_order: 0,
             visible: true,
+            pending_destroy: false,
+            opacity: 1.0,
+            death_timer: 0,
+            death_anim_ticks: 0,
         });
 
         id
@@ -149,6 +161,32 @@ impl UnitManager {
         if let Some(unit) = self.units.get_mut(&id) {
             unit.animation.play(name);
         }
+    }
+
+    /// Play the death animation and mark the unit for removal.
+    /// After the death animation finishes, the corpse lingers for 30 ticks,
+    /// then fades out over 30 ticks before being removed.
+    /// If no "death" animation exists, the unit is destroyed immediately.
+    pub fn kill(&mut self, id: UnitId) {
+        if let Some(unit) = self.units.get_mut(&id) {
+            unit.movement = None;
+            unit.pending_destroy = true;
+            unit.animation.hold_on_finish = true;
+            unit.animation.play("death");
+            // If the animation didn't switch (no "death" anim), destroy now.
+            if !unit.animation.is_action_playing() {
+                self.units.remove(&id);
+            } else {
+                unit.death_anim_ticks = unit.animation.animation_duration_ticks("death") as u32;
+            }
+        }
+    }
+
+    /// Remove units that have fully faded out after death.
+    pub fn reap_dead(&mut self) {
+        self.units.retain(|_, unit| {
+            !(unit.pending_destroy && unit.opacity <= 0.0)
+        });
     }
 
     pub fn set_facing(&mut self, id: UnitId, left: bool) {
@@ -207,8 +245,20 @@ impl UnitManager {
 
     /// Advance all animations by one sim tick (sim-driven, deterministic).
     pub fn tick_animations(&mut self) {
+        const LINGER_TICKS: u32 = 30;
+        const FADE_TICKS: u32 = 30;
+
         for unit in self.units.values_mut() {
             unit.animation.tick();
+            if unit.pending_destroy {
+                unit.death_timer += 1;
+                let fade_start = unit.death_anim_ticks + LINGER_TICKS;
+                if unit.death_timer >= fade_start {
+                    let fade_elapsed = unit.death_timer - fade_start;
+                    unit.opacity = 1.0 - fade_elapsed as f32 / FADE_TICKS as f32;
+                    unit.opacity = unit.opacity.max(0.0);
+                }
+            }
         }
     }
 
@@ -235,8 +285,8 @@ impl UnitManager {
             let draw_y = base_y - sh + (unit.pivot_y * us) as i32;
             let x = offset_x + (unit.x * scale) as i32 - (unit.pivot_x * us) as i32;
             let reflection_y = base_y - sh;
-            unit.animation.draw_reflection(canvas, x, reflection_y, 0.4, us);
-            unit.animation.draw(canvas, x, draw_y, us);
+            unit.animation.draw_reflection(canvas, x, reflection_y, 0.4 * unit.opacity, us);
+            unit.animation.draw(canvas, x, draw_y, us, unit.opacity);
         }
 
         // Collect unit x positions for proximity-based ruler opacity.

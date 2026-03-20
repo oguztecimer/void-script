@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Modding System
+
+#### Added
+- **M-11: `sacrifice` effect type** — New `CommandEffect::Sacrifice` variant that kills all alive, non-spawning entities of a given type and gains a resource per kill. Fields: `entity_type` (which entities to kill), `resource` (which global resource to gain), `per_kill` (DynInt amount gained per kill, supports `rand(min,max)`). Outputs a summary message or "Nothing to sacrifice" if no matching entities exist. The `harvest` command in `mods/core/mod.toml` now uses this effect to sacrifice skeletons for 1-2 bones each, replacing the old +20 energy placeholder. Entity type references in sacrifice effects are validated at mod load time alongside spawn effects.
+
+### Desktop / Rendering
+
+#### Fixed
+- **Entity death rendering cleanup** — `SimEvent::EntityDied` is now handled in the game loop. Dead entities play their "death" animation (if the atlas has one) and are removed from rendering once it finishes. Previously, `EntityDied` was unhandled — dead entities' render units lingered in `UnitManager` forever as invisible orphans. `SimEvent::EntityDied` now carries the entity `name` so the handler can find the matching render unit after the sim has already removed the entity. `UnitManager` gained `kill(id)` (play death + mark pending_destroy) and `reap_dead()` (remove units whose death animation finished).
+- **Fixed duplicate render units from Spawn effect** — The `Spawn` command effect was emitting an `EntitySpawned` event directly, but `flush_pending()` in the tick loop already emits `EntitySpawned` when the queued entity is actually added. This created two render units per spawn, making death cleanup appear to do nothing (one unit was killed but the duplicate remained). Removed the premature event from the effect handler.
+- **Unique entity naming for runtime spawns** — Runtime-spawned entities (from `Spawn` effects) now use `"{type}_{entity_id}"` instead of `"{type}_{position}"` as their name. The old scheme could produce duplicates when entities spawned at the same position (e.g. calling `raise()` twice without moving), causing name collisions in position sync, death handling, and animation targeting. Entity ID is a monotonically increasing u64, guaranteed unique. `SimEvent::EntitySpawned` now carries the entity `name` directly so app.rs doesn't reconstruct it.
+- **Unified sim event handling for console and script paths** — Console commands (`handle_console_command_sim`) and the sim tick loop (`do_tick`) now share the same `forward_sim_event_to_editor()` and `apply_sim_event_to_units()` methods. Previously, console commands had a separate `apply_sim_event_to_units` that only handled `PlayAnimation`, missing `EntitySpawned` and `EntityDied` events. This caused `harvest()` typed in the console to kill skeletons in the sim but not update the render units.
+
 ### Core
 
 #### Changed

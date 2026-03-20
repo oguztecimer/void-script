@@ -54,8 +54,7 @@ name = "harvest"
 description = "The children slain, bones remain"
 args = []
 effects = [
-  { type = "modify_stat", target = "self", stat = "energy", amount = 20 },
-  { type = "output", message = "[harvest] Essence absorbed." },
+  { type = "sacrifice", entity_type = "skeleton", resource = "bones", per_kill = "rand(1,2)" },
 ]
 
 [[commands.definitions]]

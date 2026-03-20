@@ -337,10 +337,15 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
                     all_effects.extend(phase.per_tick.iter());
                 }
                 for effect in all_effects {
-                    if let CommandEffect::Spawn { entity_type, .. } = effect {
+                    let referenced_type = match effect {
+                        CommandEffect::Spawn { entity_type, .. }
+                        | CommandEffect::Sacrifice { entity_type, .. } => Some(entity_type.as_str()),
+                        _ => None,
+                    };
+                    if let Some(entity_type) = referenced_type {
                         if !known_types.contains(entity_type) {
                             eprintln!(
-                                "[mod:{}] warning: command '{}' spawns unknown entity type '{}'",
+                                "[mod:{}] warning: command '{}' references unknown entity type '{}'",
                                 m.manifest.meta.id, def.name, entity_type
                             );
                         }

@@ -105,6 +105,9 @@ pub struct AnimationPlayer {
     elapsed_ticks: u64,
     /// When `true`, the sprite is drawn mirrored horizontally (facing left).
     pub facing_left: bool,
+    /// When `true`, PlayOnce animations hold on their last frame instead of
+    /// transitioning back to idle.
+    pub hold_on_finish: bool,
 }
 
 impl AnimationPlayer {
@@ -184,6 +187,7 @@ impl AnimationPlayer {
             current_frame_idx: 0,
             elapsed_ticks: 0,
             facing_left: false,
+            hold_on_finish: false,
         }
     }
 
@@ -213,6 +217,8 @@ impl AnimationPlayer {
                 LoopMode::PlayOnce => {
                     if self.current_frame_idx + 1 < total_frames {
                         self.current_frame_idx += 1;
+                    } else if self.hold_on_finish {
+                        // Stay on last frame — don't transition to idle.
                     } else {
                         // Finished — transition back to idle.
                         let idle_idx = *self
@@ -271,10 +277,10 @@ impl AnimationPlayer {
         &self.frames[self.current_anim_idx][self.current_frame_idx]
     }
 
-    /// Draw the current frame onto `canvas` at `(dst_x, dst_y)`.
+    /// Draw the current frame onto `canvas` at `(dst_x, dst_y)` with the given opacity (0.0–1.0).
     ///
     /// If `self.facing_left` is `true`, applies a horizontal mirror transform.
-    pub fn draw(&self, canvas: &mut Pixmap, dst_x: i32, dst_y: i32, scale: f32) {
+    pub fn draw(&self, canvas: &mut Pixmap, dst_x: i32, dst_y: i32, scale: f32, opacity: f32) {
         let frame = self.current_frame_pixmap();
         let sw = (self.frame_width as f32 * scale) as i32;
 
@@ -286,12 +292,15 @@ impl AnimationPlayer {
                 .post_translate(dst_x as f32, dst_y as f32)
         };
 
+        let mut paint = PixmapPaint::default();
+        paint.opacity = opacity;
+
         canvas.draw_pixmap(
             0,
             0,
             PixmapRef::from_bytes(frame.data(), frame.width(), frame.height())
                 .expect("AnimationPlayer::draw: invalid pixmap"),
-            &PixmapPaint::default(),
+            &paint,
             transform,
             None,
         );

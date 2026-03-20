@@ -128,13 +128,7 @@ pub struct EntityDef {
     /// Sprite pivot [x, y].
     #[serde(default)]
     pub pivot: Option<[f32; 2]>,
-    pub health: Option<i64>,
-    pub speed: Option<i64>,
-    pub attack_damage: Option<i64>,
-    pub attack_range: Option<i64>,
-    pub attack_cooldown: Option<i64>,
-    pub shield: Option<i64>,
-    /// Additional stats (e.g., armor = 5, crit_chance = 10).
+    /// All stats for this entity (e.g., health = 50, speed = 2, armor = 5).
     #[serde(default, alias = "custom_stats")]
     pub stats: indexmap::IndexMap<String, i64>,
 }
@@ -142,29 +136,7 @@ pub struct EntityDef {
 impl EntityDef {
     /// Convert to a sim `EntityConfig` for stat overrides.
     pub fn to_entity_config(&self) -> EntityConfig {
-        let mut stats = self.stats.clone();
-        // Merge named fields into the stats map.
-        if let Some(h) = self.health {
-            stats.insert("health".into(), h);
-            stats.entry("max_health".into()).or_insert(h);
-        }
-        if let Some(s) = self.speed {
-            stats.insert("speed".into(), s);
-        }
-        if let Some(d) = self.attack_damage {
-            stats.insert("attack_damage".into(), d);
-        }
-        if let Some(r) = self.attack_range {
-            stats.insert("attack_range".into(), r);
-        }
-        if let Some(c) = self.attack_cooldown {
-            stats.insert("attack_cooldown".into(), c);
-        }
-        if let Some(s) = self.shield {
-            stats.insert("shield".into(), s);
-            stats.entry("max_shield".into()).or_insert(s);
-        }
-        EntityConfig { stats }
+        EntityConfig { stats: self.stats.clone() }
     }
 }
 

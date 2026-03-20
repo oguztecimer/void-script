@@ -1,6 +1,6 @@
 # TODO
 
-> **Resolved items** are tracked in `CHANGELOG.md`. Completed: S-01 (parity tests), S-02 (IndexMap), S-03 (print tick — already correct), S-05 (step limit warning), S-06 (hot-reload surface), S-09 (percent/scale), M-01 (deterministic load order), M-02 (collision warnings + reserved fields), M-03 (command def validation), M-04 (spawn validation), M-05 (mod dependencies + library system). Partially resolved: M-06 (command cost system — conditional effects deferred).
+> **Resolved items** are tracked in `CHANGELOG.md`. Completed: S-01 (parity tests), S-02 (IndexMap), S-03 (print tick — already correct), S-05 (step limit warning), S-06 (hot-reload surface), S-09 (percent/scale), M-01 (deterministic load order), M-02 (collision warnings + reserved fields), M-03 (command def validation), M-04 (spawn validation), M-05 (mod dependencies + library system), M-06 (conditional effects — `if` effect type with conditions). Modding extended conditions (Phase 2 of modding roadmap) and scoped targets are complete.
 
 ## S-04: No Error Recovery in Scripts
 
@@ -30,19 +30,15 @@ The interpreter has basic debug infrastructure (breakpoints, step over/into/out 
 
 ---
 
----
+## S-08: No Coroutine or Multi-Tick Planning Primitive
 
-## M-06: Custom Command Effect System Is Fixed and Non-Composable
+**Priority: Low — Deferred**
 
-**Priority: Medium**
+If a player wants a unit to execute a multi-step plan (move to position X, then harvest, then move to position Y, then raise), they must manage that state manually with variables and conditionals — tracking which step they're on, resetting state between steps, handling interruptions. This is fine for experienced programmers but is a significant complexity wall for the target audience.
 
-Custom commands now support resource costs (`cost` field in `CommandDef`), but the effect system is still limited to 5 fixed types. More advanced modding needs:
+### Suggested fix
 
-### Remaining work
-
-- **Conditional effects** — effects that only trigger if a condition is met (e.g., "if target health < 50%, deal double damage")
-- **Custom queries** — mod-defined queries that return values (not just actions that consume a tick)
-- **Composable effects** — reference other commands or chain effects dynamically
+Consider a yield-style coroutine system where a script can perform an action and then resume where it left off on the next tick. The executor already supports yielding on actions (see `ScriptState` docs in `entity.rs` and `handle_run_script_sim` in `app.rs`) — the difference is that currently `pc` advances past the action instruction, so the script continues from the next instruction on resume. A coroutine model would be a higher-level abstraction, potentially a `plan()` or `sequence()` block in GrimScript that desugars into the existing yield mechanics with auto-generated state tracking. This is a game design decision as much as an engineering one — it makes scripts easier to write but potentially less interesting. Worth prototyping to see how it feels.
 
 ---
 
@@ -59,12 +55,68 @@ Several compiler scaffolding items were removed to eliminate warnings. Re-add th
 
 ---
 
-## S-08: No Coroutine or Multi-Tick Planning Primitive
+## MOD-01: Entity Behaviors
 
-**Priority: Low — Deferred**
+**Priority: Medium**
 
-If a player wants a unit to execute a multi-step plan (move to position X, then harvest, then move to position Y, then raise), they must manage that state manually with variables and conditionals — tracking which step they're on, resetting state between steps, handling interruptions. This is fine for experienced programmers but is a significant complexity wall for the target audience.
+Spawned entities are inert targets — they have stats and can be affected by effects, but they don't act on their own. A behavior system would make them feel alive.
 
-### Suggested fix
+### Planned work
 
-Consider a yield-style coroutine system where a script can perform an action and then resume where it left off on the next tick. The executor already supports yielding on actions (see `ScriptState` docs in `entity.rs` and `handle_run_script_sim` in `app.rs`) — the difference is that currently `pc` advances past the action instruction, so the script continues from the next instruction on resume. A coroutine model would be a higher-level abstraction, potentially a `plan()` or `sequence()` block in GrimScript that desugars into the existing yield mechanics with auto-generated state tracking. This is a game design decision as much as an engineering one — it makes scripts easier to write but potentially less interesting. Worth prototyping to see how it feels.
+- Behavior system in SimWorld — per-entity-type behaviors processed each tick
+- `[[entities.behaviors]]` section in mod.toml
+- Built-in behaviors: attack_nearest, flee_when_low, move_toward, idle
+- Data-driven periodic behaviors — interval + effects (reuse effect engine)
+- Behavior cooldowns — per-entity cooldown tracking
+- Behavior conditions — only activate when condition met
+- Target resolution for behaviors — "nearest_enemy", "nearest_ally", "owner"
+- Behavior validation at load time
+
+---
+
+## MOD-02: Lua Scripting Layer
+
+**Priority: Low — Future**
+
+Advanced modding for mechanics that are awkward in TOML. Build after entity behaviors — TOML features become the Lua API surface.
+
+Strategy: Extend TOML with reactive/autonomous features first. Add Lua scripting later as an advanced modding layer. Compared against: Factorio (Lua), CK3/Stellaris (Paradox script), Rimworld (XML+C#), Don't Starve (Lua), Noita (Lua), Balatro (Lua).
+
+### Planned work
+
+- Embed mlua crate with LuaJIT or Lua 5.4
+- Sandbox: disable os, io, loadfile, debug, require (whitelist only)
+- Deterministic RNG wrapper — replace math.random with seeded game RNG
+- Lua API surface (mirrors TOML effects): damage, heal, spawn, modify_stat, get_resource, gain_resource, try_spend_resource, get_entity_count, scan, nearest, apply_buff, remove_buff
+- Event hooks in Lua — on_entity_died(fn), on_tick(fn), on_command_used(fn)
+- Custom entity behaviors in Lua — behavior functions called per tick
+- Custom conditions in Lua — return bool, usable in TOML if effects
+- Per-mod Lua state isolation — each mod gets its own Lua VM or sandbox
+- Lua error handling — catch + log without crashing sim
+- Lua mod loading — mods/mymod/scripts/*.lua loaded after mod.toml
+- Hybrid: TOML structure + Lua logic coexist (simple mods stay TOML-only)
+
+---
+
+## MOD-03: Mod UI
+
+**Priority: Low — Future**
+
+Config panels and HUD elements for mods.
+
+### Planned work
+
+- `[[settings]]` in mod.toml — define mod config options (toggle, slider, dropdown)
+- Settings panel in editor UI — renders mod settings, persists to save file
+- IPC: ModSettings message (Rust<->JS) for setting sync
+- Custom HUD widgets — mod-defined resource bars, counters, timers (rendered on strip or editor panel)
+
+---
+
+## MOD-04: Backlog Ideas
+
+**Priority: Low**
+
+- Prototype inheritance — entity types extending base types
+- Mod browser/manager UI — list installed mods, enable/disable, load order
+- Hot-reload for mod.toml — detect file changes, reload without restart

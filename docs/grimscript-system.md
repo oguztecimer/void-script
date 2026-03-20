@@ -62,15 +62,19 @@ Each entity with a script has a `ScriptState`:
 
 Per tick, the world:
 1. Decrements `spawn_ticks_remaining` on spawning entities
-2. Shuffles ready entities — excludes those still spawning (seeded RNG for determinism)
-3. For each entity: takes script state out, calls `executor::execute_unit()`
-3. Executor steps instructions until one of:
+2. Shuffles ready entity IDs — excludes those still spawning (seeded RNG for determinism)
+3. For each entity: processes active channel (if present) or takes script state out, calls `executor::execute_unit()`
+4. Executor steps instructions until one of:
    - **Action instruction** (move, attack, etc.) → yields, tick consumed
+   - **Instant action** (print, gain_resource, try_spend_resource) → handled by `try_handle_instant()`, re-enters executor without consuming tick
    - **Halt** → script finished
    - **Error** → script stops
    - **10,000 steps** → auto-yields with implicit `wait()` and emits a warning: `[warning] Script exceeded step limit (10000 instructions) — auto-yielded`
-4. Collects actions, resolves them against world state
-5. Emits events (EntityMoved, EntityDamaged, etc.) for the rendering layer
+5. Collects actions, resolves them against world state
+6. Ticks passive systems (cooldowns)
+7. Ticks buffs (per_tick effects, duration decrement, expiry handling)
+8. Flushes pending spawns/despawns
+9. Processes triggers (match events against registered triggers, check filters/conditions, fire effects)
 
 ## IR Instruction Categories
 
@@ -78,18 +82,23 @@ Per tick, the world:
 |----------|---------------|----------|
 | Stack ops | No | LoadConst, LoadVar, StoreVar, Pop, Dup |
 | Arithmetic | No | Add, Sub, Mul, Div, Mod, Negate |
-| Comparison | No | CmpEq, CmpLt, CmpGe, etc. |
+| Comparison | No | CmpEq, CmpNe, CmpLt, CmpGt, CmpLe, CmpGe, Contains, NotContains |
 | Boolean | No | Not, IsNone, IsNotNone |
 | Control flow | No | Jump, JumpIfFalse, JumpIfTrue |
 | Functions | No | Call, Return |
 | Data structures | No | BuildList, BuildDict, Index, StoreIndex, GetAttr |
 | Stdlib | No | Len, Abs, Range, IntCast, StrCast, TypeOf, Min2, Max2, ListAppend, DictKeys/Values/Items/Get, Percent, Scale |
 | Locals | No | LoadLocal, StoreLocal (function-scoped variables) |
-| **Queries** | **No** | QueryScan, QueryNearest, QueryGetHealth, etc. |
-| **Actions** | **Yes** | ActionMove, ActionAttack, ActionFlee, ActionWait, ActionSetTarget, ActionConsult, ActionRaise, ActionHarvest, ActionPact, ActionCustom(name) |
-| Misc | Yes (Print) / No (Halt) | Print, Halt |
+| **Queries** | **No** | QueryScan, QueryNearest, QueryDistance, QueryGetPos, QueryGetHealth, QueryGetShield, QueryGetTarget, QueryHasTarget, QueryGetType, QueryGetName, QueryGetOwner, QueryGetResource, QueryGetStat |
+| **Actions** | **Yes** | ActionMove, ActionAttack, ActionFlee, ActionWait, ActionSetTarget, ActionCustom(name) |
+| **Instant effects** | **No** | InstantGainResource, InstantTrySpendResource |
+| Misc | No | Print, Halt |
 
-**Key distinction**: Queries read world state instantly. Actions mutate world state and consume the tick.
+**Key distinctions**:
+- Queries read world state instantly and return a value.
+- Actions mutate world state and consume the tick.
+- Instant effects mutate world state without consuming the tick (handled by `try_handle_instant()` in the tick loop).
+- Print emits output without consuming the tick (also handled as an instant action).
 
 ## Variable Model
 
@@ -110,7 +119,7 @@ Not every GrimScript builtin is available from the start. The game progressively
 
 **Three-tier classification** (`grimscript-lang/src/builtins.rs`):
 - `is_stdlib(name)` — 12 stdlib functions: `print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`. Always available, bypass the gate entirely.
-- `is_game_builtin(name)` — all builtins that aren't stdlib: `move`, `scan`, `attack`, `consult`, etc. Subject to gating.
+- `is_game_builtin(name)` — all builtins that aren't stdlib: `move`, `scan`, `attack`, etc. Subject to gating.
 - `is_builtin(name)` — both stdlib + game builtins.
 
 **Gating mechanism**: Both the interpreter and compiler accept `available_commands: Option<HashSet<String>>`:
@@ -119,11 +128,11 @@ Not every GrimScript builtin is available from the start. The game progressively
 
 This applies to both hardcoded game builtins and custom mod-defined commands. Custom commands not in the `initial` set cannot be used until unlocked at runtime.
 
-**Initial available set**: Defined in the mod's `[commands].initial` field (see `mods/core/mod.toml`). The base game starts with `consult`, `raise`, `harvest`, `pact`. Multiple mods' command sets are merged.
+**Initial available set**: Defined in the mod's `[initial].commands` field (see `mods/core/mod.toml`). The base game starts with `help`, `trance`, `raise`, `harvest`, `pact`. Multiple mods' command sets are merged.
 
 **Dev mode**: When compiled with `--features dev-mode`, the gate is bypassed entirely (`None` passed to interpreter/compiler, all game builtins + custom commands sent to frontend as available).
 
-**Frontend integration**: Rust sends `AvailableCommands { commands, command_info }` via IPC on EditorReady. `command_info` includes metadata (name, description, args) for custom mod commands. The frontend uses this to:
+**Frontend integration**: Rust sends `AvailableCommands { commands, resources, command_info, dev_mode }` via IPC on EditorReady. `command_info` includes metadata (name, description, args) for custom mod commands. The frontend uses this to:
 - Filter autocomplete: show available game commands + build dynamic entries for custom commands from `command_info` (`grimscript-completion.ts`)
 - Filter syntax highlighting: highlight available game functions + custom command names (`grimscript-lang.ts`)
 
@@ -131,7 +140,7 @@ This applies to both hardcoded game builtins and custom mod-defined commands. Cu
 - Interpreter: before `call_builtin()` and before entity method dispatch (`interpreter.rs`)
 - Compiler: before emitting Query/Action/CustomAction instructions and before method call fallback (`emit.rs`). The compiler uses `classify_with_custom()` which checks both static builtins and the `custom_commands` map.
 
-**Unlocking commands at runtime**: `App::available_commands` is a `Vec<String>` in `deadcode-app` (preserves insertion order), initially populated from mod manifests (`[commands].initial`). Push a command name, then call `send_available_commands()` to push the updated set to the frontend and `execution_manager.set_available_commands()` to update the interpreter gate. The `help()` command lists commands in this insertion order.
+**Unlocking commands at runtime**: `App::available_commands` is a `Vec<String>` in `deadcode-app` (preserves insertion order), initially populated from mod manifests (`[initial].commands`). Push a command name, then call `send_available_commands()` to push the updated set to the frontend and `execution_manager.set_available_commands()` to update the interpreter gate. The `help()` command lists commands in this insertion order.
 
 ## Value Types (SimValue)
 
@@ -163,8 +172,8 @@ effects = [
   { type = "output", message = "[summon] A skeleton rises!" },
 ]
 
-[commands]
-initial = ["summon"]   # Make it available at game start
+[initial]
+commands = ["summon"]   # Make it available at game start
 ```
 
 This creates a command that:
@@ -256,14 +265,15 @@ pub enum UnitAction {
 
 // 2b. action.rs — implement resolution
 UnitAction::Summon { unit_type } => {
-    // Create a new entity near the summoner
     if let Some(entity) = world.get_entity(entity_id) {
         let pos = entity.position;
         let new_id = world.spawn_entity(unit_type.clone(), unit_type.clone(), pos + 1);
         events.push(SimEvent::EntitySpawned {
             entity_id: new_id,
             entity_type: unit_type,
+            name: format!("{}_{}", unit_type, new_id),
             position: pos + 1,
+            spawner_id: Some(entity_id),
         });
     }
 }
@@ -305,7 +315,7 @@ ActionBuiltin::Summon => 1,
 'summon',
 ```
 
-To make the command initially available, add `"summon"` to the `[commands].initial` list in the mod's `mod.toml` (e.g., `mods/core/mod.toml`). Or at runtime: insert it into `App::available_commands` and call `send_available_commands()`.
+To make the command initially available, add `"summon"` to the `[initial].commands` list in the mod's `mod.toml` (e.g., `mods/core/mod.toml`). Or at runtime: insert it into `App::available_commands` and call `send_available_commands()`.
 
 ## Adding a New Entity Attribute
 
@@ -352,10 +362,10 @@ Events are how the sim communicates state changes to the rendering layer.
 | Language | `crates/grimscript-lang/src/parser.rs` | Pratt parser |
 | Sim IR | `crates/deadcode-sim/src/ir.rs` | Instruction enum, CompiledScript |
 | Sim exec | `crates/deadcode-sim/src/executor.rs` | Stack machine execution |
-| Sim world | `crates/deadcode-sim/src/world.rs` | SimWorld, tick loop, events |
-| Sim actions | `crates/deadcode-sim/src/action.rs` | UnitAction enum, resolution, CommandDef/CommandEffect types |
+| Sim world | `crates/deadcode-sim/src/world.rs` | SimWorld, tick loop, events, trigger processing |
+| Sim actions | `crates/deadcode-sim/src/action.rs` | UnitAction enum, resolution, CommandDef/CommandEffect/Condition/DynInt/TriggerDef/BuffDef types |
 | Sim queries | `crates/deadcode-sim/src/query.rs` | Entity queries, attribute access |
-| Sim entities | `crates/deadcode-sim/src/entity.rs` | SimEntity, ScriptState |
+| Sim entities | `crates/deadcode-sim/src/entity.rs` | SimEntity, EntityConfig, ScriptState, ChannelState, ActiveBuff |
 | Compiler | `crates/deadcode-sim/src/compiler/builtins.rs` | Builtin → IR mapping |
 | Compiler | `crates/deadcode-sim/src/compiler/emit.rs` | AST → IR emission, available commands gate |
 | Compiler | `crates/deadcode-sim/src/compiler/symbol_table.rs` | Variable scope tracking |
@@ -371,4 +381,4 @@ Events are how the sim communicates state changes to the rendering layer.
 | Editor | `editor-ui/src/codemirror/grimscript-lang.ts` | Syntax highlighting (stdlib always, game + custom functions filtered by available set) |
 | Editor state | `editor-ui/src/state/store.ts` | `availableCommands` + `commandInfo` state (set via IPC) |
 | Scripts | `crates/deadcode-editor/src/scripts.rs` | Script types, file storage |
-| Parity tests | `crates/deadcode-app/tests/interpreter_compiler_parity.rs` | Interpreter vs compiler output comparison (31 tests) |
+| Parity tests | `crates/deadcode-app/tests/interpreter_compiler_parity.rs` | Interpreter vs compiler output comparison (36 tests) |

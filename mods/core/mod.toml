@@ -7,8 +7,7 @@ version = "0.1.0"
 type = "skeleton"
 sprite = "sprites/skeleton_atlas"
 pivot = [24.0, 0.0]
-health = 50
-speed = 2
+stats = { health = 50, speed = 2 }
 
 [resources]
 mana = { value = 50, max = 100 }

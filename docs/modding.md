@@ -84,13 +84,7 @@ conflicts_with = []     # Mod IDs that cannot coexist with this mod
 type = "warrior"                    # Entity type string
 sprite = "sprites/warrior_atlas"    # Path to sprite files (no extension; expects .png + .json)
 pivot = [24.0, 0.0]                 # Sprite pivot point [x, y]
-health = 80                         # Convenience stat (auto-sets max_health)
-speed = 2                           # Convenience stat
-attack_damage = 15                  # Convenience stat
-attack_range = 3                    # Convenience stat
-attack_cooldown = 2                 # Convenience stat
-shield = 10                         # Convenience stat (auto-sets max_shield)
-stats = { armor = 5, crit = 10 }    # Arbitrary custom stats (alias: custom_stats)
+stats = { health = 80, speed = 2, attack_damage = 15, attack_range = 3, attack_cooldown = 2, shield = 10, armor = 5, crit = 10 }
 
 # --- Initial Spawns ---
 [[spawn]]
@@ -168,40 +162,26 @@ Entity definitions register types that can be spawned — either at startup via 
 type = "golem"
 sprite = "sprites/golem_atlas"
 pivot = [24.0, 0.0]
-health = 200
-speed = 1
-stats = { armor = 5, crit_chance = 10, attack_damage = 25 }
+stats = { health = 200, speed = 1, armor = 5, crit_chance = 10, attack_damage = 25 }
 ```
 
 All fields except `type` are optional. Omitted stats default to 0. Omitted `sprite` means the entity has no visible sprite.
 
 **Reserved entity type:** `"summoner"` is hardcoded by the game engine. It is always spawned at position 500 with fixed stats. Mods cannot define or override it.
 
-### Convenience Stat Fields
+### Auto-Max Behavior
 
-Top-level fields on `[[entities]]` for common stats:
+When `health` or `shield` are set and no explicit `max_health`/`max_shield` is provided, the engine automatically sets `max_health`/`max_shield` to the same value.
 
-| Field | Description |
-|-------|-------------|
-| `health` | Current and max health (auto-sets `max_health` if not specified) |
-| `speed` | Movement speed (units per tick) |
-| `attack_damage` | Damage dealt per attack action |
-| `attack_range` | Range for attack actions |
-| `attack_cooldown` | Ticks between attacks |
-| `shield` | Current and max shield (auto-sets `max_shield` if not specified) |
+### Stats Table
 
-### Custom Stats (`stats` table)
-
-Any additional stats can be defined in the `stats` table (aliased as `custom_stats` for backward compat):
+All stats are defined in the `stats` table (aliased as `custom_stats` for backward compat):
 
 ```toml
 [[entities]]
 type = "warrior"
-health = 80
-stats = { armor = 5, crit_chance = 10, rage = 0 }
+stats = { health = 80, speed = 2, armor = 5, crit_chance = 10, rage = 0 }
 ```
-
-Convenience fields and `stats` entries merge into the same map. If a stat appears in both, the convenience field takes precedence.
 
 All stats are accessible in GrimScript via `entity.stat_name` attribute access and `get_stat(entity, "name")`, and in mod effects via `modify_stat`, `use_resource`, and the `stat` condition.
 
@@ -1006,14 +986,12 @@ All entity stats live in a single unified map. There are no built-in stats vs cu
 ```toml
 [[entities]]
 type = "warrior"
-health = 80        # Convenience field → stats["health"] = 80, stats["max_health"] = 80
-speed = 1          # Convenience field → stats["speed"] = 1
-stats = { armor = 5, crit_chance = 10, rage = 0 }  # Custom stats
+stats = { health = 80, speed = 1, armor = 5, crit_chance = 10, rage = 0 }
 ```
 
 ### Auto-Max Behavior
 
-When `health` or `shield` are set via convenience fields and no explicit `max_health`/`max_shield` is provided:
+When `health` or `shield` are defined and no explicit `max_health`/`max_shield` is provided:
 - `max_health` is automatically set to the same value as `health`
 - `max_shield` is automatically set to the same value as `shield`
 

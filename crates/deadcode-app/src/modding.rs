@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use deadcode_desktop::animation::{SKELETON_ATLAS_PNG, skeleton_atlas_json};
-use deadcode_sim::action::{BehaviorDef, BuffDef, CommandDef, CommandEffect, TriggerDef};
+use deadcode_sim::action::{BuffDef, CommandDef, CommandEffect, TriggerDef};
 use deadcode_sim::entity::EntityConfig;
 
 // ---------------------------------------------------------------------------
@@ -132,9 +132,6 @@ pub struct EntityDef {
     pub attack_range: Option<i64>,
     pub attack_cooldown: Option<i64>,
     pub shield: Option<i64>,
-    /// Autonomous behaviors for non-scripted entities of this type.
-    #[serde(default)]
-    pub behaviors: Vec<BehaviorDef>,
     /// Mod-defined custom stats (e.g., armor = 5, crit_chance = 10).
     #[serde(default)]
     pub custom_stats: HashMap<String, i64>,
@@ -797,63 +794,6 @@ pub fn validate_buffs(mods: &[LoadedMod]) {
             validate_effects(&buff.per_tick, &[], &effect_ctx, mod_id, &valid_effect_stats);
             validate_effects(&buff.on_apply, &[], &effect_ctx, mod_id, &valid_effect_stats);
             validate_effects(&buff.on_expire, &[], &effect_ctx, mod_id, &valid_effect_stats);
-        }
-    }
-}
-
-/// Collect entity behaviors from all loaded mods.
-/// Returns a map from entity type to behavior definitions.
-pub fn collect_behaviors(mods: &[LoadedMod]) -> HashMap<String, Vec<BehaviorDef>> {
-    let mut behaviors = HashMap::new();
-    for m in mods {
-        for entity_def in &m.manifest.entities {
-            if !entity_def.behaviors.is_empty() {
-                behaviors.insert(entity_def.entity_type.clone(), entity_def.behaviors.clone());
-            }
-        }
-    }
-    behaviors
-}
-
-/// Validate entity behavior definitions at load time.
-pub fn validate_behaviors(mods: &[LoadedMod]) {
-    let valid_stats: HashSet<&str> = ["health", "shield", "speed"].into_iter().collect();
-
-    for m in mods {
-        let mod_id = &m.manifest.meta.id;
-        for entity_def in &m.manifest.entities {
-            for (i, behavior) in entity_def.behaviors.iter().enumerate() {
-                let ctx = format!("entity '{}' behavior {i}", entity_def.entity_type);
-
-                // Validate cooldown.
-                if behavior.cooldown < 0 {
-                    eprintln!(
-                        "[mod:{mod_id}] warning: {ctx} has negative cooldown ({})",
-                        behavior.cooldown
-                    );
-                }
-
-                // Validate behavior action.
-                match &behavior.action {
-                    deadcode_sim::action::BehaviorAction::FleeWhenLow { stat, .. } => {
-                        if !valid_stats.contains(stat.as_str()) {
-                            eprintln!(
-                                "[mod:{mod_id}] warning: {ctx} references unknown stat '{stat}' \
-                                 (valid: health, shield, speed)"
-                            );
-                        }
-                    }
-                    deadcode_sim::action::BehaviorAction::RunEffects { effects } => {
-                        validate_effects(effects, &[], &ctx, mod_id, &valid_stats);
-                    }
-                    _ => {}
-                }
-
-                // Validate conditions.
-                for condition in &behavior.conditions {
-                    validate_condition(condition, &ctx, mod_id, &valid_stats);
-                }
-            }
         }
     }
 }

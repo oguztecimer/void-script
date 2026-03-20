@@ -902,121 +902,6 @@ effects = [
 ]
 ```
 
-## Entity Behaviors
-
-Mods can define **behaviors** for entity types, giving spawned entities autonomous AI. Behaviors only run on entities that don't have a player script and aren't channeling — they're for making minions, enemies, and NPCs feel alive.
-
-### Schema
-
-```toml
-[[entities]]
-type = "skeleton"
-sprite = "sprites/skeleton_atlas"
-health = 50
-speed = 2
-behaviors = [
-  { action = { type = "attack_nearest", entity_type = "zombie" }, cooldown = 3, priority = 10 },
-  { action = { type = "flee_when_low", stat = "health", threshold = 10 }, priority = 20 },
-  { action = { type = "idle" }, priority = 0 },
-]
-```
-
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `action` | Yes | — | What the behavior does (see action types below) |
-| `conditions` | No | `[]` | Conditions that must all be true for this behavior to activate |
-| `cooldown` | No | `0` | Ticks between activations (0 = every tick) |
-| `priority` | No | `0` | Higher priority behaviors are checked first |
-
-### Behavior Actions
-
-| Action | Fields | Description |
-|--------|--------|-------------|
-| `attack_nearest` | `entity_type` (optional), `range` (optional) | Attack the nearest entity. Filters by entity_type if specified. Uses entity's attack_range if range not set. |
-| `flee_when_low` | `stat`, `threshold` | Flee from the nearest entity when a stat (health, shield, speed) is below the threshold. |
-| `move_toward` | `target` | Move toward a target. Supports `"nearest:<type>"`, `"nearest_enemy"`, or a fixed position (integer string). |
-| `idle` | *(none)* | Do nothing (wait one tick). |
-| `effects` | `effects` | Run data-driven effects. Does NOT consume the tick — lower-priority behaviors can still fire. |
-
-### Execution Model
-
-1. Behaviors are processed in step 4b of the tick loop, **after** script execution and **before** action resolution.
-2. Only entities that are alive, ready (not spawning), have no script, and have no active channel run behaviors.
-3. Behaviors are sorted by priority (highest first) and checked in order.
-4. For each behavior: check cooldown → check conditions → execute action.
-5. **Action behaviors** (attack, flee, move, idle): the first one that fires produces the entity's action for the tick. No further behaviors run.
-6. **Effects behaviors**: fire their effects and continue to the next behavior. This allows passive effects (regeneration, auras) alongside active behaviors (attack, move).
-7. Cooldowns are tracked per-entity per-behavior. They are decremented each tick in step 6 (passive systems).
-
-### Conditions
-
-Behaviors reuse the same condition system as `if` effects and triggers:
-
-```toml
-behaviors = [
-  { action = { type = "attack_nearest" },
-    conditions = [
-      { type = "stat", stat = "health", compare = "gte", amount = 20 },
-    ],
-    priority = 10 },
-]
-```
-
-### Target Resolution
-
-- `attack_nearest` with `entity_type`: finds and attacks the nearest alive, ready entity of that type within range.
-- `attack_nearest` without `entity_type`: finds and attacks the nearest alive, ready entity of any type (excluding self) within range.
-- `flee_when_low`: flees from the nearest entity of any type.
-- `move_toward` with `"nearest:<type>"`: moves toward the nearest entity of the specified type.
-- `move_toward` with `"nearest_enemy"`: moves toward the nearest entity of a different type.
-- `move_toward` with a number (e.g., `"500"`): moves toward a fixed position.
-
-### Examples
-
-**Aggressive melee unit:**
-
-```toml
-behaviors = [
-  { action = { type = "attack_nearest" }, cooldown = 3, priority = 10 },
-  { action = { type = "move_toward", target = "nearest_enemy" }, priority = 5 },
-  { action = { type = "idle" }, priority = 0 },
-]
-```
-
-**Passive regeneration + attack:**
-
-```toml
-behaviors = [
-  { action = { type = "effects", effects = [
-    { type = "modify_stat", target = "self", stat = "health", amount = 1 },
-  ]}, cooldown = 30, priority = 100 },
-  { action = { type = "attack_nearest" }, cooldown = 5, priority = 10 },
-  { action = { type = "idle" }, priority = 0 },
-]
-```
-
-**Cowardly unit that flees when low:**
-
-```toml
-behaviors = [
-  { action = { type = "flee_when_low", stat = "health", threshold = 20 }, priority = 20 },
-  { action = { type = "attack_nearest", entity_type = "zombie" }, cooldown = 3, priority = 10 },
-  { action = { type = "idle" }, priority = 0 },
-]
-```
-
-### Validation
-
-At mod load time, the engine validates:
-- **Cooldown**: must be non-negative
-- **Stat names** in `flee_when_low`: must be `health`, `shield`, or `speed`
-- **Effects** in effects behaviors: validated with the same checks as command effects
-- **Conditions**: validated with the same checks as command conditions
-
-### Interaction with Scripts
-
-Entities with a script assigned (via Run/Debug) will **not** execute behaviors — the script takes priority. Behaviors are exclusively for entities without scripts, like spawned minions.
-
 ## Phased Commands
 
 Commands can optionally use **phases** instead of instant effects to create multi-tick abilities with distinct stages — e.g., a windup, impact, and recovery. Commands with `phases` use the phased system; commands with only `effects` use the instant system. They are mutually exclusive (validated at load time).
@@ -1232,8 +1117,6 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice, modify_resource, use_global_resource, if, start_channel) — lives in `deadcode-sim/action.rs` |
 | `Condition` | Condition enum for `if` effects (resource, entity_count, stat) with `CompareOp` — lives in `deadcode-sim/action.rs` |
 | `EffectOutcome` | Result of effect resolution: Complete, Aborted, or StartChannel — lives in `deadcode-sim/action.rs` |
-| `BehaviorDef` | Behavior definition (action, conditions, cooldown, priority) — lives in `deadcode-sim/action.rs` |
-| `BehaviorAction` | Behavior action enum (attack_nearest, flee_when_low, move_toward, idle, effects) — lives in `deadcode-sim/action.rs` |
 | `TriggerDef` | Trigger definition (event, filter, conditions, effects) — lives in `deadcode-sim/action.rs` |
 | `TriggerFilter` | Filter fields for narrowing trigger event matches — lives in `deadcode-sim/action.rs` |
 | `DynInt` | Integer value: fixed or `rand(min,max)` — deserialized from TOML, resolved at effect execution time — lives in `deadcode-sim/action.rs` |

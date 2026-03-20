@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::action::{BehaviorAction, BehaviorDef, BuffDef, CommandDef, CommandEffect, EffectOutcome, PhaseDef, TriggerDef, UnitAction, evaluate_condition, resolve_action, resolve_custom_effects, reverse_buff_modifiers};
+use crate::action::{BuffDef, CommandDef, CommandEffect, EffectOutcome, PhaseDef, TriggerDef, UnitAction, evaluate_condition, resolve_action, resolve_custom_effects, reverse_buff_modifiers};
 use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
@@ -117,8 +117,6 @@ pub struct SimWorld {
     pub unlisted_commands: HashSet<String>,
     /// Registered triggers — fire effects when game events match.
     pub triggers: Vec<TriggerDef>,
-    /// Entity type → sorted behavior definitions (for autonomous entity AI).
-    pub behaviors: HashMap<String, Vec<BehaviorDef>>,
     /// Buff name → buff definition registry.
     pub buff_registry: HashMap<String, BuffDef>,
 }
@@ -147,7 +145,6 @@ impl SimWorld {
             available_resources: None,
             unlisted_commands: HashSet::new(),
             triggers: Vec::new(),
-            behaviors: HashMap::new(),
             buff_registry: HashMap::new(),
         }
     }
@@ -215,12 +212,6 @@ impl SimWorld {
     /// Register a buff definition.
     pub fn register_buff(&mut self, def: BuffDef) {
         self.buff_registry.insert(def.name.clone(), def);
-    }
-
-    /// Register behaviors for an entity type. Behaviors are sorted by priority (highest first).
-    pub fn register_behaviors(&mut self, entity_type: String, mut behaviors: Vec<BehaviorDef>) {
-        behaviors.sort_by(|a, b| b.priority.cmp(&a.priority));
-        self.behaviors.insert(entity_type, behaviors);
     }
 
     /// Register a trigger that fires effects when game events match.
@@ -616,27 +607,6 @@ impl SimWorld {
             }
         }
 
-        // 4b. Process behaviors for non-scripted, non-channeling entities.
-        if !self.behaviors.is_empty() {
-            let behavior_ids: Vec<EntityId> = self
-                .entities
-                .iter()
-                .filter(|e| {
-                    e.is_ready()
-                        && e.script_state.is_none()
-                        && e.active_channel.is_none()
-                        && self.behaviors.contains_key(&e.entity_type)
-                })
-                .map(|e| e.id)
-                .collect();
-
-            for &eid in &behavior_ids {
-                if let Some(action) = self.process_entity_behaviors(eid) {
-                    actions.push((eid, action));
-                }
-            }
-        }
-
         // 5. Resolve all actions (shuffled order = conflict resolution order).
         for (eid, action) in actions {
             let action_events = resolve_action(self, eid, action);
@@ -651,12 +621,6 @@ impl SimWorld {
             // Cooldown ticking.
             if entity.cooldown_remaining > 0 {
                 entity.cooldown_remaining -= 1;
-            }
-            // Behavior cooldown ticking.
-            for cd in &mut entity.behavior_cooldowns {
-                if *cd > 0 {
-                    *cd -= 1;
-                }
             }
         }
 
@@ -758,145 +722,6 @@ impl SimWorld {
                 }
             }
         }
-    }
-
-    /// Process behaviors for a non-scripted entity. Returns the first action-producing
-    /// behavior's action. Effects-type behaviors fire their effects but don't produce
-    /// an action, allowing lower-priority behaviors to also fire.
-    fn process_entity_behaviors(&mut self, eid: EntityId) -> Option<UnitAction> {
-        let entity_type = self.get_entity(eid)?.entity_type.clone();
-        let behaviors = self.behaviors.get(&entity_type)?.clone();
-
-        // Ensure cooldown vector matches behavior count.
-        if let Some(entity) = self.get_entity_mut(eid) {
-            entity.behavior_cooldowns.resize(behaviors.len(), 0);
-        }
-
-        let mut result_action = None;
-
-        for (i, behavior) in behaviors.iter().enumerate() {
-            // Check cooldown.
-            let on_cooldown = self.get_entity(eid)
-                .map_or(true, |e| e.behavior_cooldowns.get(i).copied().unwrap_or(0) > 0);
-            if on_cooldown {
-                continue;
-            }
-
-            // Check conditions.
-            if !behavior.conditions.is_empty() {
-                let mut rng = SimRng::new(self.tick_seed() ^ eid.0 as u64);
-                let met = behavior.conditions.iter()
-                    .all(|c| evaluate_condition(c, self, eid, &mut rng));
-                if !met {
-                    continue;
-                }
-            }
-
-            // Execute behavior action.
-            match &behavior.action {
-                BehaviorAction::AttackNearest { entity_type, range } => {
-                    let filter = entity_type.as_deref().unwrap_or("*");
-                    let target = crate::query::nearest(self, eid, filter);
-                    if let crate::value::SimValue::EntityRef(tid) = target {
-                        // Check range.
-                        let in_range = self.get_entity(eid).and_then(|e| {
-                            let atk_range = range.unwrap_or(e.attack_range);
-                            self.get_entity(tid).map(|t| (e.position - t.position).abs() <= atk_range)
-                        }).unwrap_or(false);
-                        if in_range {
-                            // Set cooldown.
-                            if let Some(entity) = self.get_entity_mut(eid) {
-                                entity.behavior_cooldowns[i] = behavior.cooldown;
-                            }
-                            result_action = Some(UnitAction::Attack { target: tid });
-                            break;
-                        }
-                    }
-                }
-                BehaviorAction::FleeWhenLow { stat, threshold } => {
-                    let stat_low = self.get_entity(eid).map_or(false, |e| {
-                        let current = match stat.as_str() {
-                            "health" => e.health,
-                            "shield" => e.shield,
-                            "speed" => e.speed,
-                            _ => return false,
-                        };
-                        current < *threshold
-                    });
-                    if stat_low {
-                        // Find nearest entity of any type to flee from.
-                        let threat = crate::query::nearest(self, eid, "*");
-                        if let crate::value::SimValue::EntityRef(tid) = threat {
-                            if let Some(entity) = self.get_entity_mut(eid) {
-                                entity.behavior_cooldowns[i] = behavior.cooldown;
-                            }
-                            result_action = Some(UnitAction::Flee { threat: tid });
-                            break;
-                        }
-                    }
-                }
-                BehaviorAction::MoveToward { target } => {
-                    let target_pos = if let Some(type_filter) = target.strip_prefix("nearest:") {
-                        // Move toward nearest entity of type.
-                        let found = crate::query::nearest(self, eid, type_filter);
-                        if let crate::value::SimValue::EntityRef(tid) = found {
-                            self.get_entity(tid).map(|e| e.position)
-                        } else {
-                            None
-                        }
-                    } else if target == "nearest_enemy" {
-                        // Move toward nearest entity of any other type.
-                        let self_type = self.get_entity(eid).map(|e| e.entity_type.clone());
-                        if let Some(st) = self_type {
-                            let mut best: Option<(i64, i64)> = None; // (pos, dist)
-                            let self_pos = self.get_entity(eid).map(|e| e.position).unwrap_or(0);
-                            for e in self.entities() {
-                                if !e.is_ready() || e.id == eid || e.entity_type == st {
-                                    continue;
-                                }
-                                let dist = (e.position - self_pos).abs();
-                                if best.is_none() || dist < best.unwrap().1 {
-                                    best = Some((e.position, dist));
-                                }
-                            }
-                            best.map(|(pos, _)| pos)
-                        } else {
-                            None
-                        }
-                    } else {
-                        // Fixed position.
-                        target.parse::<i64>().ok()
-                    };
-
-                    if let Some(pos) = target_pos {
-                        if let Some(entity) = self.get_entity_mut(eid) {
-                            entity.behavior_cooldowns[i] = behavior.cooldown;
-                        }
-                        result_action = Some(UnitAction::Move { target_pos: pos });
-                        break;
-                    }
-                }
-                BehaviorAction::Idle => {
-                    if let Some(entity) = self.get_entity_mut(eid) {
-                        entity.behavior_cooldowns[i] = behavior.cooldown;
-                    }
-                    result_action = Some(UnitAction::Wait);
-                    break;
-                }
-                BehaviorAction::RunEffects { effects } => {
-                    // Effects don't consume the tick — fire and continue.
-                    let mut events = Vec::new();
-                    resolve_custom_effects(self, eid, "behavior", effects, &[], &mut events);
-                    self.events.extend(events);
-                    if let Some(entity) = self.get_entity_mut(eid) {
-                        entity.behavior_cooldowns[i] = behavior.cooldown;
-                    }
-                    // Don't break — lower-priority behaviors can still fire.
-                }
-            }
-        }
-
-        result_action
     }
 
     /// Process triggers against events collected during this tick.
@@ -2681,290 +2506,6 @@ mod tests {
             .filter(|e| e.entity_type == "ghost" && e.alive)
             .count();
         assert_eq!(ghost_count, 1, "Trigger should have spawned a ghost");
-    }
-
-    // ---------------------------------------------------------------
-    // Behavior system tests
-    // ---------------------------------------------------------------
-
-    #[test]
-    fn behavior_attack_nearest_attacks_in_range() {
-        use crate::action::{BehaviorDef, BehaviorAction};
-
-        let mut world = SimWorld::new(42);
-        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        let _skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 503);
-        let zombie = world.spawn_entity("zombie".into(), "z1".into(), 505);
-
-        // Give zombie 1 HP so skeleton can kill it.
-        world.get_entity_mut(zombie).unwrap().health = 1;
-
-        // Register skeleton behavior: attack nearest zombie.
-        world.register_behaviors("skeleton".into(), vec![
-            BehaviorDef {
-                action: BehaviorAction::AttackNearest {
-                    entity_type: Some("zombie".into()),
-                    range: None,
-                },
-                conditions: vec![],
-                cooldown: 0,
-                priority: 10,
-            },
-        ]);
-
-        world.start();
-        world.tick();
-
-        // Zombie should have taken damage.
-        let events = world.take_events();
-        let died = events.iter().any(|e| matches!(e, SimEvent::EntityDied { name, .. } if name == "z1"));
-        assert!(died, "Skeleton should have killed the zombie, events: {:?}", events);
-    }
-
-    #[test]
-    fn behavior_attack_nearest_ignores_out_of_range() {
-        use crate::action::{BehaviorDef, BehaviorAction};
-
-        let mut world = SimWorld::new(42);
-        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 0);
-        let _skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
-        let zombie = world.spawn_entity("zombie".into(), "z1".into(), 200);
-
-        world.get_entity_mut(zombie).unwrap().health = 1;
-
-        // Range is 5 (default), distance is 100 — out of range.
-        world.register_behaviors("skeleton".into(), vec![
-            BehaviorDef {
-                action: BehaviorAction::AttackNearest {
-                    entity_type: Some("zombie".into()),
-                    range: None,
-                },
-                conditions: vec![],
-                cooldown: 0,
-                priority: 10,
-            },
-        ]);
-
-        world.start();
-        world.tick();
-
-        // Zombie should still be alive (out of range).
-        assert!(world.get_entity(zombie).unwrap().alive,
-            "Zombie should survive — skeleton is out of range");
-    }
-
-    #[test]
-    fn behavior_idle_produces_wait() {
-        use crate::action::{BehaviorDef, BehaviorAction};
-
-        let mut world = SimWorld::new(42);
-        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
-
-        world.register_behaviors("skeleton".into(), vec![
-            BehaviorDef {
-                action: BehaviorAction::Idle,
-                conditions: vec![],
-                cooldown: 0,
-                priority: 0,
-            },
-        ]);
-
-        world.start();
-        world.tick();
-
-        // Skeleton should still be at position 100 (idle = no movement).
-        assert_eq!(world.get_entity(skeleton).unwrap().position, 100);
-    }
-
-    #[test]
-    fn behavior_effects_fires_without_consuming_tick() {
-        use crate::action::{BehaviorDef, BehaviorAction, DynInt};
-
-        let mut world = SimWorld::new(42);
-        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
-        world.resources.insert("bones".into(), 0);
-
-        // Effects behavior (passive) + idle behavior (active).
-        world.register_behaviors("skeleton".into(), vec![
-            BehaviorDef {
-                action: BehaviorAction::RunEffects {
-                    effects: vec![
-                        CommandEffect::ModifyResource { resource: "bones".into(), amount: DynInt::Fixed(1) },
-                    ],
-                },
-                conditions: vec![],
-                cooldown: 0,
-                priority: 100, // higher priority, fires first
-            },
-            BehaviorDef {
-                action: BehaviorAction::Idle,
-                conditions: vec![],
-                cooldown: 0,
-                priority: 0,
-            },
-        ]);
-
-        world.start();
-        world.tick();
-
-        // Effects should have fired (bones increased) AND skeleton should idle.
-        assert_eq!(world.get_resource("bones"), 1);
-        assert_eq!(world.get_entity(skeleton).unwrap().position, 100);
-    }
-
-    #[test]
-    fn behavior_cooldown_prevents_repeated_firing() {
-        use crate::action::{BehaviorDef, BehaviorAction, DynInt};
-
-        let mut world = SimWorld::new(42);
-        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        let _skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
-        world.resources.insert("gold".into(), 0);
-
-        // Effects with cooldown of 3.
-        // Cooldown=3: fires, then cooldown ticks 3→2→1→0 over 3 ticks, fires again on tick 4.
-        world.register_behaviors("skeleton".into(), vec![
-            BehaviorDef {
-                action: BehaviorAction::RunEffects {
-                    effects: vec![
-                        CommandEffect::ModifyResource { resource: "gold".into(), amount: DynInt::Fixed(1) },
-                    ],
-                },
-                conditions: vec![],
-                cooldown: 3,
-                priority: 10,
-            },
-        ]);
-
-        world.start();
-
-        // Tick 1: fires (gold = 1), cooldown set to 3
-        world.tick(); world.take_events();
-        assert_eq!(world.get_resource("gold"), 1);
-
-        // Ticks 2-3: on cooldown (gold stays at 1)
-        world.tick(); world.take_events();
-        world.tick(); world.take_events();
-        assert_eq!(world.get_resource("gold"), 1);
-
-        // Tick 4: cooldown expired, fires again (gold = 2)
-        world.tick(); world.take_events();
-        assert_eq!(world.get_resource("gold"), 2);
-    }
-
-    #[test]
-    fn behavior_conditions_gate_activation() {
-        use crate::action::{BehaviorDef, BehaviorAction, Condition, CompareOp, DynInt};
-
-        let mut world = SimWorld::new(42);
-        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
-        world.resources.insert("mana".into(), 5);
-
-        // Only fires when mana >= 10.
-        world.register_behaviors("skeleton".into(), vec![
-            BehaviorDef {
-                action: BehaviorAction::RunEffects {
-                    effects: vec![
-                        CommandEffect::Output { message: "Behavior fired!".into() },
-                    ],
-                },
-                conditions: vec![
-                    Condition::Resource {
-                        resource: "mana".into(),
-                        compare: CompareOp::Gte,
-                        amount: DynInt::Fixed(10),
-                    },
-                ],
-                cooldown: 0,
-                priority: 10,
-            },
-        ]);
-
-        world.start();
-
-        // mana = 5 < 10: should NOT fire.
-        world.tick();
-        let events = world.take_events();
-        assert!(!output_texts(&events).contains(&"Behavior fired!".to_string()));
-
-        // Set mana to 15, should fire.
-        *world.resources.get_mut("mana").unwrap() = 15;
-        world.tick();
-        let events = world.take_events();
-        assert!(output_texts(&events).contains(&"Behavior fired!".to_string()));
-
-        // Set it back to the entity for the condition check to pass on the ENTITY level
-        // (condition is resource-based, should still work)
-        let _ = skeleton; // suppress unused warning
-    }
-
-    #[test]
-    fn behavior_move_toward_nearest() {
-        use crate::action::{BehaviorDef, BehaviorAction};
-
-        let mut world = SimWorld::new(42);
-        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
-        let _zombie = world.spawn_entity("zombie".into(), "z1".into(), 200);
-
-        world.register_behaviors("skeleton".into(), vec![
-            BehaviorDef {
-                action: BehaviorAction::MoveToward {
-                    target: "nearest:zombie".into(),
-                },
-                conditions: vec![],
-                cooldown: 0,
-                priority: 10,
-            },
-        ]);
-
-        world.start();
-        world.tick();
-
-        // Skeleton should have moved toward position 200.
-        let pos = world.get_entity(skeleton).unwrap().position;
-        assert!(pos > 100, "Skeleton should move toward zombie, pos={pos}");
-    }
-
-    #[test]
-    fn behavior_scripted_entities_ignore_behaviors() {
-        use crate::action::{BehaviorDef, BehaviorAction, DynInt};
-
-        let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        world.resources.insert("bones".into(), 0);
-
-        // Register behaviors for summoner type.
-        world.register_behaviors("summoner".into(), vec![
-            BehaviorDef {
-                action: BehaviorAction::RunEffects {
-                    effects: vec![
-                        CommandEffect::ModifyResource { resource: "bones".into(), amount: DynInt::Fixed(99) },
-                    ],
-                },
-                conditions: vec![],
-                cooldown: 0,
-                priority: 10,
-            },
-        ]);
-
-        // Give summoner a script (making it scripted, not behavior-driven).
-        let program = CompiledScript::new(
-            vec![Instruction::ActionWait, Instruction::Halt],
-            0,
-        );
-        world.get_entity_mut(summoner).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        // Behavior should NOT fire because entity has a script.
-        assert_eq!(world.get_resource("bones"), 0,
-            "Scripted entities should not run behaviors");
     }
 
     // ---------------------------------------------------------------

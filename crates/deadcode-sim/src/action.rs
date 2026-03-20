@@ -453,60 +453,6 @@ pub struct TriggerFilter {
     pub interval: Option<i64>,
 }
 
-/// A behavior definition for autonomous entities (non-scripted).
-///
-/// Behaviors give spawned entities AI by processing them each tick.
-/// Defined in `behaviors` field of `[[entities]]` in `mod.toml`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BehaviorDef {
-    /// What action to take.
-    pub action: BehaviorAction,
-    /// Conditions that must all be true for this behavior to activate.
-    #[serde(default)]
-    pub conditions: Vec<Condition>,
-    /// Cooldown in ticks between activations. 0 = every tick.
-    #[serde(default)]
-    pub cooldown: i64,
-    /// Priority: higher priority behaviors are checked first.
-    #[serde(default)]
-    pub priority: i64,
-}
-
-/// The action a behavior performs when activated.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum BehaviorAction {
-    /// Attack the nearest entity (optionally filtered by type).
-    #[serde(rename = "attack_nearest")]
-    AttackNearest {
-        /// Only attack entities of this type. If omitted, attacks any entity.
-        #[serde(default)]
-        entity_type: Option<String>,
-        /// Override the entity's attack range for target finding.
-        #[serde(default)]
-        range: Option<i64>,
-    },
-    /// Flee from the nearest entity when a stat is below a threshold.
-    #[serde(rename = "flee_when_low")]
-    FleeWhenLow {
-        stat: String,
-        threshold: i64,
-    },
-    /// Move toward a target. Supports "nearest:<type>" or "nearest_enemy".
-    #[serde(rename = "move_toward")]
-    MoveToward {
-        target: String,
-    },
-    /// Do nothing (wait one tick).
-    #[serde(rename = "idle")]
-    Idle,
-    /// Run data-driven effects (doesn't consume the tick — other behaviors can still fire).
-    #[serde(rename = "effects")]
-    RunEffects {
-        effects: Vec<CommandEffect>,
-    },
-}
-
 /// A buff definition that can be applied to entities.
 ///
 /// Defined in `[[buffs]]` sections in `mod.toml`. Buffs provide temporary

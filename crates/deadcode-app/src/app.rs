@@ -549,7 +549,6 @@ impl ApplicationHandler<UserEvent> for App {
         modding::validate_spawns(&mods, &known_types);
         modding::validate_command_defs(&mods);
         modding::validate_triggers(&mods);
-        modding::validate_behaviors(&mods);
         modding::validate_buffs(&mods);
 
         // --- Unit system init ---
@@ -602,11 +601,6 @@ impl ApplicationHandler<UserEvent> for App {
         // Register triggers from all loaded mods.
         for trigger in modding::collect_triggers(&mods) {
             sim.register_trigger(trigger);
-        }
-
-        // Register entity behaviors from all loaded mods.
-        for (entity_type, behaviors) in modding::collect_behaviors(&mods) {
-            sim.register_behaviors(entity_type, behaviors);
         }
 
         // Register buff definitions from all loaded mods.

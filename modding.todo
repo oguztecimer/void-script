@@ -30,16 +30,15 @@ Unlocks ~80% of modding potential. Reuses existing effect resolution engine.
 === PHASE 2: Entity Behaviors (MEDIUM PRIORITY) ===
 Makes spawned entities feel alive instead of being inert targets.
 
-[x] Behavior system in SimWorld — per-entity-type behaviors processed each tick
-[x] [[entities.behaviors]] section in mod.toml (inline behaviors field)
-    Built-in behaviors: attack_nearest, flee_when_low, move_toward, idle, effects
-[x] Data-driven periodic behaviors — cooldown + effects (reuse effect engine)
-[x] Behavior cooldowns — per-entity per-behavior cooldown tracking
-[x] Behavior conditions — only activate when condition met
-[x] Target resolution for behaviors — "nearest_enemy", "nearest:<type>", fixed position
-    ("nearest_ally" and "owner" deferred — no ownership system yet)
-[x] Behavior validation at load time
-[x] Update docs/modding.md with behavior reference
+[ ] Behavior system in SimWorld — per-entity-type behaviors processed each tick
+[ ] [[entities.behaviors]] section in mod.toml
+    Built-in behaviors: attack_nearest, flee_when_low, move_toward, idle
+[ ] Data-driven periodic behaviors — interval + effects (reuse effect engine)
+[ ] Behavior cooldowns — per-entity cooldown tracking
+[ ] Behavior conditions — only activate when condition met
+[ ] Target resolution for behaviors — "nearest_enemy", "nearest_ally", "owner"
+[ ] Behavior validation at load time
+[ ] Update docs/modding.md with behavior reference
 
 
 === PHASE 3: Buffs/Modifiers (MEDIUM PRIORITY) ===

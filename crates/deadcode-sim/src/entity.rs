@@ -123,9 +123,6 @@ pub struct SimEntity {
     /// Active channel for a multi-tick phased command (None when idle).
     pub active_channel: Option<ChannelState>,
 
-    /// Per-behavior cooldown tracking (indexed by behavior position).
-    pub behavior_cooldowns: Vec<i64>,
-
     /// Active buffs on this entity.
     pub active_buffs: Vec<ActiveBuff>,
 
@@ -155,7 +152,6 @@ impl SimEntity {
             spawn_ticks_remaining: 0,
             script_state: None,
             active_channel: None,
-            behavior_cooldowns: Vec::new(),
             active_buffs: Vec::new(),
             custom_stats: HashMap::new(),
         }

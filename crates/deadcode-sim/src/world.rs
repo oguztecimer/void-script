@@ -945,14 +945,33 @@ impl SimWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entity::ScriptState;
+    use crate::entity::{EntityConfig, ScriptState};
     use crate::ir::{CompiledScript, Instruction};
     use crate::value::SimValue;
+
+    /// Default test entity config with basic stats for tests that need movement/health.
+    fn test_config() -> EntityConfig {
+        EntityConfig {
+            stats: IndexMap::from([
+                ("health".into(), 100),
+                ("max_health".into(), 100),
+                ("speed".into(), 1),
+                ("attack_damage".into(), 10),
+                ("attack_range".into(), 5),
+                ("attack_cooldown".into(), 3),
+            ]),
+        }
+    }
+
+    /// Spawn a test entity with default stats.
+    fn spawn_test_entity(world: &mut SimWorld, etype: &str, name: &str, pos: i64) -> EntityId {
+        world.spawn_entity_with_config(etype.into(), name.into(), pos, Some(&test_config()))
+    }
 
     #[test]
     fn spawn_and_query() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity("skeleton".into(), "miner1".into(), 100);
+        let id = spawn_test_entity(&mut world, "skeleton", "miner1", 100);
         let entity = world.get_entity(id).unwrap();
         assert_eq!(entity.position, 100);
         assert_eq!(entity.name, "miner1");
@@ -961,7 +980,7 @@ mod tests {
     #[test]
     fn tick_moves_unit() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity("skeleton".into(), "miner1".into(), 0);
+        let id = spawn_test_entity(&mut world, "skeleton", "miner1", 0);
 
         // Give it a script: move(100), halt
         let program = CompiledScript::new(
@@ -988,9 +1007,9 @@ mod tests {
         fn run_sim(seed: u64) -> SimSnapshot {
             let mut world = SimWorld::new(seed);
 
-            let m1 = world.spawn_entity("skeleton".into(), "m1".into(), 0);
-            let m2 = world.spawn_entity("skeleton".into(), "m2".into(), 500);
-            let _ast = world.spawn_entity("grave".into(), "rock".into(), 250);
+            let m1 = spawn_test_entity(&mut world, "skeleton", "m1", 0);
+            let m2 = spawn_test_entity(&mut world, "skeleton", "m2", 500);
+            let _ast = spawn_test_entity(&mut world, "grave", "rock", 250);
 
             // Script: while True: move(250)
             let program = CompiledScript::new(
@@ -1033,7 +1052,7 @@ mod tests {
     #[test]
     fn tick_without_running_is_noop() {
         let mut world = SimWorld::new(42);
-        world.spawn_entity("skeleton".into(), "m".into(), 0);
+        spawn_test_entity(&mut world, "skeleton", "m", 0);
         world.tick(); // not started
         assert_eq!(world.tick, 0);
     }
@@ -1041,7 +1060,7 @@ mod tests {
     #[test]
     fn script_error_recorded() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity("skeleton".into(), "m".into(), 0);
+        let id = spawn_test_entity(&mut world, "skeleton", "m", 0);
 
         // Division by zero.
         let program = CompiledScript::new(
@@ -1073,7 +1092,7 @@ mod tests {
     #[test]
     fn phased_command_three_phases() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity("summoner".into(), "s".into(), 0);
+        let id = spawn_test_entity(&mut world, "summoner", "s", 0);
 
         // Register a phased command: 2-tick phase 0, 1-tick phase 1, 1-tick phase 2.
         let def = CommandDef {
@@ -1159,7 +1178,7 @@ mod tests {
     #[test]
     fn phased_command_interruptible_cancelled_by_action() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity("summoner".into(), "s".into(), 0);
+        let id = spawn_test_entity(&mut world, "summoner", "s", 0);
 
         // Register phased command with interruptible phase.
         let def = CommandDef {
@@ -1214,7 +1233,7 @@ mod tests {
     #[test]
     fn phased_command_use_global_resource_failure_cancels() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity("summoner".into(), "s".into(), 0);
+        let id = spawn_test_entity(&mut world, "summoner", "s", 0);
         // Set mana resource to 15 — enough for 1 tick of 10 drain but not 2.
         world.resources.insert("mana".into(), 15);
 
@@ -1286,7 +1305,7 @@ mod tests {
     #[test]
     fn phased_command_non_interruptible_blocks_script() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity("summoner".into(), "s".into(), 0);
+        let id = spawn_test_entity(&mut world, "summoner", "s", 0);
 
         let def = CommandDef {
             name: "lock".into(),
@@ -1346,7 +1365,7 @@ mod tests {
     #[test]
     fn phased_command_update_interval() {
         let mut world = SimWorld::new(42);
-        let id = world.spawn_entity("summoner".into(), "s".into(), 0);
+        let id = spawn_test_entity(&mut world, "summoner", "s", 0);
 
         // Phase with update_interval = 2 over 4 ticks.
         // per_update fires when (ticks_elapsed + 1) % interval == 0,
@@ -1449,7 +1468,7 @@ mod tests {
     fn resource_via_script_get_resource() {
         let mut world = SimWorld::new(42);
         world.resources.insert("souls".into(), 42);
-        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
 
         // Script: print(get_resource("souls")); halt
         let program = CompiledScript::new(
@@ -1475,7 +1494,7 @@ mod tests {
     fn resource_via_script_gain_and_spend() {
         let mut world = SimWorld::new(42);
         world.resources.insert("souls".into(), 10);
-        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
 
         // Script: gain_resource("souls", 5); try_spend_resource("souls", 20); wait
         // gain_resource should return 15 (pushed to stack, then popped by Pop)
@@ -1509,7 +1528,7 @@ mod tests {
     fn resource_via_script_successful_spend() {
         let mut world = SimWorld::new(42);
         world.resources.insert("souls".into(), 10);
-        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
 
         // Script: try_spend_resource("souls", 3); print result; wait
         let program = CompiledScript::new(
@@ -1537,7 +1556,7 @@ mod tests {
     fn resource_in_conditional_flow() {
         let mut world = SimWorld::new(42);
         world.resources.insert("souls".into(), 5);
-        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
 
         // Script:
         //   result = try_spend_resource("souls", 3)  // true, souls -> 2
@@ -1590,10 +1609,10 @@ mod tests {
         world.resources.insert("bones".into(), 0);
 
         // Spawn a summoner (caster) and 3 skeletons.
-        let caster = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        let _sk1 = world.spawn_entity("skeleton".into(), "sk1".into(), 100);
-        let _sk2 = world.spawn_entity("skeleton".into(), "sk2".into(), 200);
-        let _sk3 = world.spawn_entity("skeleton".into(), "sk3".into(), 300);
+        let caster = spawn_test_entity(&mut world, "summoner", "summoner", 500);
+        let _sk1 = spawn_test_entity(&mut world, "skeleton", "sk1", 100);
+        let _sk2 = spawn_test_entity(&mut world, "skeleton", "sk2", 200);
+        let _sk3 = spawn_test_entity(&mut world, "skeleton", "sk3", 300);
 
         // Register the harvest command with sacrifice effect.
         let harvest = CommandDef {
@@ -1650,7 +1669,7 @@ mod tests {
         let mut world = SimWorld::new(42);
         world.resources.insert("bones".into(), 0);
 
-        let caster = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let caster = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         let harvest = CommandDef {
             name: "harvest".into(),
@@ -1716,7 +1735,7 @@ mod tests {
         let mut world = SimWorld::new(42);
         world.resources.insert("souls".into(), 42);
         world.available_resources = Some(["bones".to_string()].into_iter().collect());
-        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
 
         // Script: get_resource("souls"); halt — should error because "souls" is not available.
         let program = CompiledScript::new(
@@ -1742,7 +1761,7 @@ mod tests {
         let mut world = SimWorld::new(42);
         world.resources.insert("souls".into(), 10);
         world.available_resources = Some(["bones".to_string()].into_iter().collect());
-        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
 
         // Script: gain_resource("souls", 5); wait — should error.
         let program = CompiledScript::new(
@@ -1773,7 +1792,7 @@ mod tests {
 
         let mut world = SimWorld::new(42);
         world.resources.insert("mana".into(), 20);
-        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+        let caster = spawn_test_entity(&mut world, "summoner", "s", 500);
 
         let cmd = CommandDef {
             name: "condtest".into(),
@@ -1814,7 +1833,7 @@ mod tests {
 
         let mut world = SimWorld::new(42);
         world.resources.insert("mana".into(), 5);
-        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+        let caster = spawn_test_entity(&mut world, "summoner", "s", 500);
 
         let cmd = CommandDef {
             name: "condtest".into(),
@@ -1854,9 +1873,9 @@ mod tests {
         use crate::action::{CommandDef, CommandEffect, Condition, CompareOp, DynInt};
 
         let mut world = SimWorld::new(42);
-        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
-        let _sk1 = world.spawn_entity("skeleton".into(), "sk1".into(), 100);
-        let _sk2 = world.spawn_entity("skeleton".into(), "sk2".into(), 200);
+        let caster = spawn_test_entity(&mut world, "summoner", "s", 500);
+        let _sk1 = spawn_test_entity(&mut world, "skeleton", "sk1", 100);
+        let _sk2 = spawn_test_entity(&mut world, "skeleton", "sk2", 200);
 
         let cmd = CommandDef {
             name: "counttest".into(),
@@ -1895,7 +1914,7 @@ mod tests {
         use crate::action::{CommandDef, CommandEffect, Condition, CompareOp, DynInt};
 
         let mut world = SimWorld::new(42);
-        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+        let caster = spawn_test_entity(&mut world, "summoner", "s", 500);
         // Default health is 100.
 
         let cmd = CommandDef {
@@ -1936,7 +1955,7 @@ mod tests {
 
         let mut world = SimWorld::new(42);
         world.resources.insert("mana".into(), 100);
-        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+        let caster = spawn_test_entity(&mut world, "summoner", "s", 500);
 
         // use_global_resource inside then branch should abort the entire effect list.
         let cmd = CommandDef {
@@ -1981,7 +2000,7 @@ mod tests {
         use crate::action::{CommandDef, CommandEffect, PhaseDef};
 
         let mut world = SimWorld::new(42);
-        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+        let caster = spawn_test_entity(&mut world, "summoner", "s", 500);
 
         let cmd = CommandDef {
             name: "inline_channel".into(),
@@ -2048,7 +2067,7 @@ mod tests {
 
         let mut world = SimWorld::new(42);
         world.resources.insert("mana".into(), 50);
-        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
+        let caster = spawn_test_entity(&mut world, "summoner", "s", 500);
 
         // If mana >= 20: spend mana and start a channel.
         // Else: just output a message.
@@ -2114,8 +2133,8 @@ mod tests {
 
         let mut world = SimWorld::new(42);
         world.resources.insert("mana".into(), 30);
-        let caster = world.spawn_entity("summoner".into(), "s".into(), 500);
-        let _sk = world.spawn_entity("skeleton".into(), "sk1".into(), 100);
+        let caster = spawn_test_entity(&mut world, "summoner", "s", 500);
+        let _sk = spawn_test_entity(&mut world, "skeleton", "sk1", 100);
 
         let cmd = CommandDef {
             name: "nested".into(),
@@ -2162,7 +2181,7 @@ mod tests {
         let mut world = SimWorld::new(42);
         world.resources.insert("bones".into(), 0);
         world.available_resources = Some(["bones".to_string()].into_iter().collect());
-        let id = world.spawn_entity("skeleton".into(), "test".into(), 0);
+        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
 
         // Script: gain_resource("bones", 5); print(get_resource("bones")); wait
         let program = CompiledScript::new(
@@ -2198,8 +2217,8 @@ mod tests {
         use crate::action::{TriggerDef, TriggerFilter};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 502);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
+        let skeleton = spawn_test_entity(&mut world, "skeleton", "skel1", 502);
 
         // Register a trigger: when a skeleton dies, output a message.
         world.register_trigger(TriggerDef {
@@ -2244,8 +2263,8 @@ mod tests {
         use crate::action::{TriggerDef, TriggerFilter};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        let zombie = world.spawn_entity("zombie".into(), "z1".into(), 502);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
+        let zombie = spawn_test_entity(&mut world, "zombie", "z1", 502);
 
         // Trigger only fires for skeleton deaths, not zombie deaths.
         world.register_trigger(TriggerDef {
@@ -2286,7 +2305,7 @@ mod tests {
         use crate::action::{TriggerDef, TriggerFilter};
 
         let mut world = SimWorld::new(42);
-        world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         // Trigger fires every 5 ticks.
         world.register_trigger(TriggerDef {
@@ -2336,7 +2355,7 @@ mod tests {
         use crate::action::{TriggerDef, TriggerFilter, DynInt};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
         world.resources.insert("gold".into(), 0);
 
         // Register a custom command that modifies gold.
@@ -2390,7 +2409,7 @@ mod tests {
         use crate::action::{Condition, CompareOp, TriggerDef, TriggerFilter, DynInt};
 
         let mut world = SimWorld::new(42);
-        world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        spawn_test_entity(&mut world, "summoner", "summoner", 500);
         world.resources.insert("souls".into(), 5);
 
         // Trigger: on tick_interval(1), but only if souls >= 10.
@@ -2433,7 +2452,7 @@ mod tests {
         use crate::action::{TriggerDef, TriggerFilter};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         // Register a simple custom command.
         world.register_custom_command(&CommandDef {
@@ -2486,8 +2505,8 @@ mod tests {
         use crate::action::{TriggerDef, TriggerFilter, DynInt};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 502);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
+        let skeleton = spawn_test_entity(&mut world, "skeleton", "skel1", 502);
 
         // When a skeleton dies, spawn a ghost.
         world.register_trigger(TriggerDef {
@@ -2539,7 +2558,7 @@ mod tests {
         use indexmap::IndexMap as StdMap;
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         // Register a buff that adds 5 speed for 3 ticks.
         world.register_buff(BuffDef {
@@ -2604,7 +2623,7 @@ mod tests {
         use indexmap::IndexMap as StdMap;
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         world.register_buff(BuffDef {
             name: "rage".into(),
@@ -2660,7 +2679,7 @@ mod tests {
         use crate::action::BuffDef;
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         world.register_buff(BuffDef {
             name: "shield_up".into(),
@@ -2715,7 +2734,7 @@ mod tests {
         use indexmap::IndexMap as StdMap;
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         world.register_buff(BuffDef {
             name: "armor".into(),
@@ -2779,7 +2798,7 @@ mod tests {
         use crate::action::{BuffDef, Condition};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         world.register_buff(BuffDef {
             name: "berserk".into(),
@@ -2836,7 +2855,7 @@ mod tests {
         use crate::action::{Condition, CompareOp, DynInt};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
         world.resources.insert("gold".into(), 50);
         world.resources.insert("mana".into(), 10);
         let mut rng = crate::rng::SimRng::new(42);
@@ -2878,7 +2897,7 @@ mod tests {
         use crate::action::{Condition, CompareOp, DynInt};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         // Register a command that modifies a stat.
         world.register_custom_command(&CommandDef {
@@ -2936,7 +2955,7 @@ mod tests {
         use crate::action::DynInt;
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         // Set initial stat.
         world.get_entity_mut(summoner).unwrap().set_stat("mojo", 3);
@@ -3002,10 +3021,10 @@ mod tests {
         use crate::action::DynInt;
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        world.spawn_entity("skeleton".into(), "s1".into(), 100);
-        world.spawn_entity("skeleton".into(), "s2".into(), 200);
-        world.spawn_entity("zombie".into(), "z1".into(), 300);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
+        spawn_test_entity(&mut world, "skeleton", "s1", 100);
+        spawn_test_entity(&mut world, "skeleton", "s2", 200);
+        spawn_test_entity(&mut world, "zombie", "z1", 300);
 
         let mut rng = crate::rng::SimRng::new(42);
 
@@ -3021,7 +3040,7 @@ mod tests {
         use crate::action::DynInt;
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
         world.resources.insert("gold".into(), 42);
 
         let mut rng = crate::rng::SimRng::new(42);
@@ -3034,7 +3053,7 @@ mod tests {
         use crate::action::DynInt;
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         let mut rng = crate::rng::SimRng::new(42);
         let health = world.get_entity(summoner).unwrap().stat("health");
@@ -3047,7 +3066,7 @@ mod tests {
         use crate::action::DynInt;
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
         world.get_entity_mut(summoner).unwrap().set_stat("armor", 7);
 
         let mut rng = crate::rng::SimRng::new(42);
@@ -3121,9 +3140,9 @@ mod tests {
         use crate::action::{Condition, CompareOp, DynInt, evaluate_condition};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        world.spawn_entity("skeleton".into(), "s1".into(), 100);
-        world.spawn_entity("skeleton".into(), "s2".into(), 200);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
+        spawn_test_entity(&mut world, "skeleton", "s1", 100);
+        spawn_test_entity(&mut world, "skeleton", "s2", 200);
         world.resources.insert("souls".into(), 5);
 
         let mut rng = crate::rng::SimRng::new(42);
@@ -3142,7 +3161,7 @@ mod tests {
         use crate::action::{Condition, CompareOp, DynInt, evaluate_condition};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
         // summoner health defaults to 100
         world.resources.insert("mana".into(), 50);
 
@@ -3170,10 +3189,10 @@ mod tests {
         use crate::action::{Condition, CompareOp, DynInt, evaluate_condition};
 
         let mut world = SimWorld::new(42);
-        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
         world.get_entity_mut(summoner).unwrap().set_stat("army_size", 3);
-        world.spawn_entity("skeleton".into(), "s1".into(), 100);
-        world.spawn_entity("skeleton".into(), "s2".into(), 200);
+        spawn_test_entity(&mut world, "skeleton", "s1", 100);
+        spawn_test_entity(&mut world, "skeleton", "s2", 200);
 
         let mut rng = crate::rng::SimRng::new(42);
 
@@ -3196,10 +3215,10 @@ mod tests {
 
         let mut world = SimWorld::new(42);
         // Querier at position 100
-        let querier = world.spawn_entity("summoner".into(), "me".into(), 100);
+        let querier = spawn_test_entity(&mut world, "summoner", "me", 100);
         // Two entities equidistant at 90 and 110 (both distance 10 from querier)
-        let e_left = world.spawn_entity("skeleton".into(), "left".into(), 90);
-        let e_right = world.spawn_entity("skeleton".into(), "right".into(), 110);
+        let e_left = spawn_test_entity(&mut world, "skeleton", "left", 90);
+        let e_right = spawn_test_entity(&mut world, "skeleton", "right", 110);
 
         let result = nearest(&world, querier, "skeleton");
         // The one with the lower entity ID should win the tie.
@@ -3213,10 +3232,10 @@ mod tests {
 
         let mut world = SimWorld::new(99);
         // Spawn far entity first, then close, then another at same distance as close.
-        let querier = world.spawn_entity("summoner".into(), "me".into(), 0);
-        let _far = world.spawn_entity("zombie".into(), "far".into(), 100);
-        let close_a = world.spawn_entity("zombie".into(), "a".into(), 50);
-        let _close_b = world.spawn_entity("zombie".into(), "b".into(), -50); // abs(-50 - 0) = 50
+        let querier = spawn_test_entity(&mut world, "summoner", "me", 0);
+        let _far = spawn_test_entity(&mut world, "zombie", "far", 100);
+        let close_a = spawn_test_entity(&mut world, "zombie", "a", 50);
+        let _close_b = spawn_test_entity(&mut world, "zombie", "b", -50); // abs(-50 - 0) = 50
 
         let result = nearest(&world, querier, "zombie");
         // close_a and close_b are equidistant (50). close_a has lower ID => wins.
@@ -3226,7 +3245,7 @@ mod tests {
     /// Helper: run instructions on a fresh world (single entity) and return final state.
     fn run_instructions(instructions: Vec<Instruction>) -> (ScriptState, Option<UnitAction>) {
         let mut world = SimWorld::new(42);
-        let eid = world.spawn_entity("skeleton".into(), "test".into(), 0);
+        let eid = spawn_test_entity(&mut world, "skeleton", "test", 0);
         let program = CompiledScript::new(instructions, 0);
         let mut state = ScriptState::new(program, 0);
         let action = crate::executor::execute_unit(eid, &mut state, &world).unwrap();

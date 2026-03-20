@@ -112,17 +112,7 @@ pub struct SimEntity {
 
 impl SimEntity {
     pub fn new(id: EntityId, entity_type: String, name: String, position: i64) -> Self {
-        let stats = IndexMap::from([
-            ("health".to_string(), 100),
-            ("max_health".to_string(), 100),
-            ("shield".to_string(), 0),
-            ("max_shield".to_string(), 0),
-            ("speed".to_string(), 1),
-            ("attack_damage".to_string(), 10),
-            ("attack_range".to_string(), 5),
-            ("attack_cooldown".to_string(), 3),
-            ("cooldown_remaining".to_string(), 0),
-        ]);
+        let stats = IndexMap::new();
         Self {
             id,
             entity_type,

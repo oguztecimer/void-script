@@ -88,7 +88,7 @@ effects = [
 ]
 ```
 
-All fields in `[[entities]]` except `type` are optional. Omitted stats use engine defaults (health=100, speed=1, etc.). Omitted `sprite` means the entity won't have a render unit.
+All fields in `[[entities]]` except `type` are optional. Stats not explicitly defined default to 0. Omitted `sprite` means the entity won't have a render unit.
 
 **Reserved entity type:** The `"summoner"` entity type is hardcoded by the game engine and cannot be defined or overridden by mods. It is always spawned at position 500 with fixed stats. Mods that define an entity with `type = "summoner"` will see a warning and their definition will be ignored.
 
@@ -98,27 +98,34 @@ Entity definitions register types that can be spawned — either at startup via 
 
 ### Stats
 
-All entity stats live in a single unified map. The fields below are **convenience aliases** in `[[entities]]` — they map to the same stats system as custom stats defined via `stats = { armor = 5 }`. Any stat not set in the entity definition uses the engine default.
+All entity stats live in a single unified map. There are no built-in defaults — entities start with **no stats** unless the mod defines them. Any stat not explicitly set defaults to 0.
 
-| Convenience Field | Default | Description |
-|-------------------|---------|-------------|
-| `health` | 100 | Current health (auto-sets `max_health` if not specified) |
-| `speed` | 1 | Movement speed (tiles per tick) |
-| `attack_damage` | 10 | Damage dealt per attack |
-| `attack_range` | 5 | Range for attack actions |
-| `attack_cooldown` | 3 | Ticks between attacks |
-| `shield` | 0 | Current shield (auto-sets `max_shield` if not specified) |
+There are two ways to define stats on an entity:
 
-Custom stats can be added via the `stats` table (aliased as `custom_stats` for backward compat):
+1. **Convenience fields** — top-level fields in `[[entities]]` for common stats:
+
+| Field | Description |
+|-------|-------------|
+| `health` | Current health (auto-sets `max_health` if not specified) |
+| `speed` | Movement speed (tiles per tick) |
+| `attack_damage` | Damage dealt per attack |
+| `attack_range` | Range for attack actions |
+| `attack_cooldown` | Ticks between attacks |
+| `shield` | Current shield (auto-sets `max_shield` if not specified) |
+
+2. **`stats` table** — for any stat, including the ones above (aliased as `custom_stats` for backward compat):
 
 ```toml
 [[entities]]
 type = "golem"
 health = 200
-stats = { armor = 5, crit_chance = 10 }
+speed = 1
+stats = { armor = 5, crit_chance = 10, attack_damage = 25 }
 ```
 
-All stats (built-in defaults and custom) are accessible via `entity.stat_name` attribute access and `get_stat(entity, "name")` in GrimScript, and via `modify_stat`/`use_resource` effects in mod commands.
+The convenience fields and `stats` table are merged into the same map. If a stat appears in both, the convenience field takes precedence.
+
+All stats are accessible in GrimScript via `entity.stat_name` attribute access and `get_stat(entity, "name")`, and in mod effects via `modify_stat` / `use_resource` / `Condition::stat`.
 
 ### Sprite Format
 
@@ -825,22 +832,23 @@ In addition to the base conditions (`resource`, `entity_count`, `stat`), the fol
 
 Randomness is deterministic — same seed produces same result. The `percent` field should be 1-100.
 
-## Custom Entity Stats
+## Entity Stats
 
-All entity stats live in a single unified system. Entity types can define arbitrary named stats alongside the built-in ones (health, shield, speed, etc.):
+All entity stats live in a single unified map — there are no built-in stats vs custom stats, they're all the same system. Entity types define their stats in `[[entities]]` (see [Stats](#stats) above). Any stat not defined defaults to 0.
 
 ```toml
 [[entities]]
 type = "warrior"
 health = 80
+speed = 1
 stats = { armor = 5, crit_chance = 10, rage = 0 }
 ```
 
-The named fields (`health`, `speed`, `shield`, `attack_damage`, `attack_range`, `attack_cooldown`) are syntactic sugar — they merge into the same stats HashMap. The `stats` table adds additional entries. All stats default to 0 if not defined.
+The convenience fields (`health`, `speed`, `shield`, `attack_damage`, `attack_range`, `attack_cooldown`) are syntactic sugar — they merge into the same stats map as entries in the `stats` table. All stats default to 0 if not defined.
 
 ### Effect Types
 
-`modify_stat` and `use_resource` work with **all** stats (built-in and custom):
+`modify_stat` and `use_resource` work with **all** stats:
 
 | Effect | Fields | Description |
 |--------|--------|-------------|
@@ -896,7 +904,7 @@ Effect `amount` and `offset` fields support game-state-dependent computation in 
 | `"rand(min,max)"` | Random in [min, max] | `amount = "rand(5,15)"` |
 | `"entity_count(type)"` | Count of alive entities of type | `amount = "entity_count(skeleton)"` |
 | `"resource(name)"` | Current value of a global resource | `amount = "resource(mana)"` |
-| `"stat(name)"` | Caster's stat value (built-in or custom) | `amount = "stat(health)"` |
+| `"stat(name)"` | Caster's stat value | `amount = "stat(health)"` |
 
 ### Multiplier
 

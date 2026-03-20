@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Compiler
+
+#### Fixed
+- **C-01: For-loop `continue` jumps to PC=0** — `continue` inside for-loops emitted `Jump(0)` because the increment target wasn't known yet. Now uses `usize::MAX` sentinel and deferred patching (same pattern as `break`). While-loop `continue` unchanged. 2 new tests.
+- **C-02: Augmented index assignment fragile truncation** — `x[i] += v` used `instructions.truncate(len - 5)` which assumed index expressions emit exactly 1 instruction. Complex indices like `x[a + b]` left junk IR. Replaced with clean dual-emit pattern: `obj, idx, obj, idx → Index → rhs → op → StoreIndex → store`. 2 new tests.
+- **C-03: Dead `fixup_calls` code** — Removed no-op `fixup_calls()` from `emit.rs` and its call in `compiler/mod.rs`.
+
 ### Simulation Engine
 
 #### Fixed
@@ -10,6 +17,16 @@
 - **S-14: Entity stats HashMap → IndexMap** — `SimEntity.stats` and `EntityConfig.stats` now use `IndexMap<String, i64>` for deterministic iteration order. `BuffDef.modifiers` also converted. Prevents future determinism regressions if stats are ever iterated during simulation.
 - **S-15: `in`/`not in` operators** — Added `Contains` and `NotContains` IR instructions and implemented membership testing in both the interpreter and compiler/executor. `in` works for lists (element membership), strings (substring), and dicts (key lookup). Previously `in` was parsed but mapped to `==`, always returning wrong results.
 - **S-16: Unicode string `len()` and negative indexing** — `len()` on strings now returns character count instead of UTF-8 byte count. Negative string indexing uses character count for bounds calculation. Negative list/tuple index underflow now returns an error instead of wrapping to a huge value and panicking.
+- **S-17: Division/modulo semantics** — Executor `Div`/`Mod` instructions now use Python-style floor division/modulo instead of C-style truncating division. `-7 // 2 = -4` (was -3), `-7 % 2 = 1` (was -1). Interpreter `//` and `%` also fixed from Euclidean to floor semantics for negative divisors. 7 new executor tests, 4 parity tests.
+- **S-18: Instant action infinite loop guard** — Both instant-action loops in `SimWorld::tick()` (channel processing and normal execution) now cap at 1000 iterations. Prevents infinite loops from scripts that only emit instant actions (e.g., `while True: gain_resource("x", 1)`).
+
+### Language
+
+#### Fixed
+- **L-01: Silent number parsing overflow** — `Lexer::tokenize()` now returns `Result`, reporting an error for integer literals that overflow i64 instead of silently converting them to 0. Call sites in `lib.rs` and `compiler/mod.rs` updated to propagate errors.
+- **L-02: Dict iteration** — `for k in dict:` now iterates over dictionary keys in the interpreter. Previously raised "not iterable" for dict values.
+- **L-03: `min`/`max` incomparable types** — `compare_values()` now returns `Result` and errors on type mismatches (e.g., `min(5, "hello")`). Previously returned `Equal`, giving silently wrong results.
+- **L-04: `percent`/`scale` integer overflow** — `wrapping_mul` replaced with `checked_mul` in both `percent()` and `scale()`. Overflow now returns a runtime error instead of silently wrapping.
 
 ### Desktop / Rendering
 
@@ -17,6 +34,7 @@
 - **D-01: Hit test negative coordinate guard** — `hit_test_at()` now checks for negative coordinates before casting to `u32`, preventing an out-of-bounds read when mouse coordinates are negative.
 - **D-02: macOS pixel buffer bounds validation** — Added `debug_assert` for canvas/buffer size parity and bounds-checked the pixel conversion loop and `copy_nonoverlapping` call to prevent buffer overflows on size mismatches.
 - **D-03: Entity position sync by ID** — Position sync between sim entities and render units now uses an `EntityId→UnitId` mapping instead of string name matching. Fixes incorrect syncing when multiple entities share the same name. Death handling and animation targeting also use the ID map.
+- **D-04: Windows GDI DC leak on panic** — `CreateDIBSection` failure in Windows renderer now gracefully releases `hdc_mem` and `hdc_screen` and returns instead of panicking with `.unwrap()`, preventing GDI resource leaks.
 
 ### Editor UI
 
@@ -29,6 +47,16 @@
 - **S-XX: Unified entity stats into single HashMap** — Removed 9 hardcoded stat fields (`health`, `max_health`, `shield`, `max_shield`, `speed`, `attack_damage`, `attack_range`, `attack_cooldown`, `cooldown_remaining`) from `SimEntity` and the separate `custom_stats: HashMap<String, i64>`. All stats now live in a single `stats: HashMap<String, i64>` accessed via `stat()`, `set_stat()`, and `clamp_stat()` helpers. `EntityConfig` simplified to `{ stats: HashMap<String, i64> }`. Eliminated parallel effect/condition systems: `ModifyCustomStat`/`UseCustomStat`/`Condition::CustomStat` removed — `ModifyStat`/`UseResource`/`Condition::Stat` now handle all stats generically. Serde aliases preserve backward compatibility for existing `mod.toml` files (`modify_custom_stat`, `use_custom_stat`, `custom_stat` still parse correctly). Renamed `get_custom_stat` GrimScript builtin to `get_stat` (old name kept as alias). Fixed pre-existing bug: `Spawn` effect now applies `EntityConfig` to dynamically spawned entities. 182 tests pass.
 
 ### Modding System
+
+#### Fixed
+- **M-24: Buff modifier stat names unvalidated** — `validate_buffs()` now checks modifier stat names against known stats from entity configs. Unknown stat names produce a warning at load time.
+- **M-25: Library files not syntax-checked** — `.grim` library files are now parsed (lex + parse) at mod load time. Syntax errors produce a warning with mod ID and filename. The source is still prepended for graceful degradation.
+- **M-26: Resource cap vs value not validated** — `collect_initial_resources()` now warns when a resource's initial value exceeds its defined max cap.
+
+### Documentation
+
+#### Fixed
+- **DOC-01: modding.md stat table** — Removed incorrect `mana` row (mana is a global resource, not an entity stat).
 
 #### Added
 - **M-22: Mod dependency resolution** — `depends_on` and `conflicts_with` fields in `[mod]` are now enforced. Mods are topologically sorted by dependencies (Kahn's algorithm with alphabetical tie-breaking for determinism). Missing dependencies cause the mod and its dependants to be skipped with warnings. Conflicts skip the second-loaded mod. Circular dependencies are detected and fall back to alphabetical order with an error message. 8 new tests.

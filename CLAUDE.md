@@ -170,6 +170,8 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 - IPC enums use `#[serde(tag = "type")]`
 - Sprite atlases are JSON + PNG pairs; frame durations use `ticks` (sim ticks at 30 TPS, not milliseconds)
 - Simulation uses only `i64` (no floats) for determinism; `Dict` uses `IndexMap<String, SimValue>` for deterministic insertion-order iteration with O(1) lookup
+- Division/modulo use Python-style floor semantics in both executor and interpreter: `-7 // 2 = -4`, `-7 % 2 = 1` (not C truncating or Euclidean)
+- `Lexer::tokenize()` returns `Result<Vec<SpannedToken>, GrimScriptError>` — callers must handle lex errors
 - Compiler is feature-gated: `deadcode-sim` stays independent without `grimscript-lang`
 - The summoner is a hardcoded core entity — always spawned by `app.rs` at position 500 using embedded assets, not defined by mods
 - Theme-agnostic sim: no baked-in entity type constants, entity types are runtime strings (except summoner, hardcoded in `app.rs`)

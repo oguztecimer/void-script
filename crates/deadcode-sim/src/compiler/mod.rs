@@ -29,8 +29,7 @@ pub fn compile_with_custom(
 ) -> Result<CompiledScript, CompileError> {
     let compiler = emit::Compiler::new(available_commands)
         .with_custom_commands(custom_commands);
-    let mut script = compiler.compile(program)?;
-    emit::fixup_calls(&mut script);
+    let script = compiler.compile(program)?;
     Ok(script)
 }
 
@@ -61,7 +60,8 @@ pub fn compile_source_full(
     available_commands: Option<HashSet<String>>,
     custom_commands: HashMap<String, usize>,
 ) -> Result<CompiledScript, String> {
-    let tokens = grimscript_lang::lexer::Lexer::new(source).tokenize();
+    let tokens = grimscript_lang::lexer::Lexer::new(source).tokenize()
+        .map_err(|e| format!("syntax error (line {}): {}", e.line, e.message))?;
     let program = grimscript_lang::parser::Parser::new(tokens)
         .parse()
         .map_err(|e| format!("parse error (line {}): {}", e.line, e.message))?;
@@ -470,5 +470,102 @@ mod tests {
         let result = compile_source_with("get_resource(\"souls\")", Some(available));
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not available"));
+    }
+
+    // --- Bug fix tests ---
+
+    #[test]
+    fn for_loop_continue() {
+        // continue in for-loop should skip to increment, not jump to PC=0.
+        let vars = run_to_completion(
+            "total = 0\nfor i in range(5):\n    if i == 2:\n        continue\n    total = total + i",
+        );
+        // 0 + 1 + 3 + 4 = 8 (skip i==2)
+        assert_eq!(vars.get(1), Some(&SimValue::Int(8)));
+    }
+
+    #[test]
+    fn for_loop_nested_continue() {
+        // continue in nested for-loop should only skip inner.
+        let vars = run_to_completion(
+            "total = 0\nfor i in range(3):\n    for j in range(3):\n        if j == 1:\n            continue\n        total = total + 1",
+        );
+        // 3 outer * 2 inner (j=0,2) = 6
+        assert_eq!(vars.get(1), Some(&SimValue::Int(6)));
+    }
+
+    #[test]
+    fn aug_assign_complex_index() {
+        // Augmented assignment to list index with complex expression.
+        let vars = run_to_completion("x = [10, 20, 30]\ny = 1\nx[y] += 5");
+        assert_eq!(
+            vars.get(1),
+            Some(&SimValue::List(vec![
+                SimValue::Int(10),
+                SimValue::Int(25),
+                SimValue::Int(30),
+            ]))
+        );
+    }
+
+    #[test]
+    fn aug_assign_dict() {
+        let vars = run_to_completion("d = {\"a\": 10}\nd[\"a\"] += 5");
+        if let Some(SimValue::Dict(map)) = vars.get(1) {
+            assert_eq!(map.get("a"), Some(&SimValue::Int(15)));
+        } else {
+            panic!("expected dict");
+        }
+    }
+
+    #[test]
+    fn floor_division_negative() {
+        // Python: -7 // 2 = -4
+        let vars = run_to_completion("x = -7 // 2");
+        assert_eq!(vars.get(1), Some(&SimValue::Int(-4)));
+    }
+
+    #[test]
+    fn floor_division_both_negative() {
+        // Python: -7 // -2 = 3
+        let vars = run_to_completion("x = -7 // -2");
+        assert_eq!(vars.get(1), Some(&SimValue::Int(3)));
+    }
+
+    #[test]
+    fn floor_mod_negative() {
+        // Python: -7 % 2 = 1
+        let vars = run_to_completion("x = -7 % 2");
+        assert_eq!(vars.get(1), Some(&SimValue::Int(1)));
+    }
+
+    #[test]
+    fn floor_mod_both_negative() {
+        // Python: -7 % -2 = -1
+        let vars = run_to_completion("x = -7 % -2");
+        assert_eq!(vars.get(1), Some(&SimValue::Int(-1)));
+    }
+
+    #[test]
+    fn floor_division_positive() {
+        // Python: 7 // 2 = 3
+        let vars = run_to_completion("x = 7 // 2");
+        assert_eq!(vars.get(1), Some(&SimValue::Int(3)));
+    }
+
+    #[test]
+    fn floor_mod_positive() {
+        // Python: 7 % 2 = 1
+        let vars = run_to_completion("x = 7 % 2");
+        assert_eq!(vars.get(1), Some(&SimValue::Int(1)));
+    }
+
+    #[test]
+    fn integer_overflow_error() {
+        // Very large integer literal should produce an error, not silently become 0.
+        let result = compile_source("x = 99999999999999999999");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("invalid integer literal"), "got: {err}");
     }
 }

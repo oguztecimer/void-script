@@ -306,6 +306,45 @@ fn parity_scale() {
 }
 
 // ---------------------------------------------------------------------------
+// Division/modulo parity (floor semantics)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parity_floor_div_negative() {
+    // Python: -7 // 2 = -4
+    assert_parity("print(-7 // 2)");
+}
+
+#[test]
+fn parity_floor_div_both_negative() {
+    // Python: -7 // -2 = 3
+    assert_parity("print(-7 // -2)");
+}
+
+#[test]
+fn parity_floor_mod_negative() {
+    // Python: -7 % 2 = 1
+    assert_parity("print(-7 % 2)");
+}
+
+#[test]
+fn parity_floor_mod_both_negative() {
+    // Python: -7 % -2 = -1
+    assert_parity("print(-7 % -2)");
+}
+
+// ---------------------------------------------------------------------------
+// For-loop continue parity
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parity_for_continue() {
+    assert_parity(
+        "total = 0\nfor i in range(5):\n    if i == 2:\n        continue\n    total = total + i\nprint(total)",
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Known divergences (documented, not asserted for parity)
 // ---------------------------------------------------------------------------
 

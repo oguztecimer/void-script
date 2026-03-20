@@ -71,3 +71,129 @@ Add cost logic to the hardcoded resolve paths. Hacky, doesn't scale, duplicates 
 ### Recommendation
 
 Option (a). The custom command system was built to replace these hardcoded stubs. The hardcoded variants are vestigial from before Phase 2 modding was implemented.
+
+---
+
+## BUG-002: For-loop `continue` Jumps to PC=0
+
+**Severity: Critical**
+**Status: Resolved**
+
+For-loop `continue` emitted `Jump(0)` because `LoopContext.continue_target` was set to 0 and only patched after body compilation. Fixed by using `usize::MAX` sentinel and deferred patching via `continue_patches` vector.
+
+---
+
+## BUG-003: Augmented Index Assignment Fragile Truncation
+
+**Severity: High**
+**Status: Resolved**
+
+`x[i] += v` used `instructions.truncate(len - 5)` assuming simple index expressions. Complex indices (e.g., `x[a + b]`) emitted more instructions, causing truncation to leave junk IR. Fixed with clean dual-emit pattern that evaluates index twice.
+
+---
+
+## BUG-004: Division/Modulo Uses Wrong Semantics
+
+**Severity: High**
+**Status: Resolved**
+
+Executor used C-style truncating division (`wrapping_div`/`wrapping_rem`), interpreter used Euclidean. Both wrong for Python-style floor division. Fixed to use `floor_div`/`floor_mod` in both paths.
+
+---
+
+## BUG-005: Silent Integer Literal Overflow
+
+**Severity: Medium**
+**Status: Resolved**
+
+`parse().unwrap_or(0)` in lexer silently converted overflowing integer literals to 0. Fixed: `tokenize()` now returns `Result` and reports a syntax error.
+
+---
+
+## BUG-006: Dict Iteration Not Supported in Interpreter
+
+**Severity: Medium**
+**Status: Resolved**
+
+`for k in dict:` raised "not iterable" in the interpreter. Added `Value::Dict` arm that iterates over keys.
+
+---
+
+## BUG-007: min/max Silent on Incomparable Types
+
+**Severity: Medium**
+**Status: Resolved**
+
+`compare_values()` returned `Equal` for mismatched types (e.g., `min(5, "hello")`). Fixed to return `Result`, erroring on type mismatch.
+
+---
+
+## BUG-008: percent/scale Integer Overflow
+
+**Severity: Medium**
+**Status: Resolved**
+
+`wrapping_mul` in `percent()` and `scale()` silently wrapped on overflow. Fixed with `checked_mul` that returns a runtime error.
+
+---
+
+## BUG-009: Instant Action Infinite Loop Risk
+
+**Severity: Medium**
+**Status: Resolved**
+
+Both instant-action loops in `SimWorld::tick()` had no guard against infinite Print/GainResource chains. Added 1000-iteration cap with error emission.
+
+---
+
+## BUG-010: Buff Modifier Stat Names Unvalidated
+
+**Severity: Low**
+**Status: Resolved**
+
+`validate_buffs()` did not check modifier stat names against known entity stats. Now warns on unknown stat names at load time.
+
+---
+
+## BUG-011: Library Files Not Syntax-Checked
+
+**Severity: Low**
+**Status: Resolved**
+
+`.grim` library files were loaded without parsing. Syntax errors were only discovered at script compilation time. Now lex+parse at load time with warnings.
+
+---
+
+## BUG-012: Resource Cap vs Value Not Validated
+
+**Severity: Low**
+**Status: Resolved**
+
+No warning when a resource's initial value exceeded its max cap. Added validation in `collect_initial_resources()`.
+
+---
+
+## BUG-013: Dead `fixup_calls` Code
+
+**Severity: Low**
+**Status: Resolved**
+
+`fixup_calls()` iterated instructions but did nothing. Removed from `emit.rs` and its call in `compiler/mod.rs`.
+
+---
+
+## BUG-014: Windows GDI DC Leak on Panic
+
+**Severity: Low**
+**Status: Resolved**
+
+`CreateDIBSection().unwrap()` panicked without releasing DCs. Replaced with match that releases resources on error.
+
+---
+
+## BUG-015: modding.md Stat Table Lists Non-Existent `mana` Stat
+
+**Severity: Low**
+**Status: Resolved**
+
+`mana` was listed as an entity stat in the docs but is actually a global resource. Removed from the stats table.

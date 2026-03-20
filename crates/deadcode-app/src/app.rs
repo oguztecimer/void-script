@@ -553,10 +553,13 @@ impl ApplicationHandler<UserEvent> for App {
 
         // Validate spawn entity type references, commands, triggers, behaviors, and buffs.
         let known_types: HashSet<String> = self.entity_configs.keys().cloned().collect();
+        let known_stats: HashSet<String> = self.entity_configs.values()
+            .flat_map(|c| c.stats.keys().cloned())
+            .collect();
         modding::validate_spawns(&mods, &known_types);
         modding::validate_command_defs(&mods);
         modding::validate_triggers(&mods);
-        modding::validate_buffs(&mods);
+        modding::validate_buffs(&mods, &known_stats);
 
         // --- Unit system init ---
         let mut um = UnitManager::new();

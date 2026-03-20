@@ -336,6 +336,7 @@ impl Interpreter {
                     Value::List(l) => l,
                     Value::Tuple(t) => t,
                     Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
+                    Value::Dict(d) => d.keys().map(|k| Value::String(k.clone())).collect(),
                     other => {
                         return Err(GrimScriptError::type_error(
                             stmt.line,
@@ -1197,7 +1198,10 @@ impl Interpreter {
                 if *b == 0 {
                     return Err(GrimScriptError::runtime(line, "division by zero"));
                 }
-                Ok(Value::Int(a.div_euclid(*b)))
+                // Python-style floor division: rounds toward negative infinity.
+                let q = a / b;
+                let r = a % b;
+                Ok(Value::Int(if (r != 0) && ((r ^ b) < 0) { q - 1 } else { q }))
             }
             (Value::Float(a), Value::Float(b)) => {
                 if *b == 0.0 {
@@ -1239,7 +1243,9 @@ impl Interpreter {
                 if *b == 0 {
                     return Err(GrimScriptError::runtime(line, "modulo by zero"));
                 }
-                Ok(Value::Int(a.rem_euclid(*b)))
+                // Python-style floor modulo: result has same sign as divisor.
+                let r = a % b;
+                Ok(Value::Int(if (r != 0) && ((r ^ b) < 0) { r + b } else { r }))
             }
             (Value::Float(a), Value::Float(b)) => {
                 if *b == 0.0 {

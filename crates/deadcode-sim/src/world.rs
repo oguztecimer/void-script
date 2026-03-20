@@ -400,7 +400,17 @@ impl SimWorld {
                                 match self.try_handle_instant(eid, action, state) {
                                     None => {
                                         // Was instant. Continue executing in a loop.
+                                        let mut instant_count = 0u32;
                                         loop {
+                                            instant_count += 1;
+                                            if instant_count > 1000 {
+                                                state.error = Some("too many instant actions in one tick (infinite loop?)".to_string());
+                                                self.events.push(SimEvent::ScriptError {
+                                                    entity_id: eid,
+                                                    error: "too many instant actions in one tick (infinite loop?)".to_string(),
+                                                });
+                                                break;
+                                            }
                                             match executor::execute_unit(eid, state, self) {
                                                 Ok(Some(action)) => {
                                                     match self.try_handle_instant(eid, action, state) {
@@ -549,7 +559,17 @@ impl SimWorld {
                         actions.push((eid, real_action));
                     } else {
                         // Instant action handled. Continue executing for the rest of the tick.
+                        let mut instant_count = 0u32;
                         loop {
+                            instant_count += 1;
+                            if instant_count > 1000 {
+                                script_state.error = Some("too many instant actions in one tick (infinite loop?)".to_string());
+                                self.events.push(SimEvent::ScriptError {
+                                    entity_id: eid,
+                                    error: "too many instant actions in one tick (infinite loop?)".to_string(),
+                                });
+                                break;
+                            }
                             match executor::execute_unit(eid, &mut script_state, self) {
                                 Ok(Some(action)) => {
                                     if let Some(real_action) = self.try_handle_instant(eid, action, &mut script_state) {

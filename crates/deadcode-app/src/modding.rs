@@ -271,6 +271,24 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
             let full_path = mod_dir.join(lib_path);
             match std::fs::read_to_string(&full_path) {
                 Ok(src) => {
+                    // Syntax-check library source at load time.
+                    match grimscript_lang::lexer::Lexer::new(&src).tokenize() {
+                        Ok(tokens) => {
+                            if let Err(e) = grimscript_lang::parser::Parser::new(tokens).parse() {
+                                eprintln!(
+                                    "[mod:{}] warning: syntax error in library '{}' (line {}): {}",
+                                    manifest.meta.id, lib_path, e.line, e.message
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[mod:{}] warning: lex error in library '{}' (line {}): {}",
+                                manifest.meta.id, lib_path, e.line, e.message
+                            );
+                        }
+                    }
+                    // Still prepend the source for graceful degradation.
                     if !library_source.is_empty() {
                         library_source.push('\n');
                     }
@@ -880,6 +898,16 @@ pub fn collect_initial_resources(mods: &[LoadedMod]) -> CollectedResources {
             }
         }
     }
+    // Warn when initial value exceeds cap.
+    for (name, &max) in &caps {
+        if let Some(&val) = values.get(name) {
+            if val > max {
+                eprintln!(
+                    "[mod] warning: resource '{name}' initial value ({val}) exceeds max ({max})"
+                );
+            }
+        }
+    }
     CollectedResources { values, caps }
 }
 
@@ -950,7 +978,7 @@ pub fn collect_buffs(mods: &[LoadedMod]) -> Vec<BuffDef> {
 }
 
 /// Validate buff definitions at load time.
-pub fn validate_buffs(mods: &[LoadedMod]) {
+pub fn validate_buffs(mods: &[LoadedMod], known_stats: &HashSet<String>) {
     for m in mods {
         let mod_id = &m.manifest.meta.id;
         for buff in &m.manifest.buffs {
@@ -962,6 +990,15 @@ pub fn validate_buffs(mods: &[LoadedMod]) {
                     "[mod:{mod_id}] warning: buff '{}' has non-positive duration ({})",
                     buff.name, buff.duration
                 );
+            }
+            // Validate modifier stat names.
+            for stat_name in buff.modifiers.keys() {
+                if !known_stats.contains(stat_name) {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: buff '{}' modifies unknown stat '{stat_name}'",
+                        buff.name
+                    );
+                }
             }
             // Validate effect lists.
             let effect_ctx = format!("buff '{}'", buff.name);

@@ -13,6 +13,9 @@ use super::symbol_table::{SymbolTable, VarLocation};
 struct LoopContext {
     continue_target: usize,
     break_patches: Vec<usize>,
+    /// Indices of `Jump(usize::MAX)` placeholders emitted by `continue` statements
+    /// when the continue target was not yet known (for-loops only).
+    continue_patches: Vec<usize>,
 }
 
 /// Collected function definition from pass 1.
@@ -212,48 +215,17 @@ impl<'a> Compiler<'a> {
                     }
                     AssignTarget::Index { object, index } => {
                         let obj_loc = self.resolve_assign_object(object, stmt.line)?;
-                        // Load current value: obj[idx]
-                        self.emit_load(obj_loc);
-                        self.compile_expr(index)?;
-                        // We need obj and idx again for StoreIndex, but also the current value.
-                        // Strategy: compute obj[idx], compile augment value, apply op,
-                        // then reload obj, idx for StoreIndex.
-                        // This evaluates index twice but is simple and correct.
-                        self.emit(Instruction::Index);
-                        self.compile_expr(value)?;
-                        self.emit_aug_op(op);
-                        // Now stack has the new value. Reload obj and idx for StoreIndex.
-                        self.emit_load(obj_loc);
-                        self.compile_expr(index)?;
-                        // Stack: new_val, obj, idx
-                        // StoreIndex wants: obj, idx, val → pop val, pop idx, pop obj
-                        // We need to reorder. Actually StoreIndex pops: value, index, collection.
-                        // Our stack is: [new_val, obj, idx] (top = idx)
-                        // We need: [obj, idx, new_val] (top = new_val)
-                        // This is wrong ordering. Let me restructure.
-
-                        // Better approach: emit obj, idx, obj, idx, Index to get current,
-                        // then value, op, then StoreIndex.
-                        // Reset and redo:
-                        // Actually let me just do it cleanly: pop the wrong stuff and redo.
-                        // Simplest correct approach: use a temp variable.
-                        let len = self.instructions.len();
-                        // Undo the last 3 instructions (reload obj, compile_expr index, and the reorder issue)
-                        // This is getting messy. Let me use the simpler "evaluate index twice" approach from scratch.
-                        self.instructions.truncate(len - 2); // remove the obj reload + idx recompile
-                        // Pop the new_val from above back — actually we can't easily undo compile_expr.
-                        // Let me restart this arm entirely with a clean approach.
-                        self.instructions.truncate(len - 5); // undo everything after obj_loc resolve
-
-                        // Clean approach: load obj[idx], apply op with value, store back.
-                        self.emit_load(obj_loc);
-                        self.compile_expr(index)?;
-                        self.emit_load(obj_loc);
-                        self.compile_expr(index)?;
-                        self.emit(Instruction::Index); // pushes current obj[idx]
-                        self.compile_expr(value)?;
-                        self.emit_aug_op(op); // pushes new value
-                        self.emit(Instruction::StoreIndex); // pops val, idx, obj; pushes obj
+                        // Stack layout for StoreIndex: [obj, idx, new_val] (top = new_val)
+                        // Emit: obj, idx, obj, idx → Index → current_val, value, aug_op → new_val
+                        //   then StoreIndex pops [new_val, idx, obj] and pushes updated obj.
+                        self.emit_load(obj_loc);         // [obj]
+                        self.compile_expr(index)?;       // [obj, idx]
+                        self.emit_load(obj_loc);         // [obj, idx, obj]
+                        self.compile_expr(index)?;       // [obj, idx, obj, idx]
+                        self.emit(Instruction::Index);   // [obj, idx, current_val]
+                        self.compile_expr(value)?;       // [obj, idx, current_val, rhs]
+                        self.emit_aug_op(op);            // [obj, idx, new_val]
+                        self.emit(Instruction::StoreIndex); // [updated_obj]
                         self.emit_store(obj_loc);
                     }
                 }
@@ -318,6 +290,7 @@ impl<'a> Compiler<'a> {
                 self.loop_stack.push(LoopContext {
                     continue_target: loop_start,
                     break_patches: Vec::new(),
+                    continue_patches: Vec::new(),
                 });
 
                 for s in body {
@@ -366,12 +339,11 @@ impl<'a> Compiler<'a> {
                 let var_loc = self.symbols.resolve_or_declare(var);
                 self.emit_store(var_loc);
 
-                // continue_target points to the increment block, not loop_start.
-                let continue_target_placeholder = self.instructions.len();
-
+                // Use usize::MAX as sentinel — continue target is not yet known.
                 self.loop_stack.push(LoopContext {
-                    continue_target: 0, // patched below
+                    continue_target: usize::MAX,
                     break_patches: Vec::new(),
+                    continue_patches: Vec::new(),
                 });
 
                 for s in body {
@@ -380,10 +352,6 @@ impl<'a> Compiler<'a> {
 
                 // Increment block (continue jumps here).
                 let increment_start = self.instructions.len();
-                // Patch continue_target.
-                if let Some(ctx) = self.loop_stack.last_mut() {
-                    ctx.continue_target = increment_start;
-                }
 
                 self.emit_load(idx_loc);
                 self.emit(Instruction::LoadConst(SimValue::Int(1)));
@@ -398,45 +366,10 @@ impl<'a> Compiler<'a> {
                 for patch in loop_ctx.break_patches {
                     self.patch_jump_to(patch, loop_end);
                 }
-
-                // Retroactively fix any continue jumps that used the placeholder target.
-                // Continue jumps were emitted with the placeholder target (0).
-                // We need to scan for Jump(0) instructions within the loop body that
-                // were continue statements. But we can't distinguish them easily.
-                // Instead, let's use a different approach: store continue patches too.
-                // Actually, the continue handling in compile_stmt for Continue already
-                // uses loop_stack.last().continue_target. Since we set it after pushing
-                // the context, continues emitted during body compilation would have used 0.
-                // Let's fix this by pre-setting it to a temporary value and re-patching.
-
-                // Scan instructions in the body for Jump(0) that should be Jump(increment_start).
-                // This is a bit hacky but works since pc=0 is never a valid continue target
-                // within a for loop body (global code starts there, not loop code).
-                // Actually this is fragile. Better approach: collect continue patches.
-                // But we already have a `continue_target` field. The issue is timing.
-                // Let me fix by using a two-phase approach: emit continue as placeholder too.
-
-                // For now, the simple fix: we already set continue_target to increment_start
-                // BEFORE the loop_stack is popped. So any Continue compiled during the body
-                // would have emitted Jump(ctx.continue_target). But we set it to 0 initially
-                // and only updated it at increment_start... after the body. So continues
-                // emitted during body got Jump(0). We need to fix these.
-
-                // Collect and patch continue targets.
-                // We know: continue_target was 0 during body, should be increment_start.
-                // Scan instructions from continue_target_placeholder to increment_start.
-                for i in continue_target_placeholder..increment_start {
-                    if matches!(self.instructions[i], Instruction::Jump(0)) {
-                        // Could be a legitimate Jump(0) from nested code, but within a for
-                        // loop body, Jump(0) is extremely unlikely to be intentional.
-                        // Mark continue jumps specially — actually let's just use a sentinel.
-                        // Better: use usize::MAX as sentinel for continue.
-                    }
+                // Patch all continue placeholders to point to increment_start.
+                for patch in loop_ctx.continue_patches {
+                    self.patch_jump_to(patch, increment_start);
                 }
-
-                // TODO: The continue handling for for-loops needs a sentinel-based approach.
-                // For now, continues in for-loops will jump to the wrong place.
-                // This will be fixed by using usize::MAX as a sentinel value.
 
                 Ok(())
             }
@@ -466,7 +399,13 @@ impl<'a> Compiler<'a> {
                     .last()
                     .ok_or_else(|| CompileError::new(stmt.line, "'continue' outside loop"))?
                     .continue_target;
-                self.emit(Instruction::Jump(target));
+                if target == usize::MAX {
+                    // For-loop: target not yet known, emit placeholder and record for patching.
+                    let patch = self.emit_placeholder(Instruction::Jump(usize::MAX));
+                    self.loop_stack.last_mut().unwrap().continue_patches.push(patch);
+                } else {
+                    self.emit(Instruction::Jump(target));
+                }
                 Ok(())
             }
 
@@ -1147,21 +1086,6 @@ impl<'a> Compiler<'a> {
             ))
         } else {
             Ok(())
-        }
-    }
-}
-
-/// Post-compilation fixup: resolve any Call(usize::MAX, _) placeholders
-/// by looking up function names in the function table.
-pub fn fixup_calls(script: &mut CompiledScript) {
-    for inst in &mut script.instructions {
-        if let Instruction::Call(target, _) = inst {
-            if *target == usize::MAX {
-                // This shouldn't happen in well-formed code since we compile
-                // function bodies and then the only forward-reference is main()
-                // which is handled specially. But if it does, leave it as a
-                // runtime error (invalid PC).
-            }
         }
     }
 }

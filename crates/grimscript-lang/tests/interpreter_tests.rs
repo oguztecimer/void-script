@@ -271,3 +271,47 @@ fn available_game_builtin_works_when_in_set() {
     assert!(succeeded(&events));
     assert_eq!(outputs(&events), vec!["[wait] Waiting..."]);
 }
+
+// ── Bug fix tests ─────────────────────────────────────────────────────
+
+#[test]
+fn dict_iteration() {
+    let events = run("d = {\"a\": 1, \"b\": 2}\nresult = []\nfor k in d:\n    result.append(k)\nprint(len(result))");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["2"]);
+}
+
+#[test]
+fn min_max_type_error() {
+    let events = run("print(min(5, \"hello\"))");
+    assert!(failed(&events));
+}
+
+#[test]
+fn floor_div_negative() {
+    // Python: -7 // 2 = -4
+    let events = run("print(-7 // 2)");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["-4"]);
+}
+
+#[test]
+fn floor_mod_negative() {
+    // Python: -7 % 2 = 1
+    let events = run("print(-7 % 2)");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["1"]);
+}
+
+#[test]
+fn integer_overflow_lexer_error() {
+    let events = run("x = 99999999999999999999");
+    assert!(failed(&events));
+}
+
+#[test]
+fn percent_overflow_error() {
+    // i64::MAX * 2 would overflow
+    let events = run("print(percent(9223372036854775807, 2))");
+    assert!(failed(&events));
+}

@@ -93,7 +93,7 @@ pub fn execute_unit(
                 if b == 0 {
                     return Err(SimError::division_by_zero());
                 }
-                state.stack.push(SimValue::Int(a.wrapping_div(b)));
+                state.stack.push(SimValue::Int(floor_div(a, b)));
             }
             Instruction::Mod => {
                 let b = pop_int(&mut state.stack)?;
@@ -101,7 +101,7 @@ pub fn execute_unit(
                 if b == 0 {
                     return Err(SimError::division_by_zero());
                 }
-                state.stack.push(SimValue::Int(a.wrapping_rem(b)));
+                state.stack.push(SimValue::Int(floor_mod(a, b)));
             }
             Instruction::Negate => {
                 let val = pop_int(&mut state.stack)?;
@@ -755,6 +755,19 @@ fn binary_int_op(
     }
 }
 
+/// Python-style floor division: rounds toward negative infinity.
+fn floor_div(a: i64, b: i64) -> i64 {
+    let q = a / b;
+    let r = a % b;
+    if (r != 0) && ((r ^ b) < 0) { q - 1 } else { q }
+}
+
+/// Python-style floor modulo: result has same sign as divisor.
+fn floor_mod(a: i64, b: i64) -> i64 {
+    let r = a % b;
+    if (r != 0) && ((r ^ b) < 0) { r + b } else { r }
+}
+
 /// Integer division with banker's rounding (round half to even).
 fn bankers_div(numerator: i64, denominator: i64) -> i64 {
     let quotient = numerator / denominator;
@@ -977,5 +990,111 @@ mod tests {
         assert!(matches!(action, Some(UnitAction::Move { target_pos: 100 })));
         // PC should be at 4 (the instruction after ActionMove)
         assert_eq!(state.pc, 4);
+    }
+
+    // --- Floor division/modulo tests ---
+
+    #[test]
+    fn floor_div_positive() {
+        let (state, _) = run_script(
+            vec![
+                Instruction::LoadConst(SimValue::Int(7)),
+                Instruction::LoadConst(SimValue::Int(2)),
+                Instruction::Div,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        assert_eq!(state.stack.last(), Some(&SimValue::Int(3)));
+    }
+
+    #[test]
+    fn floor_div_negative_dividend() {
+        // Python: -7 // 2 = -4
+        let (state, _) = run_script(
+            vec![
+                Instruction::LoadConst(SimValue::Int(-7)),
+                Instruction::LoadConst(SimValue::Int(2)),
+                Instruction::Div,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        assert_eq!(state.stack.last(), Some(&SimValue::Int(-4)));
+    }
+
+    #[test]
+    fn floor_div_negative_divisor() {
+        // Python: 7 // -2 = -4
+        let (state, _) = run_script(
+            vec![
+                Instruction::LoadConst(SimValue::Int(7)),
+                Instruction::LoadConst(SimValue::Int(-2)),
+                Instruction::Div,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        assert_eq!(state.stack.last(), Some(&SimValue::Int(-4)));
+    }
+
+    #[test]
+    fn floor_div_both_negative() {
+        // Python: -7 // -2 = 3
+        let (state, _) = run_script(
+            vec![
+                Instruction::LoadConst(SimValue::Int(-7)),
+                Instruction::LoadConst(SimValue::Int(-2)),
+                Instruction::Div,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        assert_eq!(state.stack.last(), Some(&SimValue::Int(3)));
+    }
+
+    #[test]
+    fn floor_mod_positive() {
+        // Python: 7 % 2 = 1
+        let (state, _) = run_script(
+            vec![
+                Instruction::LoadConst(SimValue::Int(7)),
+                Instruction::LoadConst(SimValue::Int(2)),
+                Instruction::Mod,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        assert_eq!(state.stack.last(), Some(&SimValue::Int(1)));
+    }
+
+    #[test]
+    fn floor_mod_negative_dividend() {
+        // Python: -7 % 2 = 1
+        let (state, _) = run_script(
+            vec![
+                Instruction::LoadConst(SimValue::Int(-7)),
+                Instruction::LoadConst(SimValue::Int(2)),
+                Instruction::Mod,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        assert_eq!(state.stack.last(), Some(&SimValue::Int(1)));
+    }
+
+    #[test]
+    fn floor_mod_negative_divisor() {
+        // Python: 7 % -2 = -1
+        let (state, _) = run_script(
+            vec![
+                Instruction::LoadConst(SimValue::Int(7)),
+                Instruction::LoadConst(SimValue::Int(-2)),
+                Instruction::Mod,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        assert_eq!(state.stack.last(), Some(&SimValue::Int(-1)));
     }
 }

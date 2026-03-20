@@ -1,3 +1,4 @@
+use crate::error::GrimScriptError;
 use crate::token::{SpannedToken, Token};
 
 pub struct Lexer {
@@ -11,7 +12,7 @@ impl Lexer {
         }
     }
 
-    pub fn tokenize(&self) -> Vec<SpannedToken> {
+    pub fn tokenize(&self) -> Result<Vec<SpannedToken>, GrimScriptError> {
         let mut tokens: Vec<SpannedToken> = Vec::new();
         let mut indent_stack: Vec<usize> = vec![0];
 
@@ -55,7 +56,7 @@ impl Lexer {
             }
 
             // Tokenize the line content
-            let line_tokens = self.tokenize_line(trimmed, line_num, (indent + 1) as u32);
+            let line_tokens = self.tokenize_line(trimmed, line_num, (indent + 1) as u32)?;
             tokens.extend(line_tokens);
 
             // Emit newline
@@ -83,10 +84,10 @@ impl Lexer {
             col: 1,
         });
 
-        tokens
+        Ok(tokens)
     }
 
-    fn tokenize_line(&self, line: &str, line_num: u32, col_offset: u32) -> Vec<SpannedToken> {
+    fn tokenize_line(&self, line: &str, line_num: u32, col_offset: u32) -> Result<Vec<SpannedToken>, GrimScriptError> {
         let mut tokens = Vec::new();
         let chars: Vec<char> = line.chars().collect();
         let mut i = 0;
@@ -153,7 +154,9 @@ impl Lexer {
                         i += 1;
                     }
                     let num_str: String = chars[start..i].iter().collect();
-                    let f: f64 = num_str.parse().unwrap_or(0.0);
+                    let f: f64 = num_str.parse().map_err(|_| {
+                        GrimScriptError::syntax(line_num, format!("invalid float literal: '{num_str}'"))
+                    })?;
                     tokens.push(SpannedToken {
                         token: Token::Float(f),
                         line: line_num,
@@ -161,7 +164,9 @@ impl Lexer {
                     });
                 } else {
                     let num_str: String = chars[start..i].iter().collect();
-                    let n: i64 = num_str.parse().unwrap_or(0);
+                    let n: i64 = num_str.parse().map_err(|_| {
+                        GrimScriptError::syntax(line_num, format!("invalid integer literal: '{num_str}'"))
+                    })?;
                     tokens.push(SpannedToken {
                         token: Token::Integer(n),
                         line: line_num,
@@ -297,6 +302,6 @@ impl Lexer {
             i += 1;
         }
 
-        tokens
+        Ok(tokens)
     }
 }

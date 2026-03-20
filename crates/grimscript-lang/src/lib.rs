@@ -22,7 +22,20 @@ pub fn run_script(
     available_commands: Option<std::collections::HashSet<String>>,
     custom_commands: Option<std::collections::HashSet<String>>,
 ) {
-    let tokens = lexer::Lexer::new(source).tokenize();
+    let tokens = match lexer::Lexer::new(source).tokenize() {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = output_tx.send(ScriptEvent::Output {
+                line: format!("Syntax error (line {}): {}", e.line, e.message),
+                level: OutputLevel::Error,
+            });
+            let _ = output_tx.send(ScriptEvent::Finished {
+                success: false,
+                error: Some(e.message),
+            });
+            return;
+        }
+    };
     match parser::Parser::new(tokens).parse() {
         Ok(program) => {
             let mut interp = Interpreter::new(output_tx.clone(), command_rx, false);
@@ -70,7 +83,20 @@ pub fn debug_script(
     available_commands: Option<std::collections::HashSet<String>>,
     custom_commands: Option<std::collections::HashSet<String>>,
 ) {
-    let tokens = lexer::Lexer::new(source).tokenize();
+    let tokens = match lexer::Lexer::new(source).tokenize() {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = output_tx.send(ScriptEvent::Output {
+                line: format!("Syntax error (line {}): {}", e.line, e.message),
+                level: OutputLevel::Error,
+            });
+            let _ = output_tx.send(ScriptEvent::Finished {
+                success: false,
+                error: Some(e.message),
+            });
+            return;
+        }
+    };
     match parser::Parser::new(tokens).parse() {
         Ok(program) => {
             let mut interp = Interpreter::new(output_tx.clone(), command_rx, true);

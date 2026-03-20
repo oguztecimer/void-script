@@ -168,14 +168,21 @@ impl Renderer {
                 ..Default::default()
             };
             let mut bits_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-            let hbmp = CreateDIBSection(
+            let hbmp = match CreateDIBSection(
                 hdc_mem,
                 &bmi,
                 DIB_RGB_COLORS,
                 &mut bits_ptr,
                 None,
                 0,
-            ).unwrap();
+            ) {
+                Ok(bmp) => bmp,
+                Err(_) => {
+                    let _ = DeleteDC(hdc_mem);
+                    ReleaseDC(HWND::default(), hdc_screen);
+                    return;
+                }
+            };
             let old_bmp = SelectObject(hdc_mem, HGDIOBJ(hbmp.0));
 
             // Copy canvas pixels to the DIB as premultiplied BGRA.

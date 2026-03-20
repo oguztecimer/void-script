@@ -101,7 +101,6 @@ Entity definitions register types that can be spawned — either at startup via 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `health` | 100 | Max and current health |
-| `mana` | 100 | Max and current mana |
 | `speed` | 1 | Movement speed (tiles per tick) |
 | `attack_damage` | 10 | Damage dealt per attack |
 | `attack_range` | 5 | Range for attack actions |

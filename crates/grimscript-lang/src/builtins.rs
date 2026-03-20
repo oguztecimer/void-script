@@ -231,7 +231,7 @@ pub fn call_builtin(
                     }
                     let mut best = &list[0];
                     for item in list.iter().skip(1) {
-                        if compare_values(item, best) == std::cmp::Ordering::Less {
+                        if compare_values(item, best)? == std::cmp::Ordering::Less {
                             best = item;
                         }
                     }
@@ -240,7 +240,7 @@ pub fn call_builtin(
             }
             let mut best = &args[0];
             for item in args.iter().skip(1) {
-                if compare_values(item, best) == std::cmp::Ordering::Less {
+                if compare_values(item, best)? == std::cmp::Ordering::Less {
                     best = item;
                 }
             }
@@ -263,7 +263,7 @@ pub fn call_builtin(
                     }
                     let mut best = &list[0];
                     for item in list.iter().skip(1) {
-                        if compare_values(item, best) == std::cmp::Ordering::Greater {
+                        if compare_values(item, best)? == std::cmp::Ordering::Greater {
                             best = item;
                         }
                     }
@@ -272,7 +272,7 @@ pub fn call_builtin(
             }
             let mut best = &args[0];
             for item in args.iter().skip(1) {
-                if compare_values(item, best) == std::cmp::Ordering::Greater {
+                if compare_values(item, best)? == std::cmp::Ordering::Greater {
                     best = item;
                 }
             }
@@ -356,7 +356,8 @@ pub fn call_builtin(
                 Value::Int(n) => *n,
                 _ => return Err(GrimScriptError::type_error(0, "percent() arguments must be int")),
             };
-            let product = value.wrapping_mul(pct);
+            let product = value.checked_mul(pct)
+                .ok_or_else(|| GrimScriptError::runtime(0, "percent() integer overflow"))?;
             Ok(Value::Int(bankers_div(product, 100)))
         }
         "scale" => {
@@ -381,7 +382,8 @@ pub fn call_builtin(
             if den == 0 {
                 return Err(GrimScriptError::runtime(0, "scale() division by zero"));
             }
-            let product = value.wrapping_mul(num);
+            let product = value.checked_mul(num)
+                .ok_or_else(|| GrimScriptError::runtime(0, "scale() integer overflow"))?;
             Ok(Value::Int(bankers_div(product, den)))
         }
         "append" => {
@@ -471,16 +473,23 @@ fn bankers_div(numerator: i64, denominator: i64) -> i64 {
     }
 }
 
-fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
+fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering, GrimScriptError> {
     match (a, b) {
-        (Value::Int(x), Value::Int(y)) => x.cmp(y),
-        (Value::Float(x), Value::Float(y)) => x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal),
-        (Value::Int(x), Value::Float(y)) => (*x as f64)
+        (Value::Int(x), Value::Int(y)) => Ok(x.cmp(y)),
+        (Value::Float(x), Value::Float(y)) => Ok(x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)),
+        (Value::Int(x), Value::Float(y)) => Ok((*x as f64)
             .partial_cmp(y)
-            .unwrap_or(std::cmp::Ordering::Equal),
-        (Value::Float(x), Value::Int(y)) => x
+            .unwrap_or(std::cmp::Ordering::Equal)),
+        (Value::Float(x), Value::Int(y)) => Ok(x
             .partial_cmp(&(*y as f64))
-            .unwrap_or(std::cmp::Ordering::Equal),
-        _ => std::cmp::Ordering::Equal,
+            .unwrap_or(std::cmp::Ordering::Equal)),
+        _ => Err(GrimScriptError::type_error(
+            0,
+            format!(
+                "'<' not supported between instances of '{}' and '{}'",
+                a.type_name(),
+                b.type_name()
+            ),
+        )),
     }
 }

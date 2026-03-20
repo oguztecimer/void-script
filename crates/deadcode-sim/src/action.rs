@@ -245,6 +245,34 @@ pub enum Condition {
     Or {
         conditions: Vec<Condition>,
     },
+    /// Check if a target entity is alive.
+    #[serde(rename = "is_alive")]
+    IsAlive {
+        target: String,
+    },
+    /// Compare distance between caster and target against a threshold.
+    #[serde(rename = "distance")]
+    Distance {
+        target: String,
+        compare: CompareOp,
+        amount: DynInt,
+    },
+}
+
+/// Context for scoped target resolution in trigger effects.
+///
+/// Provides references to event participants (who died, who attacked, who spawned, etc.)
+/// so that trigger effects can target them using `"source"`, `"owner"`, `"attacker"`, `"killer"`.
+#[derive(Debug, Clone, Default)]
+pub struct EffectContext {
+    /// The entity that is the subject of the event (e.g., the entity that died, was damaged, or spawned).
+    pub source: Option<EntityId>,
+    /// The owner of the source entity (captured at event time for dead entities).
+    pub owner: Option<EntityId>,
+    /// The entity that dealt damage (for entity_damaged events).
+    pub attacker: Option<EntityId>,
+    /// The entity that dealt the killing blow (for entity_died events).
+    pub killer: Option<EntityId>,
 }
 
 /// Outcome of resolving a list of effects.
@@ -510,13 +538,17 @@ pub fn resolve_action(
                     entity_id: target,
                     damage,
                     new_health,
+                    attacker_id: Some(entity_id),
                 });
 
                 if new_health <= 0 {
                     target_entity.alive = false;
+                    let owner_id = target_entity.owner;
                     events.push(SimEvent::EntityDied {
                         entity_id: target,
                         name: target_entity.name.clone(),
+                        killer_id: Some(entity_id),
+                        owner_id,
                     });
                 }
             }
@@ -606,11 +638,26 @@ pub fn resolve_action(
 }
 
 /// Evaluate a condition against the current world state.
+///
+/// `args` and `ctx` are used for target-bearing conditions (`is_alive`, `distance`).
+/// Callers without args/ctx (e.g., trigger condition checks) pass `&[]` and `&EffectContext::default()`.
 pub fn evaluate_condition(
     condition: &Condition,
     world: &SimWorld,
     entity_id: EntityId,
     rng: &mut SimRng,
+) -> bool {
+    evaluate_condition_with_ctx(condition, world, entity_id, rng, &[], &EffectContext::default())
+}
+
+/// Evaluate a condition with full args and effect context for target resolution.
+pub fn evaluate_condition_with_ctx(
+    condition: &Condition,
+    world: &SimWorld,
+    entity_id: EntityId,
+    rng: &mut SimRng,
+    args: &[SimValue],
+    ctx: &EffectContext,
 ) -> bool {
     match condition {
         Condition::Resource { resource, compare, amount } => {
@@ -640,10 +687,30 @@ pub fn evaluate_condition(
             roll < *percent
         }
         Condition::And { conditions } => {
-            conditions.iter().all(|c| evaluate_condition(c, world, entity_id, rng))
+            conditions.iter().all(|c| evaluate_condition_with_ctx(c, world, entity_id, rng, args, ctx))
         }
         Condition::Or { conditions } => {
-            conditions.iter().any(|c| evaluate_condition(c, world, entity_id, rng))
+            conditions.iter().any(|c| evaluate_condition_with_ctx(c, world, entity_id, rng, args, ctx))
+        }
+        Condition::IsAlive { target } => {
+            let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
+            match target_id {
+                Some(tid) => world.get_entity(tid).map_or(false, |e| e.alive),
+                None => false,
+            }
+        }
+        Condition::Distance { target, compare, amount } => {
+            let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
+            match target_id {
+                Some(tid) => {
+                    let self_pos = world.get_entity(entity_id).map_or(0, |e| e.position);
+                    let target_pos = world.get_entity(tid).map_or(0, |e| e.position);
+                    let dist = (self_pos - target_pos).abs();
+                    let threshold = amount.resolve_with_world(rng, world, entity_id);
+                    compare.evaluate(dist, threshold)
+                }
+                None => false,
+            }
         }
     }
 }
@@ -660,9 +727,22 @@ pub fn resolve_custom_effects(
     args: &[SimValue],
     events: &mut Vec<SimEvent>,
 ) -> EffectOutcome {
+    resolve_custom_effects_with_ctx(world, entity_id, cmd_name, effects, args, events, &EffectContext::default())
+}
+
+/// Resolve custom command effects with an explicit effect context for scoped targets.
+pub fn resolve_custom_effects_with_ctx(
+    world: &mut SimWorld,
+    entity_id: EntityId,
+    cmd_name: &str,
+    effects: &[CommandEffect],
+    args: &[SimValue],
+    events: &mut Vec<SimEvent>,
+    ctx: &EffectContext,
+) -> EffectOutcome {
     // Derive an RNG from the world's current tick for deterministic randomness.
     let mut rng = SimRng::new(world.tick_seed() ^ entity_id.0 as u64);
-    resolve_effects_inner(world, entity_id, cmd_name, effects, args, events, &mut rng)
+    resolve_effects_inner(world, entity_id, cmd_name, effects, args, events, &mut rng, ctx)
 }
 
 /// Inner recursive effect resolver, sharing an RNG across nested calls.
@@ -674,6 +754,7 @@ fn resolve_effects_inner(
     args: &[SimValue],
     events: &mut Vec<SimEvent>,
     rng: &mut SimRng,
+    ctx: &EffectContext,
 ) -> EffectOutcome {
     for effect in effects {
         match effect {
@@ -685,7 +766,7 @@ fn resolve_effects_inner(
             }
             CommandEffect::Damage { target, amount } => {
                 let amount = amount.resolve_with_world(rng, world, entity_id);
-                let target_id = resolve_target_from_args(entity_id, target, args);
+                let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
                         let mut remaining = amount;
@@ -701,12 +782,16 @@ fn resolve_effects_inner(
                             entity_id: tid,
                             damage: amount,
                             new_health,
+                            attacker_id: Some(entity_id),
                         });
                         if new_health <= 0 {
                             target_entity.alive = false;
+                            let owner_id = target_entity.owner;
                             events.push(SimEvent::EntityDied {
                                 entity_id: tid,
                                 name: target_entity.name.clone(),
+                                killer_id: Some(entity_id),
+                                owner_id,
                             });
                         }
                     }
@@ -714,7 +799,7 @@ fn resolve_effects_inner(
             }
             CommandEffect::Heal { target, amount } => {
                 let amount = amount.resolve_with_world(rng, world, entity_id);
-                let target_id = resolve_target_from_args(entity_id, target, args);
+                let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
                         let new_health = target_entity.stat("health") + amount;
@@ -739,6 +824,8 @@ fn resolve_effects_inner(
                 if let Some(config) = world.entity_configs.get(entity_type) {
                     spawned.apply_config(config);
                 }
+                // Set owner to the entity that spawned this one.
+                spawned.owner = Some(entity_id);
                 // Set spawn duration so entity can't act until animation finishes.
                 spawned.spawn_ticks_remaining = world.spawn_durations
                     .get(entity_type)
@@ -750,7 +837,7 @@ fn resolve_effects_inner(
             }
             CommandEffect::ModifyStat { target, stat, amount } => {
                 let amount = amount.resolve_with_world(rng, world, entity_id);
-                let target_id = resolve_target_from_args(entity_id, target, args);
+                let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
                         let new_val = target_entity.stat(stat) + amount;
@@ -796,7 +883,7 @@ fn resolve_effects_inner(
                 }
             }
             CommandEffect::Animate { target, animation } => {
-                let target_id = resolve_target_from_args(entity_id, target, args);
+                let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
                 if let Some(tid) = target_id {
                     events.push(SimEvent::PlayAnimation {
                         entity_id: tid,
@@ -805,10 +892,10 @@ fn resolve_effects_inner(
                 }
             }
             CommandEffect::Sacrifice { entity_type, resource, per_kill } => {
-                // Collect IDs and names of all alive, non-spawning entities matching entity_type.
-                let victims: Vec<(EntityId, String)> = world.entities()
+                // Collect IDs, names, and owners of all alive, non-spawning entities matching entity_type.
+                let victims: Vec<(EntityId, String, Option<EntityId>)> = world.entities()
                     .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.entity_type == *entity_type)
-                    .map(|e| (e.id, e.name.clone()))
+                    .map(|e| (e.id, e.name.clone(), e.owner))
                     .collect();
 
                 if victims.is_empty() {
@@ -820,13 +907,15 @@ fn resolve_effects_inner(
                     let count = victims.len();
                     let mut total_gained: i64 = 0;
 
-                    for (vid, vname) in &victims {
+                    for (vid, vname, vowner) in &victims {
                         if let Some(victim) = world.get_entity_mut(*vid) {
                             victim.alive = false;
                         }
                         events.push(SimEvent::EntityDied {
                             entity_id: *vid,
                             name: vname.clone(),
+                            killer_id: Some(entity_id),
+                            owner_id: *vowner,
                         });
                         total_gained += per_kill.resolve_with_world(rng, world, entity_id);
                     }
@@ -857,13 +946,13 @@ fn resolve_effects_inner(
                 }
             }
             CommandEffect::If { condition, then_effects, otherwise } => {
-                let branch = if evaluate_condition(condition, world, entity_id, rng) {
+                let branch = if evaluate_condition_with_ctx(condition, world, entity_id, rng, args, ctx) {
                     then_effects
                 } else {
                     otherwise
                 };
                 if !branch.is_empty() {
-                    let outcome = resolve_effects_inner(world, entity_id, cmd_name, branch, args, events, rng);
+                    let outcome = resolve_effects_inner(world, entity_id, cmd_name, branch, args, events, rng, ctx);
                     if !matches!(outcome, EffectOutcome::Complete) {
                         return outcome;
                     }
@@ -873,7 +962,7 @@ fn resolve_effects_inner(
                 return EffectOutcome::StartChannel { phases: phases.clone() };
             }
             CommandEffect::ApplyBuff { target, buff, duration } => {
-                let target_id = resolve_target_from_args(entity_id, target, args);
+                let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
                 if let Some(tid) = target_id {
                     if let Some(buff_def) = world.buff_registry.get(buff).cloned() {
                         let dur = duration.unwrap_or(buff_def.duration);
@@ -913,7 +1002,7 @@ fn resolve_effects_inner(
                             // Run on_apply effects.
                             if !buff_def.on_apply.is_empty() {
                                 let outcome = resolve_effects_inner(
-                                    world, tid, cmd_name, &buff_def.on_apply, args, events, rng,
+                                    world, tid, cmd_name, &buff_def.on_apply, args, events, rng, ctx,
                                 );
                                 if !matches!(outcome, EffectOutcome::Complete) {
                                     return outcome;
@@ -924,7 +1013,7 @@ fn resolve_effects_inner(
                 }
             }
             CommandEffect::RemoveBuff { target, buff } => {
-                let target_id = resolve_target_from_args(entity_id, target, args);
+                let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
                 if let Some(tid) = target_id {
                     if let Some(buff_def) = world.buff_registry.get(buff).cloned() {
                         let removed = world.get_entity(tid)
@@ -944,7 +1033,7 @@ fn resolve_effects_inner(
                             // Run on_expire effects.
                             if !buff_def.on_expire.is_empty() {
                                 let outcome = resolve_effects_inner(
-                                    world, tid, cmd_name, &buff_def.on_expire, args, events, rng,
+                                    world, tid, cmd_name, &buff_def.on_expire, args, events, rng, ctx,
                                 );
                                 if !matches!(outcome, EffectOutcome::Complete) {
                                     return outcome;
@@ -1011,15 +1100,42 @@ pub(crate) fn reverse_buff_modifiers(world: &mut SimWorld, entity_id: EntityId, 
     }
 }
 
-/// Resolve target string to EntityId using positional args.
-/// "self" → executing entity, "arg:<name>" → matched by position (first arg = index 0).
+/// Resolve target string to EntityId using positional args and scoped effect context.
+///
+/// Supported targets:
+/// - `"self"` → executing entity
+/// - `"arg:<name>"` → matched by position (first arg = index 0)
+/// - `"source"` → the event subject (from `EffectContext`)
+/// - `"owner"` → owner from context, or fallback to entity's stored owner field
+/// - `"attacker"` → the entity that dealt damage (from `EffectContext`)
+/// - `"killer"` → the entity that dealt the killing blow (from `EffectContext`)
 fn resolve_target_from_args(
     entity_id: EntityId,
     target_str: &str,
     args: &[SimValue],
+    ctx: &EffectContext,
+    world: Option<&SimWorld>,
 ) -> Option<EntityId> {
     if target_str == "self" {
         return Some(entity_id);
+    }
+    // Scoped targets from EffectContext.
+    match target_str {
+        "source" => return ctx.source,
+        "attacker" => return ctx.attacker,
+        "killer" => return ctx.killer,
+        "owner" => {
+            // Try context first (for dead entities whose owner was captured at death time).
+            if ctx.owner.is_some() {
+                return ctx.owner;
+            }
+            // Fallback: look up the executing entity's stored owner field.
+            if let Some(w) = world {
+                return w.get_entity(entity_id).and_then(|e| e.owner);
+            }
+            return None;
+        }
+        _ => {}
     }
     if let Some(arg_ref) = target_str.strip_prefix("arg:") {
         // Try as numeric index first.

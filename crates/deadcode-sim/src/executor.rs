@@ -598,7 +598,7 @@ pub fn execute_unit(
             Instruction::QueryGetOwner => {
                 let eid = pop_entity_ref(&mut state.stack)?;
                 let val = query::get_owner(world, eid)?;
-                state.stack.push(SimValue::Int(val as i64));
+                state.stack.push(val);
             }
             Instruction::QueryGetResource => {
                 let name = pop_str(&mut state.stack)?;

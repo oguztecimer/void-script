@@ -110,12 +110,15 @@ pub fn get_name(world: &SimWorld, id: EntityId) -> Result<String, SimError> {
         .ok_or_else(|| SimError::entity_not_found(id.0))
 }
 
-/// Get entity owner.
-pub fn get_owner(world: &SimWorld, id: EntityId) -> Result<u64, SimError> {
-    world
+/// Get entity owner. Returns EntityRef if owner is set, None otherwise.
+pub fn get_owner(world: &SimWorld, id: EntityId) -> Result<SimValue, SimError> {
+    let e = world
         .get_entity(id)
-        .map(|e| e.owner)
-        .ok_or_else(|| SimError::entity_not_found(id.0))
+        .ok_or_else(|| SimError::entity_not_found(id.0))?;
+    Ok(match e.owner {
+        Some(owner_id) => SimValue::EntityRef(owner_id),
+        None => SimValue::None,
+    })
 }
 
 /// Get an entity attribute by name (used by GetAttr instruction on EntityRef).
@@ -131,7 +134,10 @@ pub fn get_entity_attr(
         "position" | "pos" | "x" => Ok(SimValue::Int(e.position)),
         "name" => Ok(SimValue::Str(e.name.clone())),
         "type" => Ok(SimValue::Str(e.entity_type.clone())),
-        "owner" => Ok(SimValue::Int(e.owner as i64)),
+        "owner" => Ok(match e.owner {
+            Some(owner_id) => SimValue::EntityRef(owner_id),
+            None => SimValue::None,
+        }),
         "alive" => Ok(SimValue::Bool(e.alive)),
         "target" => Ok(match e.target {
             Some(tid) => SimValue::EntityRef(tid),

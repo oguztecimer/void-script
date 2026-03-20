@@ -361,6 +361,41 @@ The `target` field in effects uses these formats:
 - `"self"` — the entity executing the command
 - `"arg:<name>"` — an entity reference passed as a command argument (matched by position: first arg = index 0)
 
+**Scoped targets** are additional target strings available in **trigger effects** only. They resolve to event participants carried through the trigger's `EffectContext`:
+
+| Target string | Resolves to |
+|---|---|
+| `"source"` | The entity that was the subject of the event (e.g., the entity that died or was spawned) |
+| `"owner"` | The owner of the source entity (`SimEntity.owner`), with fallback to the entity's `owner` field |
+| `"attacker"` | The entity that dealt the damage (available in `entity_damaged` triggers) |
+| `"killer"` | The entity that dealt the killing blow (available in `entity_died` triggers) |
+
+Scoped targets that are not applicable to the current event (e.g., using `"attacker"` in a `tick_interval` trigger) silently no-op — the effect is skipped.
+
+**Example — reward the killer and heal the owner when a skeleton dies:**
+
+```toml
+[[triggers]]
+event = "entity_died"
+filter = { entity_type = "skeleton" }
+effects = [
+  { type = "heal", target = "owner", amount = 10 },
+  { type = "modify_stat", target = "killer", stat = "xp", amount = 5 },
+]
+```
+
+**Example — punish the attacker when any entity takes damage:**
+
+```toml
+[[triggers]]
+event = "entity_damaged"
+effects = [
+  { type = "modify_stat", target = "attacker", stat = "rage", amount = 1 },
+]
+```
+
+Scoped targets are validated at load time — they are accepted anywhere a `target` field appears in trigger effects. They are not valid in regular command effects (where only `"self"` and `"arg:<ref>"` are accepted).
+
 ### Stat Names
 
 Any stat name can be used in `modify_stat` and `use_resource` effects — stats are arbitrary strings defined by entity types in `[[entities]]`. Common stats include `health`, `shield`, `speed`, `attack_damage`, `attack_range`, `attack_cooldown`, but mods can define any stat name they want.
@@ -509,6 +544,19 @@ The `else` branch is optional (defaults to empty — nothing happens if the cond
 | `resource` | `resource`, `compare`, `amount` | Global resource value vs threshold |
 | `entity_count` | `entity_type`, `compare`, `amount` | Count of alive, ready entities of type vs threshold |
 | `stat` | `stat`, `compare`, `amount` | Caster's stat value vs threshold |
+| `is_alive` | `target` | Whether the resolved target entity exists and is alive. Returns false if target can't be resolved. |
+| `distance` | `target`, `compare`, `amount` | Absolute distance from caster to target vs threshold (DynInt). Returns false if target can't be resolved. |
+
+`target` accepts the same values as effect target fields: `"self"`, `"arg:name"`, `"source"`, `"owner"`, `"attacker"`, `"killer"`.
+
+```toml
+# is_alive: check if a target entity is alive
+{ type = "is_alive", target = "arg:target" }
+{ type = "is_alive", target = "source" }
+
+# distance: compare distance from caster to target
+{ type = "distance", target = "arg:target", compare = "lte", amount = 5 }
+```
 
 ### Compare Operators
 
@@ -650,6 +698,8 @@ See [Condition Types](#condition-types) for the full list.
 
 Trigger effects use the same effect types as custom commands (`output`, `damage`, `heal`, `spawn`, `modify_stat`, `modify_resource`, etc.). Effects resolve against the first alive entity in the world (typically the summoner) as the "caster" — `self` in effect targets refers to this entity.
 
+In addition to `"self"`, trigger effects support **scoped target strings** (`"source"`, `"owner"`, `"attacker"`, `"killer"`) that resolve to event participants. See [Target Resolution](#target-resolution) for details.
+
 ### Execution Model
 
 1. Triggers are processed once at the end of each tick, after all actions are resolved and pending spawns/despawns are flushed.
@@ -714,7 +764,7 @@ At mod load time, the engine validates:
 - **Event names**: must be one of the 8 supported event types
 - **tick_interval interval**: must be present and > 0
 - **Conditions**: same validation as `if` effect conditions
-- **Effects**: same recursive validation as command effects (stat names, target references, etc.)
+- **Effects**: same recursive validation as command effects (stat names, target references, etc.). Scoped target strings (`"source"`, `"owner"`, `"attacker"`, `"killer"`) are accepted in trigger effect `target` fields.
 
 ## Buffs/Modifiers
 
@@ -808,6 +858,8 @@ In addition to the base conditions (`resource`, `entity_count`, `stat`), the fol
 | `random_chance` | `percent` | Random check: fires if deterministic roll < percent (1-100) |
 | `and` | `conditions` | All sub-conditions must be true |
 | `or` | `conditions` | At least one sub-condition must be true |
+| `is_alive` | `target` | Whether the resolved target entity exists and is alive. Returns false if target can't be resolved. |
+| `distance` | `target`, `compare`, `amount` | Absolute distance from caster to target vs threshold (DynInt). Returns false if target can't be resolved. |
 
 ### Compound Conditions
 

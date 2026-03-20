@@ -776,6 +776,20 @@ fn validate_condition(
                 validate_condition(sub, cmd_name, mod_id);
             }
         }
+        deadcode_sim::action::Condition::IsAlive { target } => {
+            if target.is_empty() {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{cmd_name}' has is_alive condition with empty target",
+                );
+            }
+        }
+        deadcode_sim::action::Condition::Distance { target, .. } => {
+            if target.is_empty() {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{cmd_name}' has distance condition with empty target",
+                );
+            }
+        }
     }
 }
 
@@ -826,6 +840,10 @@ fn validate_target(target: &str, args: &[String], cmd_name: &str, mod_id: &str) 
     if target == "self" {
         return;
     }
+    // Scoped targets (valid in trigger contexts).
+    if matches!(target, "source" | "owner" | "attacker" | "killer") {
+        return;
+    }
     if let Some(arg_ref) = target.strip_prefix("arg:") {
         // Numeric index.
         if let Ok(idx) = arg_ref.parse::<usize>() {
@@ -847,7 +865,7 @@ fn validate_target(target: &str, args: &[String], cmd_name: &str, mod_id: &str) 
         return;
     }
     eprintln!(
-        "[mod:{}] warning: command '{}' effect has invalid target '{}' (expected 'self' or 'arg:<name>')",
+        "[mod:{}] warning: command '{}' effect has invalid target '{}' (expected 'self', 'arg:<name>', 'source', 'owner', 'attacker', or 'killer')",
         mod_id, cmd_name, target
     );
 }

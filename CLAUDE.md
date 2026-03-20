@@ -72,11 +72,11 @@ src/
   rng.rs          — SplitMix64 PRNG + Fisher-Yates shuffle (deterministic)
   value.rs        — SimValue: Int, Bool, Str, None, List, Dict(IndexMap), EntityRef (no floats)
   error.rs        — SimError types
-  entity.rs       — SimEntity (unified stats HashMap), EntityId, EntityConfig, ScriptState (incl. step_limit_hit), CallFrame, spawn_ticks_remaining
+  entity.rs       — SimEntity (unified stats HashMap, owner: Option<EntityId>), EntityId, EntityConfig, ScriptState (incl. step_limit_hit), CallFrame, spawn_ticks_remaining
   ir.rs           — 60+ stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
   world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots, global resources, trigger processing
-  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/DynInt/CompareOp/Condition/EffectOutcome/TriggerDef/TriggerFilter types for mod-defined commands and triggers
+  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/DynInt/CompareOp/Condition/EffectOutcome/TriggerDef/TriggerFilter/EffectContext types for mod-defined commands and triggers
   query.rs        — scan(), nearest(), distance() — linear scan over entities
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
     mod.rs        — compile(), compile_source(), compile_source_with(), compile_source_full(), initial_variables()
@@ -114,15 +114,17 @@ src/
 
 **Computed values (DynInt):** `DynInt` extended with three game-state variants: `EntityCount { entity_type, multiplier }` resolves to the count of alive entities of a type, `ResourceValue { resource, multiplier }` resolves to a global resource's current value, `CasterStat { stat, multiplier }` resolves to the caster's stat value. TOML format: `"entity_count(skeleton)"`, `"resource(mana)"`, `"stat(health)"`, with optional multiplier `"entity_count(skeleton)*2"`. All effect `amount`/`offset` fields use `resolve_with_world()` for game-state access. Backward compatible — plain integers and `"rand(min,max)"` continue to work.
 
-**Extended conditions:** `Condition::Stat` handles all stats generically. Plus: `has_buff { buff }` checks if the caster has an active buff, `random_chance { percent }` uses deterministic RNG (roll < percent), `and { conditions }` requires all sub-conditions true, `or { conditions }` requires at least one true. Compound conditions support nesting. Serde alias `custom_stat` → `stat` for backward compat.
+**Extended conditions:** `Condition::Stat` handles all stats generically. Plus: `has_buff { buff }` checks if the caster has an active buff, `random_chance { percent }` uses deterministic RNG (roll < percent), `and { conditions }` requires all sub-conditions true, `or { conditions }` requires at least one true. `is_alive { target }` resolves a target entity via `resolve_target_from_args()` and returns true if it exists and is alive (false if unresolvable). `distance { target, compare, amount }` computes absolute integer distance between caster and target positions and compares via `CompareOp` + `DynInt` amount (false if unresolvable). Both new conditions accept all scoped target strings (`"self"`, `"arg:name"`, `"source"`, `"owner"`, `"attacker"`, `"killer"`). Compound conditions support nesting. `evaluate_condition_with_ctx(caster, world, args, ctx)` is the canonical evaluator; `evaluate_condition(caster, world)` is a backward-compatible wrapper passing empty args and default context. `resolve_effects_inner()` calls `evaluate_condition_with_ctx()` so scoped targets work inside `if` condition fields. Serde alias `custom_stat` → `stat` for backward compat.
 
 **Event triggers:** Mods define reactive rules via `[[triggers]]` in `mod.toml`. Each `TriggerDef` has an `event` (entity_died, entity_spawned, entity_damaged, resource_changed, command_used, tick_interval, channel_completed, channel_interrupted), a `TriggerFilter` (entity_type, resource, command, interval), optional `conditions` (reuse `Condition` enum), and `effects` (reuse `CommandEffect`). Triggers are registered on `SimWorld` at load time. Processing occurs at the end of each tick (step 8): events from the tick are matched against triggers, filters narrow matches, conditions gate firing, effects resolve against the first alive entity (summoner). Trigger effects do not re-trigger within the same tick. `resource_changed` uses snapshot comparison (resources at tick start vs current). `tick_interval` fires when `tick % interval == 0`. Validated at load time by `validate_triggers()`.
+
+**Scoped targets (trigger effects):** Trigger effect resolution passes an `EffectContext` struct through `resolve_effects_inner()` that carries event-participant IDs. Four scoped target strings are available in trigger effect `target` fields: `"source"` (event subject), `"owner"` (source entity's owner, resolved via `SimEntity.owner: Option<EntityId>` with fallback to entity field), `"attacker"` (damage dealer, available in `entity_damaged` triggers), `"killer"` (killing-blow dealer, available in `entity_died` triggers). `resolve_target_from_args()` checks context first; unresolvable scoped targets silently no-op the effect. `SimEvent` variants enriched: `EntityDamaged` carries `attacker_id`, `EntityDied` carries `killer_id`/`owner_id`, `EntitySpawned` carries `spawner_id`. `get_owner()` returns `EntityRef` or `None` (previously `Int(0)`). Scoped targets are accepted by `validate_target()` in trigger contexts.
 
 **Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
 
 **Spawn state:** Dynamically spawned entities (from effects) have `spawn_ticks_remaining > 0` — they play their spawn animation and can't act or be targeted by queries until the timer reaches 0. Duration is computed from the entity type's atlas JSON spawn animation. Initial mod spawns start ready (`spawn_ticks_remaining = 0`).
 
-**Death lifecycle:** When an entity dies (`alive = false`), a `SimEvent::EntityDied { entity_id, name }` is emitted. The sim removes the entity at end-of-tick via `flush_pending()`. The game loop handles the event by calling `UnitManager::kill(uid)`, which plays the "death" animation (if the atlas has one) and marks the unit `pending_destroy`. Units with `pending_destroy` are reaped by `reap_dead()` after their death animation finishes. If no death animation exists, the unit is destroyed immediately.
+**Death lifecycle:** When an entity dies (`alive = false`), a `SimEvent::EntityDied { entity_id, name, killer_id, owner_id }` is emitted. The sim removes the entity at end-of-tick via `flush_pending()`. The game loop handles the event by calling `UnitManager::kill(uid)`, which plays the "death" animation (if the atlas has one) and marks the unit `pending_destroy`. Units with `pending_destroy` are reaped by `reap_dead()` after their death animation finishes. If no death animation exists, the unit is destroyed immediately.
 
 **Fixed timestep:** The sim runs at exactly 30 TPS via an accumulator in `do_tick()`. Wall-clock delta is accumulated; `sim.tick()` fires once per 33ms. Capped at 4 sim ticks per frame to prevent spiral of death. Animations are sim-driven (advanced once per sim tick via `UnitManager::tick_animations()`), movement interpolation remains render-driven.
 
@@ -198,12 +200,13 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 | Add custom mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, effects or phases |
 | Add phased mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, phases (see `docs/modding.md`) |
 | Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + handler in `resolve_effects_inner()` |
-| Add conditional effect logic | `crates/deadcode-sim/src/action.rs` → `Condition` enum + `evaluate_condition()` |
+| Add conditional effect logic | `crates/deadcode-sim/src/action.rs` → `Condition` enum + `evaluate_condition_with_ctx()` (target-bearing conditions need args/ctx); update `evaluate_condition()` wrapper if needed |
 | Add instant effect builtin | `ir.rs` (InstantXxx) + `executor.rs` + `action.rs` (UnitAction) + `builtins.rs` (InstantEffectBuiltin) + `world.rs` (try_handle_instant) |
 | Define mod resources | `mods/<mod>/mod.toml` → `[resources]` table (name = initial_value), `[initial] resources` list for availability |
 | Define buff | `mods/<mod>/mod.toml` → `[[buffs]]` with name, duration, modifiers, per_tick/on_apply/on_expire effects |
 | Add event trigger | `mods/<mod>/mod.toml` → `[[triggers]]` with event, filter, conditions, effects |
 | Add trigger event type | `crates/deadcode-sim/src/world.rs` → `SimEvent` enum + emit in tick loop + match in `process_triggers()` |
+| Add scoped target to new trigger event | Add participant IDs to `SimEvent` variant + populate `EffectContext` fields in `process_triggers()` match arm in `world.rs` |
 
 ## Documentation Maintenance
 

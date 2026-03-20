@@ -23,14 +23,14 @@ Makes spawned entities feel alive instead of being inert targets.
 [ ] Update docs/modding.md with behavior reference
 
 
-=== PHASE 2: Extended Conditions (LOW-MEDIUM PRIORITY) ===
+=== PHASE 2: Extended Conditions (LOW-MEDIUM PRIORITY) === COMPLETE
 More expressive branching in effects.
 
 [x] random_chance condition — { type = "random_chance", percent = 25 } (deterministic RNG)
 [x] has_buff condition — { type = "has_buff", buff = "rage" }
-[ ] is_alive condition — { type = "is_alive", target = "arg:target" }
-[ ] distance condition — { type = "distance", target = "arg:target", compare, amount }
-[ ] custom_stat condition — for Phase 5 custom stats
+[x] is_alive condition — { type = "is_alive", target = "arg:target" }
+[x] distance condition — { type = "distance", target = "arg:target", compare, amount }
+[x] custom_stat condition — Condition::Stat with alias "custom_stat" (unified stat system)
 [x] Compound conditions — { type = "and", conditions = [...] }, { type = "or", ... }
 [x] Update docs/modding.md with condition reference
 
@@ -70,6 +70,6 @@ Config panels and HUD elements for mods.
 === BACKLOG: Other Ideas ===
 
 [ ] Prototype inheritance — entity types extending base types
-[ ] Scoped targets — "owner", "attacker", "killer" in addition to self/arg
+[x] Scoped targets — "owner", "attacker", "killer", "source" in addition to self/arg
 [ ] Mod browser/manager UI — list installed mods, enable/disable, load order
 [ ] Hot-reload for mod.toml — detect file changes, reload without restart

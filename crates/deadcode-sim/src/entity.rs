@@ -86,7 +86,7 @@ pub struct SimEntity {
     /// Free-form type string (e.g., "skeleton", "summoner", "grave").
     pub entity_type: String,
     pub name: String,
-    pub owner: u64,
+    pub owner: Option<EntityId>,
 
     // Position (1D)
     pub position: i64,
@@ -117,7 +117,7 @@ impl SimEntity {
             id,
             entity_type,
             name,
-            owner: 0,
+            owner: None,
             position,
             stats,
             target: None,

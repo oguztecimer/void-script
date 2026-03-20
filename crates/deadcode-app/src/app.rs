@@ -1030,7 +1030,7 @@ impl App {
     /// Apply a sim event to the render units (spawn, death, animations).
     fn apply_sim_event_to_units(&mut self, event: &deadcode_sim::SimEvent) {
         match event {
-            deadcode_sim::SimEvent::EntitySpawned { entity_id, entity_type, name, position } => {
+            deadcode_sim::SimEvent::EntitySpawned { entity_id, entity_type, name, position, .. } => {
                 if let Some(sprite) = self.sprite_registry.get(entity_type) {
                     if let Some(um) = &mut self.unit_manager {
                         let [px, py] = self.pivot_registry

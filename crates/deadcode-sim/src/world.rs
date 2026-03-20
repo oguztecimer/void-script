@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::action::{BuffDef, CommandDef, CommandEffect, EffectOutcome, PhaseDef, TriggerDef, UnitAction, evaluate_condition, resolve_action, resolve_custom_effects, reverse_buff_modifiers};
+use crate::action::{BuffDef, CommandDef, CommandEffect, EffectContext, EffectOutcome, PhaseDef, TriggerDef, UnitAction, evaluate_condition, resolve_action, resolve_custom_effects, resolve_custom_effects_with_ctx, reverse_buff_modifiers};
 use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
@@ -19,16 +19,24 @@ pub enum SimEvent {
         entity_id: EntityId,
         damage: i64,
         new_health: i64,
+        /// The entity that dealt the damage (if known).
+        attacker_id: Option<EntityId>,
     },
     EntityDied {
         entity_id: EntityId,
         name: String,
+        /// The entity that dealt the killing blow (if known).
+        killer_id: Option<EntityId>,
+        /// The owner of the dead entity (captured at death time since entity is removed before triggers fire).
+        owner_id: Option<EntityId>,
     },
     EntitySpawned {
         entity_id: EntityId,
         entity_type: String,
         name: String,
         position: i64,
+        /// The entity that spawned this one (if known).
+        spawner_id: Option<EntityId>,
     },
     ScriptOutput {
         entity_id: EntityId,
@@ -656,6 +664,7 @@ impl SimWorld {
             let etype = entity.entity_type.clone();
             let ename = entity.name.clone();
             let pos = entity.position;
+            let spawner = entity.owner;
             let index = self.entities.len();
             self.entities.push(entity);
             self.entity_index.insert(id, index);
@@ -664,6 +673,7 @@ impl SimWorld {
                 entity_type: etype,
                 name: ename,
                 position: pos,
+                spawner_id: spawner,
             });
         }
 
@@ -771,43 +781,63 @@ impl SimWorld {
             match trigger.event.as_str() {
                 "entity_died" => {
                     for event in &tick_events {
-                        if let SimEvent::EntityDied { entity_id, .. } = event {
+                        if let SimEvent::EntityDied { entity_id, killer_id, owner_id, .. } = event {
                             if let Some(ref filter_type) = trigger.filter.entity_type {
                                 let et = entity_type_map.get(entity_id).map(|s| s.as_str()).unwrap_or("");
                                 if et != filter_type { continue; }
                             }
                             if self.check_trigger_conditions(trigger, caster) {
-                                self.fire_trigger_effects(trigger, caster);
+                                let ctx = EffectContext {
+                                    source: Some(*entity_id),
+                                    killer: *killer_id,
+                                    owner: *owner_id,
+                                    attacker: None,
+                                };
+                                self.fire_trigger_effects(trigger, caster, &ctx);
                             }
                         }
                     }
                 }
                 "entity_spawned" => {
                     for event in &tick_events {
-                        if let SimEvent::EntitySpawned { entity_type, .. } = event {
+                        if let SimEvent::EntitySpawned { entity_id, entity_type, spawner_id, .. } = event {
                             if let Some(ref filter_type) = trigger.filter.entity_type {
                                 if entity_type != filter_type { continue; }
                             }
                             if self.check_trigger_conditions(trigger, caster) {
-                                self.fire_trigger_effects(trigger, caster);
+                                let ctx = EffectContext {
+                                    source: Some(*entity_id),
+                                    owner: *spawner_id,
+                                    attacker: None,
+                                    killer: None,
+                                };
+                                self.fire_trigger_effects(trigger, caster, &ctx);
                             }
                         }
                     }
                 }
                 "entity_damaged" => {
                     for event in &tick_events {
-                        if let SimEvent::EntityDamaged { entity_id, .. } = event {
+                        if let SimEvent::EntityDamaged { entity_id, attacker_id, .. } = event {
                             if let Some(ref filter_type) = trigger.filter.entity_type {
                                 let et = entity_type_map.get(entity_id).map(|s| s.as_str()).unwrap_or("");
                                 if et != filter_type { continue; }
                             }
                             if self.check_trigger_conditions(trigger, caster) {
-                                self.fire_trigger_effects(trigger, caster);
+                                let owner = self.get_entity(*entity_id).and_then(|e| e.owner);
+                                let ctx = EffectContext {
+                                    source: Some(*entity_id),
+                                    attacker: *attacker_id,
+                                    owner,
+                                    killer: None,
+                                };
+                                self.fire_trigger_effects(trigger, caster, &ctx);
                             }
                         }
                     }
                 }
                 "resource_changed" => {
+                    let default_ctx = EffectContext::default();
                     // Compare current resource values to snapshot to detect changes.
                     for (name, &old_value) in resource_snapshot.iter() {
                         let new_value = self.get_resource(name);
@@ -816,7 +846,7 @@ impl SimWorld {
                                 if name != filter_res { continue; }
                             }
                             if self.check_trigger_conditions(trigger, caster) {
-                                self.fire_trigger_effects(trigger, caster);
+                                self.fire_trigger_effects(trigger, caster, &default_ctx);
                             }
                         }
                     }
@@ -830,18 +860,25 @@ impl SimWorld {
                             if name != filter_res { continue; }
                         }
                         if self.check_trigger_conditions(trigger, caster) {
-                            self.fire_trigger_effects(trigger, caster);
+                            self.fire_trigger_effects(trigger, caster, &default_ctx);
                         }
                     }
                 }
                 "command_used" => {
                     for event in &tick_events {
-                        if let SimEvent::CommandUsed { command, .. } = event {
+                        if let SimEvent::CommandUsed { entity_id: cmd_eid, command, .. } = event {
                             if let Some(ref filter_cmd) = trigger.filter.command {
                                 if command != filter_cmd { continue; }
                             }
                             if self.check_trigger_conditions(trigger, caster) {
-                                self.fire_trigger_effects(trigger, caster);
+                                let owner = self.get_entity(*cmd_eid).and_then(|e| e.owner);
+                                let ctx = EffectContext {
+                                    source: Some(*cmd_eid),
+                                    owner,
+                                    attacker: None,
+                                    killer: None,
+                                };
+                                self.fire_trigger_effects(trigger, caster, &ctx);
                             }
                         }
                     }
@@ -850,31 +887,45 @@ impl SimWorld {
                     if let Some(interval) = trigger.filter.interval {
                         if interval > 0 && self.tick % interval as u64 == 0 {
                             if self.check_trigger_conditions(trigger, caster) {
-                                self.fire_trigger_effects(trigger, caster);
+                                self.fire_trigger_effects(trigger, caster, &EffectContext::default());
                             }
                         }
                     }
                 }
                 "channel_completed" => {
                     for event in &tick_events {
-                        if let SimEvent::ChannelCompleted { command, .. } = event {
+                        if let SimEvent::ChannelCompleted { entity_id: ch_eid, command, .. } = event {
                             if let Some(ref filter_cmd) = trigger.filter.command {
                                 if command != filter_cmd { continue; }
                             }
                             if self.check_trigger_conditions(trigger, caster) {
-                                self.fire_trigger_effects(trigger, caster);
+                                let owner = self.get_entity(*ch_eid).and_then(|e| e.owner);
+                                let ctx = EffectContext {
+                                    source: Some(*ch_eid),
+                                    owner,
+                                    attacker: None,
+                                    killer: None,
+                                };
+                                self.fire_trigger_effects(trigger, caster, &ctx);
                             }
                         }
                     }
                 }
                 "channel_interrupted" => {
                     for event in &tick_events {
-                        if let SimEvent::ChannelInterrupted { command, .. } = event {
+                        if let SimEvent::ChannelInterrupted { entity_id: int_eid, command, .. } = event {
                             if let Some(ref filter_cmd) = trigger.filter.command {
                                 if command != filter_cmd { continue; }
                             }
                             if self.check_trigger_conditions(trigger, caster) {
-                                self.fire_trigger_effects(trigger, caster);
+                                let owner = self.get_entity(*int_eid).and_then(|e| e.owner);
+                                let ctx = EffectContext {
+                                    source: Some(*int_eid),
+                                    owner,
+                                    attacker: None,
+                                    killer: None,
+                                };
+                                self.fire_trigger_effects(trigger, caster, &ctx);
                             }
                         }
                     }
@@ -893,11 +944,11 @@ impl SimWorld {
         trigger.conditions.iter().all(|c| evaluate_condition(c, self, caster, &mut rng))
     }
 
-    /// Fire a trigger's effects against the world.
-    fn fire_trigger_effects(&mut self, trigger: &TriggerDef, caster: EntityId) {
+    /// Fire a trigger's effects against the world with scoped effect context.
+    fn fire_trigger_effects(&mut self, trigger: &TriggerDef, caster: EntityId, ctx: &EffectContext) {
         let mut events = Vec::new();
-        resolve_custom_effects(
-            self, caster, "trigger", &trigger.effects, &[], &mut events,
+        resolve_custom_effects_with_ctx(
+            self, caster, "trigger", &trigger.effects, &[], &mut events, ctx,
         );
         self.events.extend(events);
     }
@@ -3250,5 +3301,431 @@ mod tests {
         let mut state = ScriptState::new(program, 0);
         let action = crate::executor::execute_unit(eid, &mut state, &world).unwrap();
         (state, action)
+    }
+
+    // --- Scoped target tests ---
+
+    #[test]
+    fn trigger_killer_target_gets_heal() {
+        use crate::action::{CommandEffect, DynInt, TriggerDef, TriggerFilter};
+
+        let mut world = SimWorld::new(42);
+
+        // Spawn attacker (summoner) and a skeleton.
+        let attacker = spawn_test_entity(&mut world, "summoner", "summoner", 0);
+        let victim = spawn_test_entity(&mut world, "skeleton", "skel", 3);
+
+        // Lower attacker's health so we can detect heal.
+        world.get_entity_mut(attacker).unwrap().set_stat("health", 50);
+        // Set skeleton health low enough to die from one hit.
+        world.get_entity_mut(victim).unwrap().set_stat("health", 5);
+
+        // Register a trigger: when a skeleton dies, heal the killer by 20.
+        world.register_trigger(TriggerDef {
+            event: "entity_died".into(),
+            filter: TriggerFilter { entity_type: Some("skeleton".into()), ..Default::default() },
+            conditions: vec![],
+            effects: vec![CommandEffect::Heal {
+                target: "killer".into(),
+                amount: DynInt::Fixed(20),
+            }],
+        });
+
+        // Script: attack the skeleton.
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::EntityRef(victim)),
+                Instruction::ActionAttack,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(attacker).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        // Attacker should have been healed: 50 + 20 = 70.
+        let attacker_health = world.get_entity(attacker).unwrap().stat("health");
+        assert_eq!(attacker_health, 70, "Killer should have been healed to 70, got {}", attacker_health);
+    }
+
+    #[test]
+    fn trigger_source_target_references_dead_entity_type() {
+        use crate::action::{CommandEffect, DynInt, TriggerDef, TriggerFilter};
+
+        let mut world = SimWorld::new(42);
+
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 0);
+        let victim = spawn_test_entity(&mut world, "skeleton", "skel", 3);
+        world.get_entity_mut(victim).unwrap().set_stat("health", 5);
+
+        // Trigger on entity_died: modify_stat on source (the dead entity).
+        // Since the entity is dead, this should silently no-op.
+        world.register_trigger(TriggerDef {
+            event: "entity_died".into(),
+            filter: TriggerFilter { entity_type: Some("skeleton".into()), ..Default::default() },
+            conditions: vec![],
+            effects: vec![CommandEffect::ModifyStat {
+                target: "source".into(),
+                stat: "speed".into(),
+                amount: DynInt::Fixed(10),
+            }],
+        });
+
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::EntityRef(victim)),
+                Instruction::ActionAttack,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        // Should not crash. The dead entity is removed, so the effect is a no-op.
+    }
+
+    #[test]
+    fn trigger_owner_target_from_entity_field() {
+        use crate::action::{CommandDef, CommandEffect, DynInt, TriggerDef, TriggerFilter};
+
+        let mut world = SimWorld::new(42);
+
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 0);
+        world.get_entity_mut(summoner).unwrap().set_stat("health", 50);
+
+        // Register a spawn command (offset 3 = within attack range of 5).
+        let spawn_cmd = CommandDef {
+            name: "raise".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![CommandEffect::Spawn {
+                entity_type: "skeleton".into(),
+                offset: DynInt::Fixed(3),
+            }],
+            unlisted: false,
+            phases: vec![],
+        };
+        world.register_custom_command(&spawn_cmd);
+
+        // Set up entity config for skeletons.
+        world.entity_configs.insert("skeleton".into(), EntityConfig {
+            stats: IndexMap::from([
+                ("health".into(), 5),
+                ("max_health".into(), 5),
+                ("speed".into(), 1),
+                ("attack_damage".into(), 10),
+                ("attack_range".into(), 5),
+                ("attack_cooldown".into(), 3),
+            ]),
+        });
+
+        // Trigger: when a skeleton dies, heal its owner by 10.
+        world.register_trigger(TriggerDef {
+            event: "entity_died".into(),
+            filter: TriggerFilter { entity_type: Some("skeleton".into()), ..Default::default() },
+            conditions: vec![],
+            effects: vec![CommandEffect::Heal {
+                target: "owner".into(),
+                amount: DynInt::Fixed(10),
+            }],
+        });
+
+        // Script: raise(); wait forever
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("raise".into()),
+                Instruction::ActionWait,
+                Instruction::Jump(1),
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+
+        // Tick 1: summoner calls raise(), skeleton gets queued and spawned.
+        world.tick();
+        world.take_events();
+
+        // Find the spawned skeleton.
+        let skel_id = world.entities()
+            .find(|e| e.entity_type == "skeleton")
+            .map(|e| e.id)
+            .expect("skeleton should exist");
+
+        // Verify owner was set.
+        assert_eq!(
+            world.get_entity(skel_id).unwrap().owner,
+            Some(summoner),
+            "Skeleton should be owned by summoner"
+        );
+
+        // Set skeleton to 1 health so summoner can kill it.
+        world.get_entity_mut(skel_id).unwrap().set_stat("health", 1);
+
+        // Give summoner an attack script targeting the skeleton.
+        let attack_program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::EntityRef(skel_id)),
+                Instruction::ActionAttack,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(attack_program, 0));
+
+        world.tick();
+
+        // Summoner should have been healed: 50 + 10 = 60.
+        let summoner_health = world.get_entity(summoner).unwrap().stat("health");
+        assert_eq!(summoner_health, 60, "Owner should have been healed to 60, got {}", summoner_health);
+    }
+
+    #[test]
+    fn spawn_effect_sets_owner() {
+        use crate::action::{CommandDef, CommandEffect, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 0);
+
+        world.entity_configs.insert("skeleton".into(), EntityConfig {
+            stats: IndexMap::from([("health".into(), 10), ("max_health".into(), 10)]),
+        });
+
+        let spawn_cmd = CommandDef {
+            name: "raise".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![CommandEffect::Spawn {
+                entity_type: "skeleton".into(),
+                offset: DynInt::Fixed(3),
+            }],
+            unlisted: false,
+            phases: vec![],
+        };
+        world.register_custom_command(&spawn_cmd);
+
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("raise".into()),
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        // Find the spawned skeleton.
+        let skel = world.entities()
+            .find(|e| e.entity_type == "skeleton")
+            .expect("skeleton should be spawned");
+
+        assert_eq!(skel.owner, Some(summoner), "Spawned entity should have owner set to spawner");
+    }
+
+    #[test]
+    fn trigger_attacker_target_on_damage() {
+        use crate::action::{CommandEffect, DynInt, TriggerDef, TriggerFilter};
+
+        let mut world = SimWorld::new(42);
+
+        let attacker = spawn_test_entity(&mut world, "summoner", "summoner", 0);
+        let target = spawn_test_entity(&mut world, "skeleton", "skel", 3);
+
+        // Register trigger: when a skeleton is damaged, modify_stat on attacker.
+        world.register_trigger(TriggerDef {
+            event: "entity_damaged".into(),
+            filter: TriggerFilter { entity_type: Some("skeleton".into()), ..Default::default() },
+            conditions: vec![],
+            effects: vec![CommandEffect::ModifyStat {
+                target: "attacker".into(),
+                stat: "xp".into(),
+                amount: DynInt::Fixed(5),
+            }],
+        });
+
+        // Script: attack the skeleton.
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::EntityRef(target)),
+                Instruction::ActionAttack,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(attacker).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        // Attacker should have gained 5 xp.
+        let xp = world.get_entity(attacker).unwrap().stat("xp");
+        assert_eq!(xp, 5, "Attacker should have 5 xp from trigger, got {}", xp);
+    }
+
+    // --- is_alive and distance condition tests ---
+
+    #[test]
+    fn is_alive_condition_true_for_alive_entity() {
+        use crate::action::{Condition, EffectContext};
+        use crate::rng::SimRng;
+
+        let mut world = SimWorld::new(42);
+        let summoner = spawn_test_entity(&mut world, "summoner", "s", 0);
+        let skel = spawn_test_entity(&mut world, "skeleton", "sk", 10);
+
+        let mut rng = SimRng::new(42);
+        let ctx = EffectContext::default();
+        let args = vec![SimValue::EntityRef(skel)];
+
+        let cond = Condition::IsAlive { target: "arg:0".into() };
+        assert!(crate::action::evaluate_condition_with_ctx(
+            &cond, &world, summoner, &mut rng, &args, &ctx,
+        ));
+
+        // Kill the skeleton.
+        world.get_entity_mut(skel).unwrap().alive = false;
+        assert!(!crate::action::evaluate_condition_with_ctx(
+            &cond, &world, summoner, &mut rng, &args, &ctx,
+        ));
+    }
+
+    #[test]
+    fn is_alive_condition_with_self_target() {
+        use crate::action::{Condition, EffectContext};
+        use crate::rng::SimRng;
+
+        let mut world = SimWorld::new(42);
+        let summoner = spawn_test_entity(&mut world, "summoner", "s", 0);
+
+        let mut rng = SimRng::new(42);
+        let cond = Condition::IsAlive { target: "self".into() };
+        assert!(crate::action::evaluate_condition_with_ctx(
+            &cond, &world, summoner, &mut rng, &[], &EffectContext::default(),
+        ));
+    }
+
+    #[test]
+    fn distance_condition_compares_correctly() {
+        use crate::action::{Condition, CompareOp, DynInt, EffectContext};
+        use crate::rng::SimRng;
+
+        let mut world = SimWorld::new(42);
+        let summoner = spawn_test_entity(&mut world, "summoner", "s", 0);
+        let skel = spawn_test_entity(&mut world, "skeleton", "sk", 30);
+
+        let mut rng = SimRng::new(42);
+        let args = vec![SimValue::EntityRef(skel)];
+        let ctx = EffectContext::default();
+
+        // distance is 30, check <= 50 → true
+        let cond = Condition::Distance {
+            target: "arg:0".into(),
+            compare: CompareOp::Lte,
+            amount: DynInt::Fixed(50),
+        };
+        assert!(crate::action::evaluate_condition_with_ctx(
+            &cond, &world, summoner, &mut rng, &args, &ctx,
+        ));
+
+        // distance is 30, check <= 20 → false
+        let cond2 = Condition::Distance {
+            target: "arg:0".into(),
+            compare: CompareOp::Lte,
+            amount: DynInt::Fixed(20),
+        };
+        assert!(!crate::action::evaluate_condition_with_ctx(
+            &cond2, &world, summoner, &mut rng, &args, &ctx,
+        ));
+
+        // distance is 30, check == 30 → true
+        let cond3 = Condition::Distance {
+            target: "arg:0".into(),
+            compare: CompareOp::Eq,
+            amount: DynInt::Fixed(30),
+        };
+        assert!(crate::action::evaluate_condition_with_ctx(
+            &cond3, &world, summoner, &mut rng, &args, &ctx,
+        ));
+    }
+
+    #[test]
+    fn is_alive_condition_with_scoped_source_target() {
+        use crate::action::{Condition, EffectContext};
+        use crate::rng::SimRng;
+
+        let mut world = SimWorld::new(42);
+        let summoner = spawn_test_entity(&mut world, "summoner", "s", 0);
+        let skel = spawn_test_entity(&mut world, "skeleton", "sk", 10);
+
+        let mut rng = SimRng::new(42);
+        let ctx = EffectContext {
+            source: Some(skel),
+            ..Default::default()
+        };
+
+        let cond = Condition::IsAlive { target: "source".into() };
+        assert!(crate::action::evaluate_condition_with_ctx(
+            &cond, &world, summoner, &mut rng, &[], &ctx,
+        ));
+    }
+
+    #[test]
+    fn if_effect_with_distance_condition() {
+        use crate::action::{CommandDef, CommandEffect, CompareOp, Condition, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let summoner = spawn_test_entity(&mut world, "summoner", "s", 0);
+        let skel = spawn_test_entity(&mut world, "skeleton", "sk", 3);
+
+        // Command: if distance to arg:target <= 5 then output "close" else output "far"
+        let cmd = CommandDef {
+            name: "check_dist".into(),
+            description: "".into(),
+            args: vec!["target".into()],
+            effects: vec![CommandEffect::If {
+                condition: Condition::Distance {
+                    target: "arg:0".into(),
+                    compare: CompareOp::Lte,
+                    amount: DynInt::Fixed(5),
+                },
+                then_effects: vec![CommandEffect::Output { message: "close".into() }],
+                otherwise: vec![CommandEffect::Output { message: "far".into() }],
+            }],
+            unlisted: false,
+            phases: vec![],
+        };
+        world.register_custom_command(&cmd);
+
+        // Script: check_dist(skeleton_ref)
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::EntityRef(skel)),
+                Instruction::ActionCustom("check_dist".into()),
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let texts = output_texts(&world.take_events());
+        assert!(texts.contains(&"close".into()), "Distance 3 <= 5 should be 'close': {:?}", texts);
     }
 }

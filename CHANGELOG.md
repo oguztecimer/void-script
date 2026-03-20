@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Simulation Engine
+
+#### Added
+- **S-20: `is_alive` and `distance` conditions** — Two new `Condition` variants for target-bearing spatial checks. `is_alive { target }` resolves a target entity and returns true if it exists and is alive (false if the target can't be resolved). `distance { target, compare, amount }` computes the absolute integer distance between the caster's position and the target's position and compares it using a `CompareOp`; returns false if the target can't be resolved. Both use `resolve_target_from_args()` and accept all scoped target strings (`"self"`, `"arg:name"`, `"source"`, `"owner"`, `"attacker"`, `"killer"`). `evaluate_condition_with_ctx()` is the new canonical condition evaluator, accepting args and `EffectContext`; `evaluate_condition()` is preserved as a backward-compatible wrapper that passes empty args and a default context. `resolve_effects_inner()` calls `evaluate_condition_with_ctx()` so `if` effects and trigger conditions can resolve scoped targets in condition `target` fields.
+- **S-19: Scoped targets in trigger effects** — Trigger effect resolution now carries an `EffectContext` struct that holds references to event participants: `source` (event subject), `owner` (owner entity), `attacker` (damage dealer), and `killer` (killing-blow dealer). Four new scoped target strings — `"source"`, `"owner"`, `"attacker"`, `"killer"` — can be used in trigger effect `target` fields and resolve via `EffectContext` before falling back to entity fields for `"owner"`. Scoped targets that are not applicable to the current event (e.g., `"attacker"` in a `tick_interval` trigger) silently no-op the effect. `SimEntity.owner` changed from `u64` to `Option<EntityId>`, automatically set during `spawn` effects. `SimEvent` variants enriched: `EntityDamaged` gains `attacker_id`, `EntityDied` gains `killer_id`/`owner_id`, `EntitySpawned` gains `spawner_id`. `get_owner()` builtin now returns `EntityRef` or `None` instead of `Int(0)`. `validate_target()` in `modding.rs` accepts scoped target strings for trigger effects.
+
 ### Compiler
 
 #### Fixed

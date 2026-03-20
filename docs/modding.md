@@ -167,7 +167,7 @@ stats = { health = 200, speed = 1, armor = 5, crit_chance = 10, attack_damage = 
 
 All fields except `type` are optional. Omitted stats default to 0. Omitted `sprite` means the entity has no visible sprite.
 
-**Reserved entity type:** `"summoner"` is hardcoded by the game engine. It is always spawned at position 500 with fixed stats. Mods cannot define or override it.
+**Note:** The `"summoner"` entity type is defined by the core mod. It is the entity that runs the player's script. Mods can override its stats, sprite, or spawn position by loading before core (via dependency ordering).
 
 ### Auto-Max Behavior
 
@@ -1281,19 +1281,21 @@ If `mods/` doesn't exist or contains no valid mods, the game falls back to compi
 mods/core/
   mod.toml
   sprites/
+    summoner_atlas.png
+    summoner_atlas.json
     skeleton_atlas.png
     skeleton_atlas.json
 ```
 
 Its `mod.toml` defines:
+- The `summoner` entity type (100 HP, speed 1) — the player-controlled entity that runs scripts
 - The `skeleton` entity type (50 HP, speed 2)
+- The summoner spawn at position 500
 - Global resources: `mana` (50/100 capped), `bones` (0, capless)
 - Initial commands: `help`, `trance`, `raise`, `harvest`, `pact`
 - Initial resources: `mana`, `bones`
 - Startup messages via initial effects
 - Five custom commands: `help` (list commands), `trance` (mana regen channel), `raise` (spawn skeleton), `harvest` (sacrifice skeletons for bones), `pact` (self-damage)
-
-The summoner entity is hardcoded by the engine (not defined in `mod.toml`).
 
 ---
 

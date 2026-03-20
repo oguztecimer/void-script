@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use deadcode_desktop::animation::{SKELETON_ATLAS_PNG, skeleton_atlas_json};
+use deadcode_desktop::animation::{SKELETON_ATLAS_PNG, SUMMONER_ATLAS_PNG, skeleton_atlas_json, summoner_atlas_json};
 use deadcode_sim::action::{BuffDef, CommandDef, CommandEffect, TriggerDef};
 use deadcode_sim::entity::EntityConfig;
 
@@ -493,6 +493,12 @@ fn embedded_fallback() -> LoadedMod {
     let mut pivots = HashMap::new();
     let mut entity_configs = HashMap::new();
 
+    sprites.insert("summoner".into(), SpriteData {
+        png: SUMMONER_ATLAS_PNG.to_vec(),
+        json: summoner_atlas_json(),
+    });
+    pivots.insert("summoner".into(), [49.0, 2.0]);
+
     sprites.insert("skeleton".into(), SpriteData {
         png: SKELETON_ATLAS_PNG.to_vec(),
         json: skeleton_atlas_json(),
@@ -509,7 +515,13 @@ fn embedded_fallback() -> LoadedMod {
             min_game_version: None,
         },
         entities: vec![],
-        spawn: vec![],
+        spawn: vec![
+            SpawnDef {
+                entity_type: "summoner".into(),
+                name: "summoner".into(),
+                position: 500,
+            },
+        ],
         commands: Some(CommandsDef {
             definitions: vec![],
             libraries: vec![],
@@ -535,6 +547,14 @@ fn embedded_fallback() -> LoadedMod {
         triggers: Vec::new(),
         buffs: Vec::new(),
     };
+
+    entity_configs.insert("summoner".into(), EntityConfig {
+        stats: indexmap::IndexMap::from([
+            ("health".into(), 100),
+            ("max_health".into(), 100),
+            ("speed".into(), 1),
+        ]),
+    });
 
     entity_configs.insert("skeleton".into(), EntityConfig {
         stats: indexmap::IndexMap::from([

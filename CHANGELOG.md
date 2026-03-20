@@ -6,6 +6,7 @@
 
 #### Changed
 - **M-01: Removed entity convenience stat fields** — `[[entities]]` no longer supports top-level `health`, `speed`, `attack_damage`, `attack_range`, `attack_cooldown`, and `shield` fields. All stats are now defined exclusively in the `stats` table (e.g., `stats = { health = 50, speed = 2 }`). Auto-max behavior (`max_health`/`max_shield`) is preserved via `apply_config()`. The `custom_stats` alias still works.
+- **M-02: Summoner defined by core mod** — The summoner entity is no longer hardcoded in `app.rs`. It is now defined in `mods/core/mod.toml` as a normal `[[entities]]` entry with a `[[spawn]]` block, just like any other entity. Entity type, stats, sprite, pivot, and spawn position are all moddable. The embedded fallback mirrors this. Script execution still finds the summoner by entity type `"summoner"`.
 
 ### Simulation Engine
 

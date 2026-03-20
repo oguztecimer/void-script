@@ -28,9 +28,6 @@ use deadcode_editor::tabs::EditorWindowState;
 use deadcode_editor::execution::ScriptExecutionManager;
 use grimscript_lang::DebugCommand;
 
-use deadcode_desktop::animation::{SUMMONER_ATLAS_PNG, summoner_atlas_json};
-use deadcode_sim::entity::EntityConfig;
-
 use crate::modding::{self, SpriteData};
 
 // ---------------------------------------------------------------------------
@@ -514,20 +511,6 @@ impl ApplicationHandler<UserEvent> for App {
         self.library_source = modding::collect_library_source(&mods);
         self.initial_effects = modding::collect_initial_effects(&mods);
 
-        // --- Hardcoded summoner (core game entity, not moddable) ---
-        self.sprite_registry.insert("summoner".into(), SpriteData {
-            png: SUMMONER_ATLAS_PNG.to_vec(),
-            json: summoner_atlas_json(),
-        });
-        self.pivot_registry.insert("summoner".into(), [49.0, 2.0]);
-        self.entity_configs.insert("summoner".into(), EntityConfig {
-            stats: indexmap::IndexMap::from([
-                ("health".into(), 100),
-                ("max_health".into(), 100),
-                ("speed".into(), 1),
-            ]),
-        });
-
         // Merge sprite/pivot/config registries from all loaded mods.
         for loaded_mod in &mods {
             for (etype, sprite) in &loaded_mod.sprites {
@@ -565,17 +548,8 @@ impl ApplicationHandler<UserEvent> for App {
         let mut um = UnitManager::new();
         let mut sim = SimWorld::new(42);
 
-        // Spawn the summoner (hardcoded core entity, always first).
-        self.entity_unit_map.clear();
-        {
-            let sprite = self.sprite_registry.get("summoner").unwrap();
-            let uid = um.spawn("summoner", &sprite.png, &sprite.json, 500.0, 49.0, 2.0);
-            let config = self.entity_configs.get("summoner");
-            let eid = sim.spawn_entity_with_config("summoner".into(), "summoner".into(), 500, config);
-            self.entity_unit_map.insert(eid.0, uid);
-        }
-
         // Spawn entities defined in mod manifests.
+        self.entity_unit_map.clear();
         for loaded_mod in &mods {
             for spawn_def in &loaded_mod.manifest.spawn {
                 // Spawn render unit if sprite data is available.

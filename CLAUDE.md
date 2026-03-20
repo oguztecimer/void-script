@@ -175,8 +175,8 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 - Division/modulo use Python-style floor semantics in both executor and interpreter: `-7 // 2 = -4`, `-7 % 2 = 1` (not C truncating or Euclidean)
 - `Lexer::tokenize()` returns `Result<Vec<SpannedToken>, GrimScriptError>` — callers must handle lex errors
 - Compiler is feature-gated: `deadcode-sim` stays independent without `grimscript-lang`
-- The summoner is a hardcoded core entity — always spawned by `app.rs` at position 500 using embedded assets, not defined by mods
-- Theme-agnostic sim: no baked-in entity type constants, entity types are runtime strings (except summoner, hardcoded in `app.rs`)
+- The summoner is defined by the core mod (`mods/core/mod.toml`) like any other entity — entity type, stats, sprite, pivot, and spawn position are all in the mod manifest. The embedded fallback mirrors this. Script execution methods find the summoner by entity type `"summoner"`.
+- Theme-agnostic sim: no baked-in entity type constants, entity types are runtime strings
 
 ## Common Tasks
 

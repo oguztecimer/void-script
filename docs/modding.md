@@ -88,7 +88,7 @@ effects = [
 ]
 ```
 
-All fields in `[[entities]]` except `type` are optional. Omitted stats use engine defaults (health=100, mana=100, speed=1, etc.). Omitted `sprite` means the entity won't have a render unit.
+All fields in `[[entities]]` except `type` are optional. Omitted stats use engine defaults (health=100, speed=1, etc.). Omitted `sprite` means the entity won't have a render unit.
 
 **Reserved entity type:** The `"summoner"` entity type is hardcoded by the game engine and cannot be defined or overridden by mods. It is always spawned at position 500 with fixed stats. Mods that define an entity with `type = "summoner"` will see a warning and their definition will be ignored.
 
@@ -98,14 +98,27 @@ Entity definitions register types that can be spawned — either at startup via 
 
 ### Stats
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| `health` | 100 | Max and current health |
+All entity stats live in a single unified map. The fields below are **convenience aliases** in `[[entities]]` — they map to the same stats system as custom stats defined via `stats = { armor = 5 }`. Any stat not set in the entity definition uses the engine default.
+
+| Convenience Field | Default | Description |
+|-------------------|---------|-------------|
+| `health` | 100 | Current health (auto-sets `max_health` if not specified) |
 | `speed` | 1 | Movement speed (tiles per tick) |
 | `attack_damage` | 10 | Damage dealt per attack |
 | `attack_range` | 5 | Range for attack actions |
 | `attack_cooldown` | 3 | Ticks between attacks |
-| `shield` | 0 | Max and current shield |
+| `shield` | 0 | Current shield (auto-sets `max_shield` if not specified) |
+
+Custom stats can be added via the `stats` table (aliased as `custom_stats` for backward compat):
+
+```toml
+[[entities]]
+type = "golem"
+health = 200
+stats = { armor = 5, crit_chance = 10 }
+```
+
+All stats (built-in defaults and custom) are accessible via `entity.stat_name` attribute access and `get_stat(entity, "name")` in GrimScript, and via `modify_stat`/`use_resource` effects in mod commands.
 
 ### Sprite Format
 

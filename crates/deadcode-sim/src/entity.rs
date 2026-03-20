@@ -73,17 +73,10 @@ pub struct ChannelState {
     pub ticks_elapsed_in_phase: i64,
 }
 
-/// Optional stat overrides applied at spawn time.
+/// Stat overrides applied at spawn time. All stats live in a single HashMap.
 #[derive(Debug, Clone, Default)]
 pub struct EntityConfig {
-    pub health: Option<i64>,
-    pub speed: Option<i64>,
-    pub attack_damage: Option<i64>,
-    pub attack_range: Option<i64>,
-    pub attack_cooldown: Option<i64>,
-    pub shield: Option<i64>,
-    /// Mod-defined custom stats.
-    pub custom_stats: HashMap<String, i64>,
+    pub stats: HashMap<String, i64>,
 }
 
 /// A game entity — theme-agnostic. Entity type is a free-form string.
@@ -98,18 +91,8 @@ pub struct SimEntity {
     // Position (1D)
     pub position: i64,
 
-    // Stats
-    pub health: i64,
-    pub max_health: i64,
-    pub shield: i64,
-    pub max_shield: i64,
-
-    // Combat
-    pub speed: i64,
-    pub attack_damage: i64,
-    pub attack_range: i64,
-    pub attack_cooldown: i64,
-    pub cooldown_remaining: i64,
+    /// All entity stats in a single HashMap (health, max_health, shield, speed, etc.).
+    pub stats: HashMap<String, i64>,
 
     // State
     pub target: Option<EntityId>,
@@ -125,36 +108,57 @@ pub struct SimEntity {
 
     /// Active buffs on this entity.
     pub active_buffs: Vec<ActiveBuff>,
-
-    /// Mod-defined custom stats (e.g., armor, crit_chance).
-    pub custom_stats: HashMap<String, i64>,
 }
 
 impl SimEntity {
     pub fn new(id: EntityId, entity_type: String, name: String, position: i64) -> Self {
+        let stats = HashMap::from([
+            ("health".to_string(), 100),
+            ("max_health".to_string(), 100),
+            ("shield".to_string(), 0),
+            ("max_shield".to_string(), 0),
+            ("speed".to_string(), 1),
+            ("attack_damage".to_string(), 10),
+            ("attack_range".to_string(), 5),
+            ("attack_cooldown".to_string(), 3),
+            ("cooldown_remaining".to_string(), 0),
+        ]);
         Self {
             id,
             entity_type,
             name,
             owner: 0,
             position,
-            health: 100,
-            max_health: 100,
-            shield: 0,
-            max_shield: 0,
-            speed: 1,
-            attack_damage: 10,
-            attack_range: 5,
-            attack_cooldown: 3,
-            cooldown_remaining: 0,
+            stats,
             target: None,
             alive: true,
             spawn_ticks_remaining: 0,
             script_state: None,
             active_channel: None,
             active_buffs: Vec::new(),
-            custom_stats: HashMap::new(),
         }
+    }
+
+    /// Get a stat value (returns 0 if not set).
+    pub fn stat(&self, name: &str) -> i64 {
+        self.stats.get(name).copied().unwrap_or(0)
+    }
+
+    /// Set a stat value.
+    pub fn set_stat(&mut self, name: &str, value: i64) {
+        self.stats.insert(name.to_string(), value);
+    }
+
+    /// Clamp a stat to `[0, max_{name}]` if a max exists, else `[0, +inf)`.
+    pub fn clamp_stat(&mut self, name: &str) {
+        let max_key = format!("max_{name}");
+        let value = self.stat(name);
+        let clamped = if let Some(&max) = self.stats.get(&max_key) {
+            value.max(0).min(max)
+        } else {
+            value.max(0)
+        };
+        self.set_stat(name, clamped);
     }
 
     /// Whether this entity is fully spawned and can act/be targeted.
@@ -162,30 +166,20 @@ impl SimEntity {
         self.alive && self.spawn_ticks_remaining <= 0
     }
 
-    /// Apply optional stat overrides from an `EntityConfig`.
+    /// Apply stat overrides from an `EntityConfig`.
     pub fn apply_config(&mut self, config: &EntityConfig) {
-        if let Some(h) = config.health {
-            self.health = h;
-            self.max_health = h;
+        for (name, &value) in &config.stats {
+            self.stats.insert(name.clone(), value);
         }
-        if let Some(s) = config.speed {
-            self.speed = s;
+        // Auto-set max_health from health if health is set but max_health isn't in config.
+        if config.stats.contains_key("health") && !config.stats.contains_key("max_health") {
+            let h = self.stat("health");
+            self.set_stat("max_health", h);
         }
-        if let Some(d) = config.attack_damage {
-            self.attack_damage = d;
-        }
-        if let Some(r) = config.attack_range {
-            self.attack_range = r;
-        }
-        if let Some(c) = config.attack_cooldown {
-            self.attack_cooldown = c;
-        }
-        if let Some(s) = config.shield {
-            self.shield = s;
-            self.max_shield = s;
-        }
-        for (name, value) in &config.custom_stats {
-            self.custom_stats.insert(name.clone(), *value);
+        // Auto-set max_shield from shield if shield is set but max_shield isn't in config.
+        if config.stats.contains_key("shield") && !config.stats.contains_key("max_shield") {
+            let s = self.stat("shield");
+            self.set_stat("max_shield", s);
         }
     }
 }

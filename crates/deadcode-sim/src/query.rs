@@ -63,17 +63,12 @@ pub fn distance(world: &SimWorld, a: EntityId, b: EntityId) -> Result<i64, SimEr
     Ok((ea.position - eb.position).abs())
 }
 
-/// Get a stat (health/energy/shield) from an entity.
+/// Get a stat (health/shield/etc.) from an entity.
 pub fn get_stat(world: &SimWorld, id: EntityId, stat: &str) -> Result<SimValue, SimError> {
     let e = world
         .get_entity(id)
         .ok_or_else(|| SimError::entity_not_found(id.0))?;
-    let val = match stat {
-        "health" => e.health,
-        "shield" => e.shield,
-        _ => return Err(SimError::type_error(format!("unknown stat: {stat}"))),
-    };
-    Ok(SimValue::Int(val))
+    Ok(SimValue::Int(e.stat(stat)))
 }
 
 /// Get entity's current target.
@@ -130,30 +125,16 @@ pub fn get_entity_attr(
         .ok_or_else(|| SimError::entity_not_found(id.0))?;
     match attr {
         "position" | "pos" | "x" => Ok(SimValue::Int(e.position)),
-        "health" | "hp" => Ok(SimValue::Int(e.health)),
-        "max_health" | "max_hp" => Ok(SimValue::Int(e.max_health)),
-        "shield" => Ok(SimValue::Int(e.shield)),
-        "max_shield" => Ok(SimValue::Int(e.max_shield)),
-        "speed" => Ok(SimValue::Int(e.speed)),
         "name" => Ok(SimValue::Str(e.name.clone())),
         "type" => Ok(SimValue::Str(e.entity_type.clone())),
         "owner" => Ok(SimValue::Int(e.owner as i64)),
         "alive" => Ok(SimValue::Bool(e.alive)),
-        "attack_damage" => Ok(SimValue::Int(e.attack_damage)),
-        "attack_range" => Ok(SimValue::Int(e.attack_range)),
         "target" => Ok(match e.target {
             Some(tid) => SimValue::EntityRef(tid),
             None => SimValue::None,
         }),
-        _ => {
-            // Check custom stats.
-            if let Some(&value) = e.custom_stats.get(attr) {
-                return Ok(SimValue::Int(value));
-            }
-            Err(SimError::type_error(format!(
-                "entity has no attribute '{attr}'"
-            )))
-        }
+        // All other attrs resolve as stats (returns 0 for unknown).
+        _ => Ok(SimValue::Int(e.stat(attr))),
     }
 }
 

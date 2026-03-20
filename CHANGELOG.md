@@ -2,7 +2,16 @@
 
 ## [Unreleased]
 
+### Simulation Engine
+
+#### Changed
+- **S-XX: Unified entity stats into single HashMap** — Removed 9 hardcoded stat fields (`health`, `max_health`, `shield`, `max_shield`, `speed`, `attack_damage`, `attack_range`, `attack_cooldown`, `cooldown_remaining`) from `SimEntity` and the separate `custom_stats: HashMap<String, i64>`. All stats now live in a single `stats: HashMap<String, i64>` accessed via `stat()`, `set_stat()`, and `clamp_stat()` helpers. `EntityConfig` simplified to `{ stats: HashMap<String, i64> }`. Eliminated parallel effect/condition systems: `ModifyCustomStat`/`UseCustomStat`/`Condition::CustomStat` removed — `ModifyStat`/`UseResource`/`Condition::Stat` now handle all stats generically. Serde aliases preserve backward compatibility for existing `mod.toml` files (`modify_custom_stat`, `use_custom_stat`, `custom_stat` still parse correctly). Renamed `get_custom_stat` GrimScript builtin to `get_stat` (old name kept as alias). Fixed pre-existing bug: `Spawn` effect now applies `EntityConfig` to dynamically spawned entities. 182 tests pass.
+
 ### Modding System
+
+#### Added
+- **M-22: Mod dependency resolution** — `depends_on` and `conflicts_with` fields in `[mod]` are now enforced. Mods are topologically sorted by dependencies (Kahn's algorithm with alphabetical tie-breaking for determinism). Missing dependencies cause the mod and its dependants to be skipped with warnings. Conflicts skip the second-loaded mod. Circular dependencies are detected and fall back to alphabetical order with an error message. 8 new tests.
+- **M-23: Library file system** — Mods can now provide `.grim` library files via `commands.libraries` in `mod.toml`. Library source files are loaded at mod load time and prepended to player scripts before compilation, making library functions available as if defined at the top of the script. Flat namespace with first-loaded-wins (consistent with commands/entities). Library functions are subject to the same command gating as player scripts. Works for both Run and Console compilation paths.
 
 #### Changed
 - **M-12: Rename `per_tick` to `per_update` with `update_interval`** — Phase effects field `per_tick` renamed to `per_update`. New `update_interval` field (default 1) controls how often `per_update` effects fire: every N ticks instead of every tick. `(ticks_elapsed + 1) % update_interval == 0` determines update ticks — interval=2 fires at ticks 1,3,5 (not tick 0). Validated at load time (`update_interval` must be > 0). All `mod.toml` files, tests, and docs updated.

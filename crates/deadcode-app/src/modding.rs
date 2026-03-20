@@ -104,16 +104,18 @@ pub struct InitialDef {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct ModMeta {
     pub id: String,
     pub name: String,
     pub version: String,
+    /// Mod IDs this mod requires to be loaded (loaded before this mod).
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// Mod IDs that cannot be loaded alongside this mod.
     #[serde(default)]
     pub conflicts_with: Vec<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub min_game_version: Option<String>,
 }
 
@@ -132,23 +134,37 @@ pub struct EntityDef {
     pub attack_range: Option<i64>,
     pub attack_cooldown: Option<i64>,
     pub shield: Option<i64>,
-    /// Mod-defined custom stats (e.g., armor = 5, crit_chance = 10).
-    #[serde(default)]
-    pub custom_stats: HashMap<String, i64>,
+    /// Additional stats (e.g., armor = 5, crit_chance = 10).
+    #[serde(default, alias = "custom_stats")]
+    pub stats: HashMap<String, i64>,
 }
 
 impl EntityDef {
     /// Convert to a sim `EntityConfig` for stat overrides.
     pub fn to_entity_config(&self) -> EntityConfig {
-        EntityConfig {
-            health: self.health,
-            speed: self.speed,
-            attack_damage: self.attack_damage,
-            attack_range: self.attack_range,
-            attack_cooldown: self.attack_cooldown,
-            shield: self.shield,
-            custom_stats: self.custom_stats.clone(),
+        let mut stats = self.stats.clone();
+        // Merge named fields into the stats map.
+        if let Some(h) = self.health {
+            stats.insert("health".into(), h);
+            stats.entry("max_health".into()).or_insert(h);
         }
+        if let Some(s) = self.speed {
+            stats.insert("speed".into(), s);
+        }
+        if let Some(d) = self.attack_damage {
+            stats.insert("attack_damage".into(), d);
+        }
+        if let Some(r) = self.attack_range {
+            stats.insert("attack_range".into(), r);
+        }
+        if let Some(c) = self.attack_cooldown {
+            stats.insert("attack_cooldown".into(), c);
+        }
+        if let Some(s) = self.shield {
+            stats.insert("shield".into(), s);
+            stats.entry("max_shield".into()).or_insert(s);
+        }
+        EntityConfig { stats }
     }
 }
 
@@ -163,9 +179,9 @@ pub struct SpawnDef {
 pub struct CommandsDef {
     #[serde(default)]
     pub definitions: Vec<CommandDef>,
-    /// Reserved: paths to .grim library files (Phase 2, not yet loaded).
+    /// Paths to .grim library files (relative to mod dir). Functions defined
+    /// in these files are prepended to player scripts before compilation.
     #[serde(default)]
-    #[allow(dead_code)]
     pub libraries: Vec<String>,
 }
 
@@ -192,6 +208,8 @@ pub struct LoadedMod {
     pub entity_configs: HashMap<String, EntityConfig>,
     /// Command name → command definition.
     pub command_defs: HashMap<String, CommandDef>,
+    /// GrimScript library source code (concatenated from all library files).
+    pub library_source: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -246,17 +264,45 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
         entity_configs.insert(entity_def.entity_type.clone(), entity_def.to_entity_config());
     }
 
+    // Load .grim library files.
+    let mut library_source = String::new();
+    if let Some(cmds) = &manifest.commands {
+        for lib_path in &cmds.libraries {
+            let full_path = mod_dir.join(lib_path);
+            match std::fs::read_to_string(&full_path) {
+                Ok(src) => {
+                    if !library_source.is_empty() {
+                        library_source.push('\n');
+                    }
+                    library_source.push_str(&src);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[mod:{}] warning: failed to read library '{}': {e}",
+                        manifest.meta.id, full_path.display()
+                    );
+                }
+            }
+        }
+    }
+
     Some(LoadedMod {
         manifest,
         sprites,
         pivots,
         entity_configs,
         command_defs,
+        library_source,
     })
 }
 
 /// Load mods from the `mods/` directory. Falls back to embedded assets if
 /// the directory doesn't exist or contains no valid mods.
+///
+/// Mods are loaded alphabetically from disk, then reordered by dependency
+/// graph (topological sort). Dependencies listed in `depends_on` must be
+/// present; conflicts listed in `conflicts_with` cause the conflicting mod
+/// to be skipped with a warning.
 pub fn load_mods(mods_dir: &Path) -> Vec<LoadedMod> {
     let mut loaded = Vec::new();
 
@@ -270,7 +316,6 @@ pub fn load_mods(mods_dir: &Path) -> Vec<LoadedMod> {
             for entry in dirs {
                 let path = entry.path();
                 if let Some(m) = load_mod_from_dir(&path) {
-                    eprintln!("[mod] loaded: {} v{}", m.manifest.meta.name, m.manifest.meta.version);
                     loaded.push(m);
                 }
             }
@@ -280,9 +325,175 @@ pub fn load_mods(mods_dir: &Path) -> Vec<LoadedMod> {
     if loaded.is_empty() {
         eprintln!("[mod] no mods found, using embedded fallback");
         loaded.push(embedded_fallback());
+        return loaded;
+    }
+
+    // Resolve dependencies: validate, detect conflicts, topological sort.
+    loaded = resolve_mod_dependencies(loaded);
+
+    for m in &loaded {
+        eprintln!("[mod] loaded: {} v{}", m.manifest.meta.name, m.manifest.meta.version);
     }
 
     loaded
+}
+
+/// Validate dependencies and conflicts, then topologically sort mods so that
+/// dependencies are loaded before dependants. Mods with missing deps or
+/// conflicts are skipped with warnings.
+fn resolve_mod_dependencies(mut mods: Vec<LoadedMod>) -> Vec<LoadedMod> {
+    let all_ids: HashSet<String> = mods.iter().map(|m| m.manifest.meta.id.clone()).collect();
+
+    // Check for missing dependencies — skip mods whose deps aren't present.
+    let mut valid_ids: HashSet<String> = HashSet::new();
+    let mut skipped: HashSet<String> = HashSet::new();
+    // Iterate until stable (cascading removal if A depends on B and B is skipped).
+    loop {
+        let mut changed = false;
+        for m in &mods {
+            let id = &m.manifest.meta.id;
+            if skipped.contains(id) || valid_ids.contains(id) {
+                continue;
+            }
+            let mut ok = true;
+            for dep in &m.manifest.meta.depends_on {
+                if !all_ids.contains(dep) || skipped.contains(dep) {
+                    eprintln!(
+                        "[mod] error: '{}' depends on '{}' which is not available — skipping",
+                        id, dep
+                    );
+                    ok = false;
+                    break;
+                }
+            }
+            if ok {
+                valid_ids.insert(id.clone());
+            } else {
+                skipped.insert(id.clone());
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // Remove skipped mods.
+    mods.retain(|m| !skipped.contains(&m.manifest.meta.id));
+
+    // Check for conflicts — if A conflicts_with B, skip B (first-loaded wins).
+    let mut active_ids: HashSet<String> = HashSet::new();
+    let mut conflict_skipped: HashSet<String> = HashSet::new();
+    for m in &mods {
+        let id = &m.manifest.meta.id;
+        // Check if any already-active mod conflicts with this one.
+        let mut dominated = false;
+        for active in &active_ids {
+            let active_mod = mods.iter().find(|am| am.manifest.meta.id == *active).unwrap();
+            if active_mod.manifest.meta.conflicts_with.contains(id) {
+                eprintln!(
+                    "[mod] warning: '{}' conflicts with already-loaded '{}' — skipping '{}'",
+                    active, id, id
+                );
+                dominated = true;
+                break;
+            }
+        }
+        if dominated {
+            conflict_skipped.insert(id.clone());
+            continue;
+        }
+        // Check if this mod conflicts with any already-active mod.
+        for conflict in &m.manifest.meta.conflicts_with {
+            if active_ids.contains(conflict) {
+                eprintln!(
+                    "[mod] warning: '{}' conflicts with already-loaded '{}' — skipping '{}'",
+                    id, conflict, id
+                );
+                dominated = true;
+                break;
+            }
+        }
+        if dominated {
+            conflict_skipped.insert(id.clone());
+            continue;
+        }
+        active_ids.insert(id.clone());
+    }
+    mods.retain(|m| !conflict_skipped.contains(&m.manifest.meta.id));
+
+    // Topological sort by depends_on (Kahn's algorithm).
+    let id_list: Vec<String> = mods.iter().map(|m| m.manifest.meta.id.clone()).collect();
+    let id_set: HashSet<&str> = id_list.iter().map(|s| s.as_str()).collect();
+
+    // Build in-degree and adjacency.
+    let mut in_degree: HashMap<&str, usize> = HashMap::new();
+    let mut dependants: HashMap<&str, Vec<&str>> = HashMap::new();
+    for id in &id_list {
+        in_degree.insert(id, 0);
+    }
+    for m in &mods {
+        let id = m.manifest.meta.id.as_str();
+        for dep in &m.manifest.meta.depends_on {
+            if id_set.contains(dep.as_str()) {
+                *in_degree.entry(id).or_insert(0) += 1;
+                dependants.entry(dep.as_str()).or_default().push(id);
+            }
+        }
+    }
+
+    let mut queue: std::collections::VecDeque<&str> = id_list.iter()
+        .filter(|id| in_degree[id.as_str()] == 0)
+        .map(|s| s.as_str())
+        .collect();
+    // Initial order is already alphabetical (from id_list which preserves input order).
+
+    let mut sorted_ids: Vec<String> = Vec::with_capacity(id_list.len());
+    while let Some(id) = queue.pop_front() {
+        sorted_ids.push(id.to_string());
+        if let Some(deps) = dependants.get(id) {
+            // Collect newly freed nodes, sort alphabetically for stable ordering.
+            let mut newly_free: Vec<&str> = Vec::new();
+            for &dep in deps {
+                let deg = in_degree.get_mut(dep).unwrap();
+                *deg -= 1;
+                if *deg == 0 {
+                    newly_free.push(dep);
+                }
+            }
+            newly_free.sort();
+            for dep in newly_free {
+                queue.push_back(dep);
+            }
+        }
+    }
+
+    if sorted_ids.len() < id_list.len() {
+        // Cycle detected — find the remaining mods.
+        let sorted_set: HashSet<String> = sorted_ids.iter().cloned().collect();
+        let cycle_mods: Vec<&str> = id_list.iter()
+            .filter(|id| !sorted_set.contains(id.as_str()))
+            .map(|s| s.as_str())
+            .collect();
+        eprintln!(
+            "[mod] error: circular dependency detected among: {} — loading in alphabetical order",
+            cycle_mods.join(", ")
+        );
+        // Fall back to alphabetical for the cycle members.
+        for id in &id_list {
+            if !sorted_set.contains(id.as_str()) {
+                sorted_ids.push(id.clone());
+            }
+        }
+    }
+
+    // Reorder mods by sorted_ids.
+    let mut id_to_idx: HashMap<String, usize> = HashMap::new();
+    for (i, id) in sorted_ids.iter().enumerate() {
+        id_to_idx.insert(id.clone(), i);
+    }
+    mods.sort_by_key(|m| *id_to_idx.get(&m.manifest.meta.id).unwrap_or(&usize::MAX));
+    mods
 }
 
 /// Build a `LoadedMod` from the compile-time embedded assets (the same
@@ -336,9 +547,11 @@ fn embedded_fallback() -> LoadedMod {
     };
 
     entity_configs.insert("skeleton".into(), EntityConfig {
-        health: Some(50),
-        speed: Some(2),
-        ..Default::default()
+        stats: HashMap::from([
+            ("health".into(), 50),
+            ("max_health".into(), 50),
+            ("speed".into(), 2),
+        ]),
     });
 
     LoadedMod {
@@ -347,6 +560,7 @@ fn embedded_fallback() -> LoadedMod {
         pivots,
         entity_configs,
         command_defs: HashMap::new(),
+        library_source: String::new(),
     }
 }
 
@@ -437,30 +651,15 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
     }
 }
 
-/// Validate a list of effects against known stat names, target references, and arg names.
+/// Validate a list of effects against target references and arg names.
 /// Recurses into `If` branches and `StartChannel` phases.
 fn validate_effects(
     effects: &[CommandEffect],
     args: &[String],
     cmd_name: &str,
     mod_id: &str,
-    valid_stats: &HashSet<&str>,
 ) {
     for effect in effects {
-        // Validate stat names in ModifyStat and UseResource effects.
-        let stat_name = match effect {
-            CommandEffect::ModifyStat { stat, .. }
-            | CommandEffect::UseResource { stat, .. } => Some(stat.as_str()),
-            _ => None,
-        };
-        if let Some(stat) = stat_name {
-            if !valid_stats.contains(stat) {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' references unknown stat '{stat}' \
-                     (valid: health, energy, shield, speed)",
-                );
-            }
-        }
         // Validate UseResource amounts (only check fixed values).
         if let CommandEffect::UseResource { stat, amount } = effect {
             if let deadcode_sim::action::DynInt::Fixed(v) = amount {
@@ -477,8 +676,7 @@ fn validate_effects(
             | CommandEffect::Heal { target, .. }
             | CommandEffect::ModifyStat { target, .. }
             | CommandEffect::ApplyBuff { target, .. }
-            | CommandEffect::RemoveBuff { target, .. }
-            | CommandEffect::ModifyCustomStat { target, .. } => Some(target.as_str()),
+            | CommandEffect::RemoveBuff { target, .. } => Some(target.as_str()),
             _ => None,
         };
         if let Some(target) = target_str {
@@ -486,9 +684,9 @@ fn validate_effects(
         }
         // Validate condition in If effects, then recurse into both branches.
         if let CommandEffect::If { condition, then_effects, otherwise } = effect {
-            validate_condition(condition, cmd_name, mod_id, valid_stats);
-            validate_effects(then_effects, args, cmd_name, mod_id, valid_stats);
-            validate_effects(otherwise, args, cmd_name, mod_id, valid_stats);
+            validate_condition(condition, cmd_name, mod_id);
+            validate_effects(then_effects, args, cmd_name, mod_id);
+            validate_effects(otherwise, args, cmd_name, mod_id);
         }
         // Validate StartChannel phases.
         if let CommandEffect::StartChannel { phases } = effect {
@@ -505,8 +703,8 @@ fn validate_effects(
                         phase.update_interval
                     );
                 }
-                validate_effects(&phase.on_start, args, cmd_name, mod_id, valid_stats);
-                validate_effects(&phase.per_update, args, cmd_name, mod_id, valid_stats);
+                validate_effects(&phase.on_start, args, cmd_name, mod_id);
+                validate_effects(&phase.per_update, args, cmd_name, mod_id);
             }
         }
     }
@@ -517,7 +715,6 @@ fn validate_condition(
     condition: &deadcode_sim::action::Condition,
     cmd_name: &str,
     mod_id: &str,
-    valid_stats: &HashSet<&str>,
 ) {
     match condition {
         deadcode_sim::action::Condition::Resource { resource, .. } => {
@@ -535,10 +732,9 @@ fn validate_condition(
             }
         }
         deadcode_sim::action::Condition::Stat { stat, .. } => {
-            if !valid_stats.contains(stat.as_str()) {
+            if stat.is_empty() {
                 eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition referencing unknown stat '{stat}' \
-                     (valid: health, shield, speed)",
+                    "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition with empty stat name",
                 );
             }
         }
@@ -559,14 +755,7 @@ fn validate_condition(
         deadcode_sim::action::Condition::And { conditions }
         | deadcode_sim::action::Condition::Or { conditions } => {
             for sub in conditions {
-                validate_condition(sub, cmd_name, mod_id, valid_stats);
-            }
-        }
-        deadcode_sim::action::Condition::CustomStat { stat, .. } => {
-            if stat.is_empty() {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' has custom_stat condition with empty stat name",
-                );
+                validate_condition(sub, cmd_name, mod_id);
             }
         }
     }
@@ -578,8 +767,6 @@ fn validate_condition(
 /// For phased commands: validates mutual exclusivity with `effects`, phase ticks > 0,
 /// and effects within `on_start`/`per_update` lists.
 pub fn validate_command_defs(mods: &[LoadedMod]) {
-    let valid_stats: HashSet<&str> = ["health", "shield", "speed"].into_iter().collect();
-
     for m in mods {
         let Some(cmds) = &m.manifest.commands else { continue };
         let mod_id = &m.manifest.meta.id;
@@ -607,12 +794,12 @@ pub fn validate_command_defs(mods: &[LoadedMod]) {
                         def.name, phase.update_interval
                     );
                 }
-                validate_effects(&phase.on_start, &def.args, &def.name, mod_id, &valid_stats);
-                validate_effects(&phase.per_update, &def.args, &def.name, mod_id, &valid_stats);
+                validate_effects(&phase.on_start, &def.args, &def.name, mod_id);
+                validate_effects(&phase.per_update, &def.args, &def.name, mod_id);
             }
 
             // Validate instant effects (reuses validate_effects which handles If/StartChannel recursion).
-            validate_effects(&def.effects, &def.args, &def.name, mod_id, &valid_stats);
+            validate_effects(&def.effects, &def.args, &def.name, mod_id);
         }
     }
 }
@@ -764,9 +951,6 @@ pub fn collect_buffs(mods: &[LoadedMod]) -> Vec<BuffDef> {
 
 /// Validate buff definitions at load time.
 pub fn validate_buffs(mods: &[LoadedMod]) {
-    let valid_stats: HashSet<&str> = ["health", "shield", "speed", "attack_damage", "attack_range"]
-        .into_iter().collect();
-
     for m in mods {
         let mod_id = &m.manifest.meta.id;
         for buff in &m.manifest.buffs {
@@ -779,21 +963,11 @@ pub fn validate_buffs(mods: &[LoadedMod]) {
                     buff.name, buff.duration
                 );
             }
-            for stat in buff.modifiers.keys() {
-                if !valid_stats.contains(stat.as_str()) {
-                    eprintln!(
-                        "[mod:{mod_id}] warning: buff '{}' references unknown stat '{stat}' \
-                         (valid: health, shield, speed, attack_damage, attack_range)",
-                        buff.name
-                    );
-                }
-            }
             // Validate effect lists.
             let effect_ctx = format!("buff '{}'", buff.name);
-            let valid_effect_stats: HashSet<&str> = ["health", "shield", "speed"].into_iter().collect();
-            validate_effects(&buff.per_tick, &[], &effect_ctx, mod_id, &valid_effect_stats);
-            validate_effects(&buff.on_apply, &[], &effect_ctx, mod_id, &valid_effect_stats);
-            validate_effects(&buff.on_expire, &[], &effect_ctx, mod_id, &valid_effect_stats);
+            validate_effects(&buff.per_tick, &[], &effect_ctx, mod_id);
+            validate_effects(&buff.on_apply, &[], &effect_ctx, mod_id);
+            validate_effects(&buff.on_expire, &[], &effect_ctx, mod_id);
         }
     }
 }
@@ -807,8 +981,6 @@ pub fn validate_triggers(mods: &[LoadedMod]) {
         "resource_changed", "command_used", "tick_interval",
         "channel_completed", "channel_interrupted",
     ].into_iter().collect();
-
-    let valid_stats: HashSet<&str> = ["health", "shield", "speed"].into_iter().collect();
 
     for m in mods {
         let mod_id = &m.manifest.meta.id;
@@ -844,7 +1016,6 @@ pub fn validate_triggers(mods: &[LoadedMod]) {
                     condition,
                     &format!("trigger {i}"),
                     mod_id,
-                    &valid_stats,
                 );
             }
 
@@ -854,8 +1025,187 @@ pub fn validate_triggers(mods: &[LoadedMod]) {
                 &[], // triggers have no args
                 &format!("trigger {i}"),
                 mod_id,
-                &valid_stats,
             );
         }
+    }
+}
+
+/// Collect library source code from all loaded mods (in load order).
+/// Returns the concatenated GrimScript source to be prepended to player scripts.
+/// Function name collisions use first-loaded-wins (consistent with commands).
+pub fn collect_library_source(mods: &[LoadedMod]) -> String {
+    let mut combined = String::new();
+    for m in mods {
+        if !m.library_source.is_empty() {
+            if !combined.is_empty() {
+                combined.push('\n');
+            }
+            combined.push_str(&m.library_source);
+        }
+    }
+    combined
+}
+
+/// Validate dependencies and conflicts at load time (post-resolution).
+/// This produces warnings for any issues that were handled silently during resolution.
+pub fn validate_dependencies(mods: &[LoadedMod]) {
+    let loaded_ids: HashSet<String> = mods.iter().map(|m| m.manifest.meta.id.clone()).collect();
+    for m in mods {
+        let id = &m.manifest.meta.id;
+        for dep in &m.manifest.meta.depends_on {
+            if !loaded_ids.contains(dep) {
+                // This shouldn't happen after resolution, but just in case.
+                eprintln!("[mod] error: '{}' depends on '{}' which is not loaded", id, dep);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: create a minimal LoadedMod with the given id, depends_on, and conflicts_with.
+    fn test_mod(id: &str, depends_on: Vec<&str>, conflicts_with: Vec<&str>) -> LoadedMod {
+        LoadedMod {
+            manifest: ModManifest {
+                meta: ModMeta {
+                    id: id.into(),
+                    name: id.into(),
+                    version: "1.0.0".into(),
+                    depends_on: depends_on.into_iter().map(|s| s.to_string()).collect(),
+                    conflicts_with: conflicts_with.into_iter().map(|s| s.to_string()).collect(),
+                    min_game_version: None,
+                },
+                entities: vec![],
+                spawn: vec![],
+                commands: None,
+                initial: None,
+                resources: HashMap::new(),
+                triggers: vec![],
+                buffs: vec![],
+            },
+            sprites: HashMap::new(),
+            pivots: HashMap::new(),
+            entity_configs: HashMap::new(),
+            command_defs: HashMap::new(),
+            library_source: String::new(),
+        }
+    }
+
+    fn ids(mods: &[LoadedMod]) -> Vec<String> {
+        mods.iter().map(|m| m.manifest.meta.id.clone()).collect()
+    }
+
+    #[test]
+    fn dependency_resolution_no_deps() {
+        let mods = vec![
+            test_mod("core", vec![], vec![]),
+            test_mod("extra", vec![], vec![]),
+        ];
+        let resolved = resolve_mod_dependencies(mods);
+        assert_eq!(ids(&resolved), vec!["core", "extra"]);
+    }
+
+    #[test]
+    fn dependency_resolution_simple_ordering() {
+        // "extra" depends on "core" — core should come first.
+        let mods = vec![
+            test_mod("extra", vec!["core"], vec![]),
+            test_mod("core", vec![], vec![]),
+        ];
+        let resolved = resolve_mod_dependencies(mods);
+        assert_eq!(ids(&resolved), vec!["core", "extra"]);
+    }
+
+    #[test]
+    fn dependency_resolution_chain() {
+        // c depends on b, b depends on a.
+        let mods = vec![
+            test_mod("c", vec!["b"], vec![]),
+            test_mod("a", vec![], vec![]),
+            test_mod("b", vec!["a"], vec![]),
+        ];
+        let resolved = resolve_mod_dependencies(mods);
+        assert_eq!(ids(&resolved), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn dependency_resolution_missing_dep_skipped() {
+        // "extra" depends on "missing" which doesn't exist.
+        let mods = vec![
+            test_mod("core", vec![], vec![]),
+            test_mod("extra", vec!["missing"], vec![]),
+        ];
+        let resolved = resolve_mod_dependencies(mods);
+        assert_eq!(ids(&resolved), vec!["core"]);
+    }
+
+    #[test]
+    fn dependency_resolution_cascade_skip() {
+        // b depends on a, c depends on b. If a is missing, both b and c should be skipped.
+        let mods = vec![
+            test_mod("b", vec!["a"], vec![]),
+            test_mod("c", vec!["b"], vec![]),
+            test_mod("d", vec![], vec![]),
+        ];
+        let resolved = resolve_mod_dependencies(mods);
+        assert_eq!(ids(&resolved), vec!["d"]);
+    }
+
+    #[test]
+    fn dependency_resolution_conflict_skips_second() {
+        // core conflicts_with extra — extra should be skipped (core loads first alphabetically).
+        let mods = vec![
+            test_mod("core", vec![], vec!["extra"]),
+            test_mod("extra", vec![], vec![]),
+        ];
+        let resolved = resolve_mod_dependencies(mods);
+        assert_eq!(ids(&resolved), vec!["core"]);
+    }
+
+    #[test]
+    fn dependency_resolution_reverse_conflict() {
+        // extra conflicts_with core — extra is skipped since core loads first.
+        let mods = vec![
+            test_mod("core", vec![], vec![]),
+            test_mod("extra", vec![], vec!["core"]),
+        ];
+        let resolved = resolve_mod_dependencies(mods);
+        assert_eq!(ids(&resolved), vec!["core"]);
+    }
+
+    #[test]
+    fn dependency_resolution_cycle_fallback() {
+        // a depends on b, b depends on a — cycle. Both should still appear.
+        let mods = vec![
+            test_mod("a", vec!["b"], vec![]),
+            test_mod("b", vec!["a"], vec![]),
+        ];
+        let resolved = resolve_mod_dependencies(mods);
+        // Both should be present (cycle falls back to alphabetical).
+        assert_eq!(resolved.len(), 2);
+        let result_ids = ids(&resolved);
+        assert!(result_ids.contains(&"a".to_string()));
+        assert!(result_ids.contains(&"b".to_string()));
+    }
+
+    #[test]
+    fn library_source_collection() {
+        let mut m1 = test_mod("core", vec![], vec![]);
+        m1.library_source = "def helper():\n    return 1".into();
+        let mut m2 = test_mod("extra", vec![], vec![]);
+        m2.library_source = "def util():\n    return 2".into();
+
+        let combined = collect_library_source(&[m1, m2]);
+        assert!(combined.contains("def helper()"));
+        assert!(combined.contains("def util()"));
+    }
+
+    #[test]
+    fn library_source_empty_when_no_libs() {
+        let m1 = test_mod("core", vec![], vec![]);
+        let combined = collect_library_source(&[m1]);
+        assert!(combined.is_empty());
     }
 }

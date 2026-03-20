@@ -91,8 +91,8 @@ pub enum Instruction {
     QueryGetOwner,
     /// Get a global resource value. Pop Str name, push Int (0 if nonexistent).
     QueryGetResource,
-    /// Get a custom stat value from an entity. Pop Str stat_name, pop EntityRef, push Int.
-    QueryGetCustomStat,
+    /// Get a stat value from an entity. Pop Str stat_name, pop EntityRef, push Int.
+    QueryGetStat,
 
     // --- Action instructions (consume tick — executor yields after these) ---
     /// Move toward position. Pop Int target_pos.

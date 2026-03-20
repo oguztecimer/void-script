@@ -15,7 +15,16 @@ mods/
       warrior_atlas.json    # Atlas metadata (frame layout)
 ```
 
-The game scans `mods/` at startup and loads every directory that contains a valid `mod.toml` **in alphabetical order by directory name** (deterministic across platforms). If no mods are found, the game falls back to embedded assets (identical to the pre-modding behavior).
+The game scans `mods/` at startup and loads every directory that contains a valid `mod.toml`. Mods are then reordered by their dependency graph (topological sort, with alphabetical tie-breaking for determinism). If no mods are found, the game falls back to embedded assets (identical to the pre-modding behavior).
+
+### Dependencies and Conflicts
+
+Mods can declare dependencies and conflicts in the `[mod]` section:
+
+- **`depends_on`**: List of mod IDs that must be loaded. Dependencies are loaded first. If a dependency is missing, the mod (and any mods that depend on it) is skipped with a warning.
+- **`conflicts_with`**: List of mod IDs that cannot be loaded alongside this mod. If a conflict exists, the first-loaded mod wins and the conflicting mod is skipped with a warning.
+
+Circular dependencies are detected and logged as an error. The affected mods fall back to alphabetical ordering.
 
 ## mod.toml Reference
 
@@ -24,8 +33,8 @@ The game scans `mods/` at startup and loads every directory that contains a vali
 id = "my-mod"           # Unique identifier (lowercase, no spaces)
 name = "My Mod"         # Display name
 version = "0.1.0"       # Semver version string
-depends_on = []         # Reserved: mod IDs this mod requires (not enforced yet)
-conflicts_with = []     # Reserved: mod IDs this mod conflicts with (not enforced yet)
+depends_on = []         # Mod IDs this mod requires (must be loaded first)
+conflicts_with = []     # Mod IDs that cannot be loaded alongside this mod
 min_game_version = ""   # Reserved: minimum game version (not enforced yet)
 
 # --- Entity Definitions ---
@@ -806,40 +815,48 @@ Randomness is deterministic — same seed produces same result. The `percent` fi
 
 ## Custom Entity Stats
 
-Entity types can define arbitrary named stats beyond the built-in ones (health, shield, speed, etc.):
+All entity stats live in a single unified system. Entity types can define arbitrary named stats alongside the built-in ones (health, shield, speed, etc.):
 
 ```toml
 [[entities]]
 type = "warrior"
 health = 80
-custom_stats = { armor = 5, crit_chance = 10, rage = 0 }
+stats = { armor = 5, crit_chance = 10, rage = 0 }
 ```
 
-Custom stats are stored per-entity and persist for the entity's lifetime. They default to 0 if not defined.
+The named fields (`health`, `speed`, `shield`, `attack_damage`, `attack_range`, `attack_cooldown`) are syntactic sugar — they merge into the same stats HashMap. The `stats` table adds additional entries. All stats default to 0 if not defined.
 
 ### Effect Types
 
+`modify_stat` and `use_resource` work with **all** stats (built-in and custom):
+
 | Effect | Fields | Description |
 |--------|--------|-------------|
-| `modify_custom_stat` | `target`, `stat`, `amount` | Add to a custom stat (can be negative). Creates the stat if it doesn't exist. |
-| `use_custom_stat` | `stat`, `amount` | Check and deduct a custom stat from self; aborts remaining effects if insufficient. |
+| `modify_stat` | `target`, `stat`, `amount` | Add to any stat (can be negative). Clamped to `[0, max_{stat}]` if a max exists. |
+| `use_resource` | `stat`, `amount` | Check and deduct any stat from self; aborts remaining effects if insufficient. |
 
 ```toml
 effects = [
-  { type = "use_custom_stat", stat = "rage", amount = 10 },
-  { type = "modify_custom_stat", target = "self", stat = "armor", amount = -5 },
+  { type = "use_resource", stat = "rage", amount = 10 },
+  { type = "modify_stat", target = "self", stat = "armor", amount = -5 },
 ]
 ```
 
+For backward compatibility, `modify_custom_stat` is accepted as an alias for `modify_stat`, and `use_custom_stat` as an alias for `use_resource`.
+
 ### Condition
 
+The `stat` condition works with all stats:
+
 ```toml
-{ type = "custom_stat", stat = "armor", compare = "gte", amount = 10 }
+{ type = "stat", stat = "armor", compare = "gte", amount = 10 }
 ```
+
+For backward compatibility, `custom_stat` is accepted as an alias for `stat`.
 
 ### Script Access
 
-Custom stats are accessible via entity attribute access or the `get_custom_stat` builtin:
+Stats are accessible via entity attribute access or the `get_stat` builtin:
 
 ```python
 # Via attribute access (dot notation)
@@ -847,15 +864,15 @@ my_armor = self.armor
 print("Armor:", my_armor)
 
 # Via builtin function (takes entity ref + stat name)
-armor = get_custom_stat(self, "armor")
-target_armor = get_custom_stat(target, "armor")
+armor = get_stat(self, "armor")
+target_armor = get_stat(target, "armor")
 ```
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `get_custom_stat(entity, "name")` | `Int` | Get the value of a custom stat on an entity (0 if undefined) |
+| `get_stat(entity, "name")` | `Int` | Get the value of any stat on an entity (0 if undefined) |
 
-`get_custom_stat` is a game builtin gated by `[initial].commands`.
+`get_stat` is a game builtin gated by `[initial].commands`. `get_custom_stat` is accepted as an alias for backward compatibility.
 
 ## Computed Values (DynInt)
 
@@ -983,38 +1000,36 @@ If a `use_resource` effect within a phase's `on_start` or `per_update` fails (in
 | Script hot-reload during channel | Channel is cleared along with script state |
 | Both `effects` and `phases` set | Validation warning; `phases` takes precedence |
 
-## Phase 2: Library Files (Future)
+## Library Files
 
-> **Status:** Design sketch. The `libraries` field is reserved in the schema but not yet loaded or compiled.
-
-Mods will be able to provide `.grim` library files whose functions are compiled and merged into player scripts. This allows mods to ship reusable GrimScript utilities alongside their custom commands and entity types.
+Mods can provide `.grim` library files whose functions are prepended to player scripts before compilation. This allows mods to ship reusable GrimScript utilities alongside their custom commands and entity types.
 
 ### Schema
 
 ```toml
 [commands]
-initial = ["raise", "drain"]
 libraries = ["lib/utils.grim", "lib/combat.grim"]
 ```
 
+Paths are relative to the mod directory. Files are loaded in the order listed. If a file is missing, a warning is emitted and loading continues.
+
 ### Namespace Strategy
 
-Flat namespace with first-loaded-wins, consistent with entity types and custom commands. No mod-prefixed namespaces yet — adds complexity with minimal benefit at current scale. If collisions become a problem, namespacing can be added later.
+Flat namespace with first-loaded-wins, consistent with entity types and custom commands. If two mods define a function with the same name, the first-loaded mod's version is used (the compiler will see it first in the prepended source). No mod-prefixed namespaces — adds complexity with minimal benefit at current scale.
 
 ### Gating
 
-Library functions inherit the mod's available commands set. If a library function calls `raise()`, the `raise` command must be in the available set. The compiler validates this at compile time, not at runtime.
+Library functions are subject to the same command gating as player scripts. If a library function calls `raise()`, the `raise` command must be in the available set. The compiler validates this at compile time.
 
-### Compilation Order
+### How It Works
 
-1. Load all mods, register custom commands and entity types
-2. Compile library `.grim` files (they can reference custom commands from the same mod)
-3. Library functions are injected into the player's script as additional function definitions before compilation
-4. The player's script is compiled with all library functions available
+1. At mod load time, `.grim` files listed in `commands.libraries` are read and concatenated into the mod's `library_source`
+2. When a player script is compiled (Run or Console), all mod library sources are prepended to the script source
+3. The combined source is compiled as a single unit — library functions are visible to the player's code as if defined at the top of their script
 
 ### Interaction with Custom Commands
 
-Library functions can call custom commands from the same mod. Cross-mod library-to-custom-command calls work if the target command is in the available set (i.e., in `initial` or unlocked at runtime).
+Library functions can call custom commands from any loaded mod, subject to the same available commands gating as player scripts.
 
 ## Adding New Effects (Developer Guide)
 

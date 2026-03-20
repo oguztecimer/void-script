@@ -64,14 +64,7 @@ impl DynInt {
                 world.get_resource(resource) * multiplier
             }
             DynInt::CasterStat { stat, multiplier } => {
-                let value = world.get_entity(entity_id).map_or(0, |e| match stat.as_str() {
-                    "health" => e.health,
-                    "shield" => e.shield,
-                    "speed" => e.speed,
-                    "attack_damage" => e.attack_damage,
-                    "attack_range" => e.attack_range,
-                    _ => e.custom_stats.get(stat).copied().unwrap_or(0),
-                });
+                let value = world.get_entity(entity_id).map_or(0, |e| e.stat(stat));
                 value * multiplier
             }
         }
@@ -225,8 +218,8 @@ pub enum Condition {
         compare: CompareOp,
         amount: DynInt,
     },
-    /// Compare the caster's stat (health, shield, speed) against a threshold.
-    #[serde(rename = "stat")]
+    /// Compare the caster's stat against a threshold.
+    #[serde(rename = "stat", alias = "custom_stat")]
     Stat {
         stat: String,
         compare: CompareOp,
@@ -251,13 +244,6 @@ pub enum Condition {
     #[serde(rename = "or")]
     Or {
         conditions: Vec<Condition>,
-    },
-    /// Compare a custom stat on the caster against a threshold.
-    #[serde(rename = "custom_stat")]
-    CustomStat {
-        stat: String,
-        compare: CompareOp,
-        amount: DynInt,
     },
 }
 
@@ -313,11 +299,11 @@ pub enum CommandEffect {
     /// Spawn an entity at self.position + offset.
     #[serde(rename = "spawn")]
     Spawn { entity_type: String, offset: DynInt },
-    /// Add to a stat (health/energy/shield/speed).
-    #[serde(rename = "modify_stat")]
+    /// Add to a stat. Works for all stats (health, shield, speed, custom stats, etc.).
+    #[serde(rename = "modify_stat", alias = "modify_custom_stat")]
     ModifyStat { target: String, stat: String, amount: DynInt },
-    /// Check and deduct a resource; if insufficient, abort remaining effects.
-    #[serde(rename = "use_resource")]
+    /// Check and deduct a stat; if insufficient, abort remaining effects.
+    #[serde(rename = "use_resource", alias = "use_custom_stat")]
     UseResource { stat: String, amount: DynInt },
     /// List all registered commands and their descriptions.
     #[serde(rename = "list_commands")]
@@ -360,19 +346,6 @@ pub enum CommandEffect {
     RemoveBuff {
         target: String,
         buff: String,
-    },
-    /// Modify a custom stat on a target entity.
-    #[serde(rename = "modify_custom_stat")]
-    ModifyCustomStat {
-        target: String,
-        stat: String,
-        amount: DynInt,
-    },
-    /// Check and deduct a custom stat; if insufficient, abort remaining effects.
-    #[serde(rename = "use_custom_stat")]
-    UseCustomStat {
-        stat: String,
-        amount: DynInt,
     },
 }
 
@@ -495,7 +468,7 @@ pub fn resolve_action(
     match action {
         UnitAction::Move { target_pos } => {
             if let Some(entity) = world.get_entity_mut(entity_id) {
-                let speed = entity.speed;
+                let speed = entity.stat("speed");
                 let dx = target_pos - entity.position;
                 let step = dx.signum() * speed.min(dx.abs());
                 entity.position += step;
@@ -508,7 +481,7 @@ pub fn resolve_action(
 
         UnitAction::Attack { target } => {
             let (damage, range, attacker_pos) = match world.get_entity(entity_id) {
-                Some(e) => (e.attack_damage, e.attack_range, e.position),
+                Some(e) => (e.stat("attack_damage"), e.stat("attack_range"), e.position),
                 None => return events,
             };
 
@@ -524,20 +497,22 @@ pub fn resolve_action(
 
             if let Some(target_entity) = world.get_entity_mut(target) {
                 let mut remaining = damage;
-                if target_entity.shield > 0 {
-                    let shield_absorbed = remaining.min(target_entity.shield);
-                    target_entity.shield -= shield_absorbed;
+                let shield = target_entity.stat("shield");
+                if shield > 0 {
+                    let shield_absorbed = remaining.min(shield);
+                    target_entity.set_stat("shield", shield - shield_absorbed);
                     remaining -= shield_absorbed;
                 }
-                target_entity.health = (target_entity.health - remaining).max(0);
+                let new_health = (target_entity.stat("health") - remaining).max(0);
+                target_entity.set_stat("health", new_health);
 
                 events.push(SimEvent::EntityDamaged {
                     entity_id: target,
                     damage,
-                    new_health: target_entity.health,
+                    new_health,
                 });
 
-                if target_entity.health <= 0 {
+                if new_health <= 0 {
                     target_entity.alive = false;
                     events.push(SimEvent::EntityDied {
                         entity_id: target,
@@ -547,7 +522,8 @@ pub fn resolve_action(
             }
 
             if let Some(attacker) = world.get_entity_mut(entity_id) {
-                attacker.cooldown_remaining = attacker.attack_cooldown;
+                let cooldown = attacker.stat("attack_cooldown");
+                attacker.set_stat("cooldown_remaining", cooldown);
             }
         }
 
@@ -557,7 +533,7 @@ pub fn resolve_action(
                 None => return events,
             };
             if let Some(entity) = world.get_entity_mut(entity_id) {
-                let speed = entity.speed;
+                let speed = entity.stat("speed");
                 let direction = if entity.position >= threat_pos { 1 } else { -1 };
                 entity.position += direction * speed;
                 events.push(SimEvent::EntityMoved {
@@ -650,12 +626,7 @@ pub fn evaluate_condition(
             compare.evaluate(count, threshold)
         }
         Condition::Stat { stat, compare, amount } => {
-            let current = world.get_entity(entity_id).map_or(0, |e| match stat.as_str() {
-                "health" => e.health,
-                "shield" => e.shield,
-                "speed" => e.speed,
-                _ => 0,
-            });
+            let current = world.get_entity(entity_id).map_or(0, |e| e.stat(stat));
             let threshold = amount.resolve(rng);
             compare.evaluate(current, threshold)
         }
@@ -673,13 +644,6 @@ pub fn evaluate_condition(
         }
         Condition::Or { conditions } => {
             conditions.iter().any(|c| evaluate_condition(c, world, entity_id, rng))
-        }
-        Condition::CustomStat { stat, compare, amount } => {
-            let current = world.get_entity(entity_id)
-                .and_then(|e| e.custom_stats.get(stat).copied())
-                .unwrap_or(0);
-            let threshold = amount.resolve(rng);
-            compare.evaluate(current, threshold)
         }
     }
 }
@@ -725,18 +689,20 @@ fn resolve_effects_inner(
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
                         let mut remaining = amount;
-                        if target_entity.shield > 0 {
-                            let shield_absorbed = remaining.min(target_entity.shield);
-                            target_entity.shield -= shield_absorbed;
+                        let shield = target_entity.stat("shield");
+                        if shield > 0 {
+                            let shield_absorbed = remaining.min(shield);
+                            target_entity.set_stat("shield", shield - shield_absorbed);
                             remaining -= shield_absorbed;
                         }
-                        target_entity.health = (target_entity.health - remaining).max(0);
+                        let new_health = (target_entity.stat("health") - remaining).max(0);
+                        target_entity.set_stat("health", new_health);
                         events.push(SimEvent::EntityDamaged {
                             entity_id: tid,
                             damage: amount,
-                            new_health: target_entity.health,
+                            new_health,
                         });
-                        if target_entity.health <= 0 {
+                        if new_health <= 0 {
                             target_entity.alive = false;
                             events.push(SimEvent::EntityDied {
                                 entity_id: tid,
@@ -751,7 +717,9 @@ fn resolve_effects_inner(
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
-                        target_entity.health = (target_entity.health + amount).min(target_entity.max_health);
+                        let new_health = target_entity.stat("health") + amount;
+                        target_entity.set_stat("health", new_health);
+                        target_entity.clamp_stat("health");
                     }
                 }
             }
@@ -767,6 +735,10 @@ fn resolve_effects_inner(
                     format!("{}_{}", entity_type, id.0),
                     position,
                 );
+                // Apply entity config (stats) if defined for this type.
+                if let Some(config) = world.entity_configs.get(entity_type) {
+                    spawned.apply_config(config);
+                }
                 // Set spawn duration so entity can't act until animation finishes.
                 spawned.spawn_ticks_remaining = world.spawn_durations
                     .get(entity_type)
@@ -781,47 +753,24 @@ fn resolve_effects_inner(
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
-                        match stat.as_str() {
-                            "health" => {
-                                target_entity.health = (target_entity.health + amount)
-                                    .max(0)
-                                    .min(target_entity.max_health);
-                            }
-                            "shield" => {
-                                target_entity.shield = (target_entity.shield + amount).max(0);
-                            }
-                            "speed" => {
-                                target_entity.speed = (target_entity.speed + amount).max(0);
-                            }
-                            _ => {}
-                        }
+                        let new_val = target_entity.stat(stat) + amount;
+                        target_entity.set_stat(stat, new_val);
+                        target_entity.clamp_stat(stat);
                     }
                 }
             }
             CommandEffect::UseResource { stat, amount } => {
                 let amount = amount.resolve_with_world(rng, world, entity_id);
-                let has_enough = world.get_entity(entity_id).map_or(false, |e| {
-                    let current = match stat.as_str() {
-                        "health" => e.health,
-                        "shield" => e.shield,
-                        _ => return false,
-                    };
-                    current >= amount
-                });
-                if !has_enough {
+                let current = world.get_entity(entity_id).map_or(0, |e| e.stat(stat));
+                if current < amount {
                     events.push(SimEvent::ScriptOutput {
                         entity_id,
                         text: format!("[{cmd_name}] not enough {stat}"),
                     });
                     return EffectOutcome::Aborted;
                 }
-                // Deduct the resource.
                 if let Some(entity) = world.get_entity_mut(entity_id) {
-                    match stat.as_str() {
-                        "health" => entity.health = (entity.health - amount).max(0),
-                        "shield" => entity.shield = (entity.shield - amount).max(0),
-                        _ => {}
-                    }
+                    entity.set_stat(stat, (current - amount).max(0));
                 }
             }
             CommandEffect::ListCommands => {
@@ -974,33 +923,6 @@ fn resolve_effects_inner(
                     }
                 }
             }
-            CommandEffect::ModifyCustomStat { target, stat, amount } => {
-                let amount = amount.resolve_with_world(rng, world, entity_id);
-                let target_id = resolve_target_from_args(entity_id, target, args);
-                if let Some(tid) = target_id {
-                    if let Some(entity) = world.get_entity_mut(tid) {
-                        let entry = entity.custom_stats.entry(stat.clone()).or_insert(0);
-                        *entry += amount;
-                    }
-                }
-            }
-            CommandEffect::UseCustomStat { stat, amount } => {
-                let amount = amount.resolve_with_world(rng, world, entity_id);
-                let has_enough = world.get_entity(entity_id)
-                    .and_then(|e| e.custom_stats.get(stat).copied())
-                    .unwrap_or(0) >= amount;
-                if !has_enough {
-                    events.push(SimEvent::ScriptOutput {
-                        entity_id,
-                        text: format!("[{cmd_name}] not enough {stat}"),
-                    });
-                    return EffectOutcome::Aborted;
-                }
-                if let Some(entity) = world.get_entity_mut(entity_id) {
-                    let entry = entity.custom_stats.entry(stat.clone()).or_insert(0);
-                    *entry -= amount;
-                }
-            }
             CommandEffect::RemoveBuff { target, buff } => {
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
@@ -1043,17 +965,21 @@ pub(crate) fn apply_buff_modifiers(world: &mut SimWorld, entity_id: EntityId, bu
         for (stat, amount) in &buff_def.modifiers {
             match stat.as_str() {
                 "health" => {
-                    entity.max_health = (entity.max_health + amount).max(1);
-                    entity.health = (entity.health + amount).max(1).min(entity.max_health);
+                    let new_max = (entity.stat("max_health") + amount).max(1);
+                    entity.set_stat("max_health", new_max);
+                    let new_health = (entity.stat("health") + amount).max(1).min(new_max);
+                    entity.set_stat("health", new_health);
                 }
                 "shield" => {
-                    entity.max_shield = (entity.max_shield + amount).max(0);
-                    entity.shield = (entity.shield + amount).max(0).min(entity.max_shield);
+                    let new_max = (entity.stat("max_shield") + amount).max(0);
+                    entity.set_stat("max_shield", new_max);
+                    let new_shield = (entity.stat("shield") + amount).max(0).min(new_max);
+                    entity.set_stat("shield", new_shield);
                 }
-                "speed" => entity.speed = (entity.speed + amount).max(0),
-                "attack_damage" => entity.attack_damage = (entity.attack_damage + amount).max(0),
-                "attack_range" => entity.attack_range = (entity.attack_range + amount).max(0),
-                _ => {}
+                _ => {
+                    let new_val = (entity.stat(stat) + amount).max(0);
+                    entity.set_stat(stat, new_val);
+                }
             }
         }
     }
@@ -1065,17 +991,21 @@ pub(crate) fn reverse_buff_modifiers(world: &mut SimWorld, entity_id: EntityId, 
         for (stat, amount) in &buff_def.modifiers {
             match stat.as_str() {
                 "health" => {
-                    entity.max_health = (entity.max_health - amount).max(1);
-                    entity.health = entity.health.min(entity.max_health).max(1);
+                    let new_max = (entity.stat("max_health") - amount).max(1);
+                    entity.set_stat("max_health", new_max);
+                    let clamped = entity.stat("health").min(new_max).max(1);
+                    entity.set_stat("health", clamped);
                 }
                 "shield" => {
-                    entity.max_shield = (entity.max_shield - amount).max(0);
-                    entity.shield = entity.shield.min(entity.max_shield).max(0);
+                    let new_max = (entity.stat("max_shield") - amount).max(0);
+                    entity.set_stat("max_shield", new_max);
+                    let clamped = entity.stat("shield").min(new_max).max(0);
+                    entity.set_stat("shield", clamped);
                 }
-                "speed" => entity.speed = (entity.speed - amount).max(0),
-                "attack_damage" => entity.attack_damage = (entity.attack_damage - amount).max(0),
-                "attack_range" => entity.attack_range = (entity.attack_range - amount).max(0),
-                _ => {}
+                _ => {
+                    let new_val = (entity.stat(stat) - amount).max(0);
+                    entity.set_stat(stat, new_val);
+                }
             }
         }
     }

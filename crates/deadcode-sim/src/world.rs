@@ -328,8 +328,8 @@ impl SimWorld {
                     entity_type: e.entity_type.clone(),
                     name: e.name.clone(),
                     position: e.position,
-                    health: e.health,
-                    max_health: e.max_health,
+                    health: e.stat("health"),
+                    max_health: e.stat("max_health"),
                     alive: e.alive,
                 })
                 .collect(),
@@ -619,8 +619,9 @@ impl SimWorld {
                 continue;
             }
             // Cooldown ticking.
-            if entity.cooldown_remaining > 0 {
-                entity.cooldown_remaining -= 1;
+            let cd = entity.stat("cooldown_remaining");
+            if cd > 0 {
+                entity.set_stat("cooldown_remaining", cd - 1);
             }
         }
 
@@ -2195,7 +2196,7 @@ mod tests {
 
         // Give summoner a script that attacks the skeleton.
         // First, set skeleton health low so one attack kills it.
-        world.get_entity_mut(skeleton).unwrap().health = 1;
+        world.get_entity_mut(skeleton).unwrap().set_stat("health", 1);
 
         // Give summoner a script: attack(skeleton), halt
         let program = CompiledScript::new(
@@ -2239,7 +2240,7 @@ mod tests {
             ],
         });
 
-        world.get_entity_mut(zombie).unwrap().health = 1;
+        world.get_entity_mut(zombie).unwrap().set_stat("health", 1);
         let program = CompiledScript::new(
             vec![
                 Instruction::LoadConst(SimValue::EntityRef(zombie)),
@@ -2481,7 +2482,7 @@ mod tests {
             ],
         });
 
-        world.get_entity_mut(skeleton).unwrap().health = 1;
+        world.get_entity_mut(skeleton).unwrap().set_stat("health", 1);
         let program = CompiledScript::new(
             vec![
                 Instruction::LoadConst(SimValue::EntityRef(skeleton)),
@@ -2514,7 +2515,7 @@ mod tests {
 
     #[test]
     fn buff_apply_modifies_stats_and_expires() {
-        use crate::action::{BuffDef, DynInt};
+        use crate::action::BuffDef;
         use std::collections::HashMap as StdMap;
 
         let mut world = SimWorld::new(42);
@@ -2532,7 +2533,7 @@ mod tests {
             max_stacks: 0,
         });
 
-        let base_speed = world.get_entity(summoner).unwrap().speed;
+        let base_speed = world.get_entity(summoner).unwrap().stat("speed");
 
         // Apply buff via custom command.
         world.register_custom_command(&CommandDef {
@@ -2559,7 +2560,7 @@ mod tests {
         world.take_events();
 
         // Speed should be increased.
-        assert_eq!(world.get_entity(summoner).unwrap().speed, base_speed + 5,
+        assert_eq!(world.get_entity(summoner).unwrap().stat("speed"), base_speed + 5,
             "Buff should increase speed");
 
         // Buff was applied in tick 1 (remaining=3), then buff tick decrements to 2.
@@ -2571,7 +2572,7 @@ mod tests {
         let texts = output_texts(&events);
 
         // Speed should be back to base.
-        assert_eq!(world.get_entity(summoner).unwrap().speed, base_speed,
+        assert_eq!(world.get_entity(summoner).unwrap().stat("speed"), base_speed,
             "Buff expiry should reverse speed modifier");
         assert!(texts.contains(&"Haste expired!".to_string()),
             "on_expire effects should fire, got: {:?}", texts);
@@ -2596,7 +2597,7 @@ mod tests {
             max_stacks: 5,
         });
 
-        let base_dmg = world.get_entity(summoner).unwrap().attack_damage;
+        let base_dmg = world.get_entity(summoner).unwrap().stat("attack_damage");
 
         // Apply buff twice.
         world.register_custom_command(&CommandDef {
@@ -2629,7 +2630,7 @@ mod tests {
         world.tick(); world.take_events(); // Wait
         world.tick(); world.take_events(); // Apply second stack
 
-        assert_eq!(world.get_entity(summoner).unwrap().attack_damage, base_dmg + 6,
+        assert_eq!(world.get_entity(summoner).unwrap().stat("attack_damage"), base_dmg + 6,
             "Two stacks should add 6 attack damage");
         assert_eq!(world.get_entity(summoner).unwrap().active_buffs[0].stacks, 2);
     }
@@ -2730,7 +2731,7 @@ mod tests {
         world.custom_command_arg_counts.insert("armor_on".into(), 0);
         world.custom_command_arg_counts.insert("armor_off".into(), 0);
 
-        let base_shield = world.get_entity(summoner).unwrap().shield;
+        let base_shield = world.get_entity(summoner).unwrap().stat("shield");
 
         let program = CompiledScript::new(
             vec![
@@ -2745,10 +2746,10 @@ mod tests {
 
         world.start();
         world.tick(); world.take_events(); // Apply armor
-        assert_eq!(world.get_entity(summoner).unwrap().shield, base_shield + 20);
+        assert_eq!(world.get_entity(summoner).unwrap().stat("shield"), base_shield + 20);
 
         world.tick(); world.take_events(); // Remove armor
-        assert_eq!(world.get_entity(summoner).unwrap().shield, base_shield,
+        assert_eq!(world.get_entity(summoner).unwrap().stat("shield"), base_shield,
             "remove_buff should reverse shield modifier");
         assert!(world.get_entity(summoner).unwrap().active_buffs.is_empty());
     }
@@ -2859,13 +2860,13 @@ mod tests {
         let mut world = SimWorld::new(42);
         let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
 
-        // Register a command that modifies a custom stat.
+        // Register a command that modifies a stat.
         world.register_custom_command(&CommandDef {
             name: "train".into(),
             description: "".into(),
             args: vec![],
             effects: vec![
-                CommandEffect::ModifyCustomStat {
+                CommandEffect::ModifyStat {
                     target: "self".into(),
                     stat: "armor".into(),
                     amount: DynInt::Fixed(5),
@@ -2887,16 +2888,13 @@ mod tests {
         world.tick();
         world.take_events();
 
-        // Custom stat should be set.
-        assert_eq!(
-            world.get_entity(summoner).unwrap().custom_stats.get("armor").copied(),
-            Some(5)
-        );
+        // Stat should be set.
+        assert_eq!(world.get_entity(summoner).unwrap().stat("armor"), 5);
 
         // Condition should work.
         let mut rng = crate::rng::SimRng::new(42);
         assert!(evaluate_condition(
-            &Condition::CustomStat {
+            &Condition::Stat {
                 stat: "armor".into(),
                 compare: CompareOp::Gte,
                 amount: DynInt::Fixed(5),
@@ -2904,7 +2902,7 @@ mod tests {
             &world, summoner, &mut rng,
         ));
         assert!(!evaluate_condition(
-            &Condition::CustomStat {
+            &Condition::Stat {
                 stat: "armor".into(),
                 compare: CompareOp::Gte,
                 amount: DynInt::Fixed(10),
@@ -2920,8 +2918,8 @@ mod tests {
         let mut world = SimWorld::new(42);
         let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
 
-        // Set initial custom stat.
-        world.get_entity_mut(summoner).unwrap().custom_stats.insert("mojo".into(), 3);
+        // Set initial stat.
+        world.get_entity_mut(summoner).unwrap().set_stat("mojo", 3);
 
         // Command that requires 5 mojo (entity only has 3).
         world.register_custom_command(&CommandDef {
@@ -2929,7 +2927,7 @@ mod tests {
             description: "".into(),
             args: vec![],
             effects: vec![
-                CommandEffect::UseCustomStat { stat: "mojo".into(), amount: DynInt::Fixed(5) },
+                CommandEffect::UseResource { stat: "mojo".into(), amount: DynInt::Fixed(5) },
                 CommandEffect::Output { message: "Should NOT appear".into() },
             ],
             phases: vec![],
@@ -2953,27 +2951,26 @@ mod tests {
             "Should abort with insufficient custom stat, got: {:?}", texts);
         assert!(!texts.contains(&"Should NOT appear".to_string()));
         // Mojo should not be deducted.
-        assert_eq!(world.get_entity(summoner).unwrap().custom_stats["mojo"], 3);
+        assert_eq!(world.get_entity(summoner).unwrap().stat("mojo"), 3);
     }
 
     #[test]
     fn custom_stat_from_entity_config() {
         let mut world = SimWorld::new(42);
         let config = crate::entity::EntityConfig {
-            custom_stats: {
+            stats: {
                 let mut m = std::collections::HashMap::new();
                 m.insert("armor".into(), 10);
                 m.insert("crit".into(), 5);
                 m
             },
-            ..Default::default()
         };
         let id = world.spawn_entity_with_config(
             "warrior".into(), "w1".into(), 100, Some(&config),
         );
 
-        assert_eq!(world.get_entity(id).unwrap().custom_stats["armor"], 10);
-        assert_eq!(world.get_entity(id).unwrap().custom_stats["crit"], 5);
+        assert_eq!(world.get_entity(id).unwrap().stat("armor"), 10);
+        assert_eq!(world.get_entity(id).unwrap().stat("crit"), 5);
     }
 
     // ---------------------------------------------------------------
@@ -3020,7 +3017,7 @@ mod tests {
         let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
 
         let mut rng = crate::rng::SimRng::new(42);
-        let health = world.get_entity(summoner).unwrap().health;
+        let health = world.get_entity(summoner).unwrap().stat("health");
         let dyn_val = DynInt::CasterStat { stat: "health".into(), multiplier: 1 };
         assert_eq!(dyn_val.resolve_with_world(&mut rng, &world, summoner), health);
     }
@@ -3031,7 +3028,7 @@ mod tests {
 
         let mut world = SimWorld::new(42);
         let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
-        world.get_entity_mut(summoner).unwrap().custom_stats.insert("armor".into(), 7);
+        world.get_entity_mut(summoner).unwrap().set_stat("armor", 7);
 
         let mut rng = crate::rng::SimRng::new(42);
         let dyn_val = DynInt::CasterStat { stat: "armor".into(), multiplier: 3 };

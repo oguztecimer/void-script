@@ -1178,7 +1178,7 @@ fn query_name(q: &QueryBuiltin) -> &'static str {
         QueryBuiltin::GetName => "get_name",
         QueryBuiltin::GetOwner => "get_owner",
         QueryBuiltin::GetResource => "get_resource",
-        QueryBuiltin::GetCustomStat => "get_custom_stat",
+        QueryBuiltin::GetStat => "get_stat",
     }
 }
 

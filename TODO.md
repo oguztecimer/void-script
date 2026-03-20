@@ -1,6 +1,6 @@
 # TODO
 
-> **Resolved items** are tracked in `CHANGELOG.md`. Completed: S-01 (parity tests), S-02 (IndexMap), S-03 (print tick — already correct), S-05 (step limit warning), S-06 (hot-reload surface), S-09 (percent/scale), M-01 (deterministic load order), M-02 (collision warnings + reserved fields), M-03 (command def validation), M-04 (spawn validation). Partially resolved: M-05 (Phase 2 design sketch + reserved field), M-06 (command cost system — conditional effects deferred).
+> **Resolved items** are tracked in `CHANGELOG.md`. Completed: S-01 (parity tests), S-02 (IndexMap), S-03 (print tick — already correct), S-05 (step limit warning), S-06 (hot-reload surface), S-09 (percent/scale), M-01 (deterministic load order), M-02 (collision warnings + reserved fields), M-03 (command def validation), M-04 (spawn validation), M-05 (mod dependencies + library system). Partially resolved: M-06 (command cost system — conditional effects deferred).
 
 ## S-04: No Error Recovery in Scripts
 
@@ -29,19 +29,6 @@ The interpreter has basic debug infrastructure (breakpoints, step over/into/out 
 - **Phase 3:** Sim-side debugging. The executor emits a trace log of actions and queries per tick, viewable in the editor as a "tick replay" timeline. This bridges the gap between the interpreter (where you debug logic) and the sim (where the logic actually runs).
 
 ---
-
-## M-05: Phase 2 Mod API Design Needs Early Planning
-
-**Priority: Medium**
-
-The `.grim` library file system (Phase 2) has architectural implications for namespace strategy, compilation order, and how library functions interact with custom commands. A design sketch has been written in `docs/modding.md` and the `libraries` field reserved in `CommandsDef`, but the actual loading and compilation of `.grim` files is not yet implemented.
-
-### Remaining work
-
-- Parse and load `.grim` files listed in `commands.libraries`
-- Compile library functions before player scripts
-- Inject library function definitions into player script compilation
-- Handle cross-mod library function collisions
 
 ---
 

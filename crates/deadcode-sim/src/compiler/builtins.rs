@@ -31,7 +31,7 @@ pub enum QueryBuiltin {
     GetName,
     GetOwner,
     GetResource,
-    GetCustomStat,
+    GetStat,
 }
 
 pub enum InstantEffectBuiltin {
@@ -89,7 +89,7 @@ pub fn classify(name: &str) -> BuiltinKind {
         "get_name" => BuiltinKind::Query(QueryBuiltin::GetName),
         "get_owner" => BuiltinKind::Query(QueryBuiltin::GetOwner),
         "get_resource" => BuiltinKind::Query(QueryBuiltin::GetResource),
-        "get_custom_stat" => BuiltinKind::Query(QueryBuiltin::GetCustomStat),
+        "get_stat" | "get_custom_stat" => BuiltinKind::Query(QueryBuiltin::GetStat),
         // Instant effects
         "gain_resource" => BuiltinKind::InstantEffect(InstantEffectBuiltin::GainResource),
         "try_spend_resource" => BuiltinKind::InstantEffect(InstantEffectBuiltin::TrySpendResource),
@@ -131,7 +131,7 @@ pub fn query_instruction(q: &QueryBuiltin) -> Instruction {
         QueryBuiltin::GetName => Instruction::QueryGetName,
         QueryBuiltin::GetOwner => Instruction::QueryGetOwner,
         QueryBuiltin::GetResource => Instruction::QueryGetResource,
-        QueryBuiltin::GetCustomStat => Instruction::QueryGetCustomStat,
+        QueryBuiltin::GetStat => Instruction::QueryGetStat,
     }
 }
 
@@ -172,7 +172,7 @@ pub fn query_expected_args(q: &QueryBuiltin) -> usize {
         | QueryBuiltin::GetName
         | QueryBuiltin::GetOwner
         | QueryBuiltin::GetResource => 1,
-        QueryBuiltin::GetCustomStat => 2,
+        QueryBuiltin::GetStat => 2,
     }
 }
 

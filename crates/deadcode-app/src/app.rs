@@ -95,6 +95,8 @@ pub struct App {
     available_resources: Vec<String>,
     /// Custom command definitions from mods.
     command_defs: HashMap<String, CommandDef>,
+    /// GrimScript library source (prepended to player scripts before compilation).
+    library_source: String,
     /// Effects to run when the game opens (from [initial] sections in mods).
     initial_effects: Vec<deadcode_sim::action::CommandEffect>,
     /// Whether initial effects still need to be sent to the editor.
@@ -151,6 +153,7 @@ impl App {
             available_commands: Vec::new(),
             available_resources: Vec::new(),
             command_defs: HashMap::new(),
+            library_source: String::new(),
             initial_effects: Vec::new(),
             initial_effects_pending: true,
 
@@ -502,11 +505,13 @@ impl ApplicationHandler<UserEvent> for App {
             self.settings = save_data.settings;
         }
 
-        // --- Mod loading ---
+        // --- Mod loading (with dependency resolution) ---
         let mods = modding::load_mods(&modding::mods_dir());
+        modding::validate_dependencies(&mods);
         self.available_commands = modding::collect_initial_commands(&mods);
         self.available_resources = modding::collect_available_resources(&mods);
         self.command_defs = modding::collect_command_defs(&mods);
+        self.library_source = modding::collect_library_source(&mods);
         self.initial_effects = modding::collect_initial_effects(&mods);
 
         // --- Hardcoded summoner (core game entity, not moddable) ---
@@ -516,9 +521,11 @@ impl ApplicationHandler<UserEvent> for App {
         });
         self.pivot_registry.insert("summoner".into(), [49.0, 2.0]);
         self.entity_configs.insert("summoner".into(), EntityConfig {
-            health: Some(100),
-            speed: Some(1),
-            ..Default::default()
+            stats: std::collections::HashMap::from([
+                ("health".into(), 100),
+                ("max_health".into(), 100),
+                ("speed".into(), 1),
+            ]),
         });
 
         // Merge sprite/pivot/config registries from all loaded mods.
@@ -892,8 +899,11 @@ impl App {
         let available = self.available_commands_for_compiler();
         let custom = self.custom_command_arg_counts();
 
+        // Prepend library functions from mods.
+        let full_source = self.prepend_library_source(&source);
+
         // Compile source to IR.
-        let compiled = deadcode_sim::compiler::compile_source_full(&source, available, custom);
+        let compiled = deadcode_sim::compiler::compile_source_full(&full_source, available, custom);
         match compiled {
             Ok(script) => {
                 // Find summoner entity in sim and assign script.
@@ -944,7 +954,10 @@ impl App {
         let available = self.available_commands_for_compiler();
         let custom = self.custom_command_arg_counts();
 
-        let compiled = deadcode_sim::compiler::compile_source_full(source, available, custom);
+        // Prepend library functions from mods.
+        let full_source = self.prepend_library_source(source);
+
+        let compiled = deadcode_sim::compiler::compile_source_full(&full_source, available, custom);
         match compiled {
             Ok(script) => {
                 if let Some(sim) = &mut self.sim_world {
@@ -1109,6 +1122,17 @@ impl App {
 
     fn available_commands_for_interpreter(&self) -> Option<HashSet<String>> {
         self.available_commands_for_compiler()
+    }
+
+    /// Prepend mod library source to player script source.
+    /// Library functions are defined before the player's code, making them
+    /// available as if they were part of the script.
+    fn prepend_library_source(&self, source: &str) -> String {
+        if self.library_source.is_empty() {
+            source.to_string()
+        } else {
+            format!("{}\n{}", self.library_source, source)
+        }
     }
 
     fn poll_editor_ipc(&mut self) {

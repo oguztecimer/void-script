@@ -69,8 +69,8 @@ More expressive branching in effects.
 [x] Update docs/modding.md with condition reference
 
 
-=== PHASE 5: Custom Entity Stats (LOW PRIORITY) ===
-Arbitrary named stats beyond health/mana/shield/speed.
+=== PHASE 5: Unified Entity Stats (LOW PRIORITY) ===
+All stats (built-in + custom) in a single HashMap.
 
 [x] custom_stats field in [[entities]] — { armor = 5, crit_chance = 10 }
 [x] Per-entity custom stat storage in SimEntity
@@ -79,6 +79,11 @@ Arbitrary named stats beyond health/mana/shield/speed.
 [x] custom_stat condition type
 [x] get_custom_stat GrimScript builtin (query, instant)
 [x] Update docs/modding.md
+[x] Unify all stats into single HashMap — remove 9 hardcoded fields from SimEntity
+[x] Merge ModifyCustomStat→ModifyStat, UseCustomStat→UseResource (serde aliases)
+[x] Merge Condition::CustomStat→Condition::Stat (serde alias)
+[x] Rename get_custom_stat→get_stat (old name kept as alias)
+[x] Fix Spawn effect to apply EntityConfig to dynamically spawned entities
 
 
 === PHASE 6: Computed Values (LOW PRIORITY) ===
@@ -124,11 +129,24 @@ Config panels and HUD elements for mods.
     Rendered on strip or editor panel, positioned by mod definition
 
 
+=== PHASE 7: Mod Dependencies & Library System (DONE) ===
+Enforce mod load order and provide reusable GrimScript libraries.
+
+[x] Mod dependency resolution — topological sort by depends_on
+[x] Missing dependency detection — skip mod + cascading dependants with warning
+[x] Conflict detection — enforce conflicts_with, first-loaded wins
+[x] Circular dependency detection — fallback to alphabetical with error log
+[x] Library file loading — read .grim files from commands.libraries in mod.toml
+[x] Library source prepending — inject library functions into player scripts
+[x] Console command support — library functions available in console too
+[x] Flat namespace with first-loaded-wins (consistent with commands/entities)
+[x] 10 new tests (8 dependency + 2 library)
+[x] Update docs/modding.md, CLAUDE.md, CHANGELOG.md
+
+
 === BACKLOG: Other Ideas ===
 
 [ ] Prototype inheritance — entity types extending base types
 [ ] Scoped targets — "owner", "attacker", "killer" in addition to self/arg
-[ ] Mod dependencies — enforce depends_on, conflicts_with, min_game_version
 [ ] Mod browser/manager UI — list installed mods, enable/disable, load order
 [ ] Hot-reload for mod.toml — detect file changes, reload without restart
-[ ] Library system (M-05) — mod-provided .grim files with reusable functions

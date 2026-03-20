@@ -48,7 +48,7 @@ Editor UI is embedded into the Rust binary via `rust-embed` in `deadcode-editor/
 ## Testing
 
 ```bash
-cargo test                          # All Rust tests (183 tests)
+cargo test                          # All Rust tests (190 tests)
 cargo test -p deadcode-sim          # Sim engine + compiler tests
 cargo test -p grimscript-lang       # Language crate only
 cargo test -p deadcode-app --test interpreter_compiler_parity  # Parity tests
@@ -106,7 +106,11 @@ src/
 
 **Buff system:** Mods define temporary stat modifiers via `[[buffs]]` in `mod.toml`. Each `BuffDef` has `name`, `duration`, `modifiers` (stat→amount), `per_tick`/`on_apply`/`on_expire` effect lists, `stackable`, and `max_stacks`. Two new effect types: `apply_buff { target, buff, duration? }` and `remove_buff { target, buff }`. Active buffs tracked per-entity via `SimEntity.active_buffs`. Modifiers directly modify stats on apply and reverse on expire. Stackable buffs accumulate stacks; non-stackable refresh duration. Buff tick processing (step 6b) runs per_tick effects, decrements durations, and handles expiry (reverse modifiers, run on_expire effects). Buff definitions stored in `SimWorld.buff_registry`.
 
-**Extended conditions:** Four new `Condition` variants: `has_buff { buff }` checks if the caster has an active buff, `random_chance { percent }` uses deterministic RNG (roll < percent), `and { conditions }` requires all sub-conditions true, `or { conditions }` requires at least one true. Compound conditions support nesting.
+**Custom entity stats:** Entities can have mod-defined custom stats via `custom_stats` field in `[[entities]]` in `mod.toml` (e.g., `custom_stats = { armor = 5, crit = 10 }`). Stored in `SimEntity.custom_stats: HashMap<String, i64>`, applied via `EntityConfig`. Two new effect types: `modify_custom_stat { target, stat, amount }` and `use_custom_stat { stat, amount }` (check-and-deduct, aborts if insufficient). New `custom_stat` condition for branching on custom stat values. Custom stats are accessible via entity attribute access (`entity.armor`).
+
+**Computed values (DynInt):** `DynInt` extended with three game-state variants: `EntityCount { entity_type, multiplier }` resolves to the count of alive entities of a type, `ResourceValue { resource, multiplier }` resolves to a global resource's current value, `CasterStat { stat, multiplier }` resolves to the caster's stat (including custom stats). TOML format: `"entity_count(skeleton)"`, `"resource(mana)"`, `"stat(health)"`, with optional multiplier `"entity_count(skeleton)*2"`. All effect `amount`/`offset` fields use `resolve_with_world()` for game-state access. Backward compatible — plain integers and `"rand(min,max)"` continue to work.
+
+**Extended conditions:** Five new `Condition` variants: `custom_stat` checks mod-defined custom stats. Plus four from Phase 4: `has_buff { buff }` checks if the caster has an active buff, `random_chance { percent }` uses deterministic RNG (roll < percent), `and { conditions }` requires all sub-conditions true, `or { conditions }` requires at least one true. Compound conditions support nesting.
 
 **Entity behaviors:** Mods define autonomous AI for non-scripted entities via `behaviors` field in `[[entities]]` in `mod.toml`. Each `BehaviorDef` has a `BehaviorAction` (attack_nearest, flee_when_low, move_toward, idle, effects), optional `conditions` (reuse `Condition` enum), `cooldown` (ticks between activations), and `priority` (higher = checked first). Behaviors are registered on `SimWorld` per entity type. Processing occurs in step 4b of the tick loop for entities that are ready, have no script, and have no active channel. Behaviors are sorted by priority descending. Effects-type behaviors don't consume the tick (allowing action behaviors to also fire). Cooldowns are tracked per-entity per-behavior via `SimEntity.behavior_cooldowns`. Target resolution supports entity type filtering, "nearest_enemy", and "nearest:<type>".
 

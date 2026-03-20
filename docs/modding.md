@@ -804,6 +804,93 @@ In addition to the base conditions (`resource`, `entity_count`, `stat`), the fol
 
 Randomness is deterministic — same seed produces same result. The `percent` field should be 1-100.
 
+## Custom Entity Stats
+
+Entity types can define arbitrary named stats beyond the built-in ones (health, shield, speed, etc.):
+
+```toml
+[[entities]]
+type = "warrior"
+health = 80
+custom_stats = { armor = 5, crit_chance = 10, rage = 0 }
+```
+
+Custom stats are stored per-entity and persist for the entity's lifetime. They default to 0 if not defined.
+
+### Effect Types
+
+| Effect | Fields | Description |
+|--------|--------|-------------|
+| `modify_custom_stat` | `target`, `stat`, `amount` | Add to a custom stat (can be negative). Creates the stat if it doesn't exist. |
+| `use_custom_stat` | `stat`, `amount` | Check and deduct a custom stat from self; aborts remaining effects if insufficient. |
+
+```toml
+effects = [
+  { type = "use_custom_stat", stat = "rage", amount = 10 },
+  { type = "modify_custom_stat", target = "self", stat = "armor", amount = -5 },
+]
+```
+
+### Condition
+
+```toml
+{ type = "custom_stat", stat = "armor", compare = "gte", amount = 10 }
+```
+
+### Script Access
+
+Custom stats are accessible via entity attribute access in GrimScript:
+
+```python
+my_armor = self.armor
+print("Armor:", my_armor)
+```
+
+## Computed Values (DynInt)
+
+Effect `amount` and `offset` fields support game-state-dependent computation in addition to plain integers and `rand(min,max)`:
+
+| Format | Description | Example |
+|--------|-------------|---------|
+| `42` | Fixed integer | `amount = 42` |
+| `"rand(min,max)"` | Random in [min, max] | `amount = "rand(5,15)"` |
+| `"entity_count(type)"` | Count of alive entities of type | `amount = "entity_count(skeleton)"` |
+| `"resource(name)"` | Current value of a global resource | `amount = "resource(mana)"` |
+| `"stat(name)"` | Caster's stat value (built-in or custom) | `amount = "stat(health)"` |
+
+### Multiplier
+
+All computed values support a `*N` multiplier suffix:
+
+```toml
+amount = "entity_count(skeleton)*2"    # 2x skeleton count
+amount = "resource(mana)*3"            # 3x mana value
+amount = "stat(attack_damage)*2"       # 2x caster's attack damage
+```
+
+### Examples
+
+**Damage based on skeleton count:**
+```toml
+effects = [
+  { type = "damage", target = "arg:target", amount = "entity_count(skeleton)*5" },
+]
+```
+
+**Heal based on current mana:**
+```toml
+effects = [
+  { type = "heal", target = "self", amount = "resource(mana)" },
+]
+```
+
+**Spawn skeletons based on a custom stat:**
+```toml
+effects = [
+  { type = "spawn", entity_type = "skeleton", offset = "stat(summon_power)*10" },
+]
+```
+
 ## Entity Behaviors
 
 Mods can define **behaviors** for entity types, giving spawned entities autonomous AI. Behaviors only run on entities that don't have a player script and aren't channeling — they're for making minions, enemies, and NPCs feel alive.

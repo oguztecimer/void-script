@@ -145,9 +145,15 @@ pub fn get_entity_attr(
             Some(tid) => SimValue::EntityRef(tid),
             None => SimValue::None,
         }),
-        _ => Err(SimError::type_error(format!(
-            "entity has no attribute '{attr}'"
-        ))),
+        _ => {
+            // Check custom stats.
+            if let Some(&value) = e.custom_stats.get(attr) {
+                return Ok(SimValue::Int(value));
+            }
+            Err(SimError::type_error(format!(
+                "entity has no attribute '{attr}'"
+            )))
+        }
     }
 }
 

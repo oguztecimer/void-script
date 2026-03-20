@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::action::PhaseDef;
@@ -80,6 +82,8 @@ pub struct EntityConfig {
     pub attack_range: Option<i64>,
     pub attack_cooldown: Option<i64>,
     pub shield: Option<i64>,
+    /// Mod-defined custom stats.
+    pub custom_stats: HashMap<String, i64>,
 }
 
 /// A game entity — theme-agnostic. Entity type is a free-form string.
@@ -124,6 +128,9 @@ pub struct SimEntity {
 
     /// Active buffs on this entity.
     pub active_buffs: Vec<ActiveBuff>,
+
+    /// Mod-defined custom stats (e.g., armor, crit_chance).
+    pub custom_stats: HashMap<String, i64>,
 }
 
 impl SimEntity {
@@ -150,6 +157,7 @@ impl SimEntity {
             active_channel: None,
             behavior_cooldowns: Vec::new(),
             active_buffs: Vec::new(),
+            custom_stats: HashMap::new(),
         }
     }
 
@@ -179,6 +187,9 @@ impl SimEntity {
         if let Some(s) = config.shield {
             self.shield = s;
             self.max_shield = s;
+        }
+        for (name, value) in &config.custom_stats {
+            self.custom_stats.insert(name.clone(), *value);
         }
     }
 }

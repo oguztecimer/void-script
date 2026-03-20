@@ -5,13 +5,21 @@ use crate::rng::SimRng;
 use crate::value::SimValue;
 use crate::world::{SimEvent, SimWorld};
 
-/// An integer value that is either fixed or randomized at resolution time.
-/// In mod.toml, write a plain integer for fixed values, or `"rand(min,max)"`
-/// for a random value in [min, max] inclusive.
+/// An integer value that is either fixed, randomized, or computed from game state.
+///
+/// In mod.toml, write a plain integer for fixed values, `"rand(min,max)"` for
+/// random, or game-state queries like `"entity_count(skeleton)"`,
+/// `"resource(mana)"`, `"stat(health)"`.
 #[derive(Debug, Clone)]
 pub enum DynInt {
     Fixed(i64),
     Rand { min: i64, max: i64 },
+    /// Count of alive, ready entities of a type.
+    EntityCount { entity_type: String, multiplier: i64 },
+    /// Current value of a global resource.
+    ResourceValue { resource: String, multiplier: i64 },
+    /// Caster's stat value (health, shield, speed, attack_damage, attack_range).
+    CasterStat { stat: String, multiplier: i64 },
 }
 
 impl DynInt {
@@ -25,6 +33,47 @@ impl DynInt {
                 let range = (max - min + 1) as u64;
                 *min + rng.next_bounded(range) as i64
             }
+            // Game-state variants return 0 when resolved without world context.
+            DynInt::EntityCount { .. } | DynInt::ResourceValue { .. } | DynInt::CasterStat { .. } => 0,
+        }
+    }
+
+    /// Resolve with world context for game-state-dependent values.
+    pub fn resolve_with_world(
+        &self,
+        rng: &mut SimRng,
+        world: &SimWorld,
+        entity_id: EntityId,
+    ) -> i64 {
+        match self {
+            DynInt::Fixed(v) => *v,
+            DynInt::Rand { min, max } => {
+                if min >= max {
+                    return *min;
+                }
+                let range = (max - min + 1) as u64;
+                *min + rng.next_bounded(range) as i64
+            }
+            DynInt::EntityCount { entity_type, multiplier } => {
+                let count = world.entities()
+                    .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.entity_type == *entity_type)
+                    .count() as i64;
+                count * multiplier
+            }
+            DynInt::ResourceValue { resource, multiplier } => {
+                world.get_resource(resource) * multiplier
+            }
+            DynInt::CasterStat { stat, multiplier } => {
+                let value = world.get_entity(entity_id).map_or(0, |e| match stat.as_str() {
+                    "health" => e.health,
+                    "shield" => e.shield,
+                    "speed" => e.speed,
+                    "attack_damage" => e.attack_damage,
+                    "attack_range" => e.attack_range,
+                    _ => e.custom_stats.get(stat).copied().unwrap_or(0),
+                });
+                value * multiplier
+            }
         }
     }
 }
@@ -35,6 +84,27 @@ impl Serialize for DynInt {
             DynInt::Fixed(v) => serializer.serialize_i64(*v),
             DynInt::Rand { min, max } => {
                 serializer.serialize_str(&format!("rand({min},{max})"))
+            }
+            DynInt::EntityCount { entity_type, multiplier } => {
+                if *multiplier == 1 {
+                    serializer.serialize_str(&format!("entity_count({entity_type})"))
+                } else {
+                    serializer.serialize_str(&format!("entity_count({entity_type})*{multiplier}"))
+                }
+            }
+            DynInt::ResourceValue { resource, multiplier } => {
+                if *multiplier == 1 {
+                    serializer.serialize_str(&format!("resource({resource})"))
+                } else {
+                    serializer.serialize_str(&format!("resource({resource})*{multiplier}"))
+                }
+            }
+            DynInt::CasterStat { stat, multiplier } => {
+                if *multiplier == 1 {
+                    serializer.serialize_str(&format!("stat({stat})"))
+                } else {
+                    serializer.serialize_str(&format!("stat({stat})*{multiplier}"))
+                }
             }
         }
     }
@@ -50,7 +120,7 @@ impl<'de> Deserialize<'de> for DynInt {
             type Value = DynInt;
 
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "an integer or \"rand(min,max)\"")
+                write!(f, "an integer, \"rand(min,max)\", \"entity_count(type)\", \"resource(name)\", or \"stat(name)\"")
             }
 
             fn visit_i64<E: de::Error>(self, v: i64) -> Result<DynInt, E> {
@@ -62,7 +132,20 @@ impl<'de> Deserialize<'de> for DynInt {
             }
 
             fn visit_str<E: de::Error>(self, s: &str) -> Result<DynInt, E> {
-                if let Some(inner) = s.strip_prefix("rand(").and_then(|s| s.strip_suffix(')')) {
+                // Parse optional multiplier: "func(arg)*N" or "func(arg)"
+                let (base_end, multiplier) = if let Some(pos) = s.rfind('*') {
+                    let after = s[pos + 1..].trim();
+                    if let Ok(m) = after.parse::<i64>() {
+                        (pos, m)
+                    } else {
+                        (s.len(), 1)
+                    }
+                } else {
+                    (s.len(), 1)
+                };
+                let base = s[..base_end].trim_end();
+
+                if let Some(inner) = base.strip_prefix("rand(").and_then(|s: &str| s.strip_suffix(')')) {
                     let parts: Vec<&str> = inner.split(',').collect();
                     if parts.len() == 2 {
                         let min = parts[0].trim().parse::<i64>().map_err(de::Error::custom)?;
@@ -70,7 +153,28 @@ impl<'de> Deserialize<'de> for DynInt {
                         return Ok(DynInt::Rand { min, max });
                     }
                 }
-                Err(de::Error::custom(format!("expected integer or \"rand(min,max)\", got \"{s}\"")))
+                if let Some(inner) = base.strip_prefix("entity_count(").and_then(|s| s.strip_suffix(')')) {
+                    return Ok(DynInt::EntityCount {
+                        entity_type: inner.trim().to_string(),
+                        multiplier,
+                    });
+                }
+                if let Some(inner) = base.strip_prefix("resource(").and_then(|s| s.strip_suffix(')')) {
+                    return Ok(DynInt::ResourceValue {
+                        resource: inner.trim().to_string(),
+                        multiplier,
+                    });
+                }
+                if let Some(inner) = base.strip_prefix("stat(").and_then(|s| s.strip_suffix(')')) {
+                    return Ok(DynInt::CasterStat {
+                        stat: inner.trim().to_string(),
+                        multiplier,
+                    });
+                }
+                Err(de::Error::custom(format!(
+                    "expected integer, \"rand(min,max)\", \"entity_count(type)\", \
+                     \"resource(name)\", or \"stat(name)\", got \"{s}\""
+                )))
             }
         }
 
@@ -147,6 +251,13 @@ pub enum Condition {
     #[serde(rename = "or")]
     Or {
         conditions: Vec<Condition>,
+    },
+    /// Compare a custom stat on the caster against a threshold.
+    #[serde(rename = "custom_stat")]
+    CustomStat {
+        stat: String,
+        compare: CompareOp,
+        amount: DynInt,
     },
 }
 
@@ -249,6 +360,19 @@ pub enum CommandEffect {
     RemoveBuff {
         target: String,
         buff: String,
+    },
+    /// Modify a custom stat on a target entity.
+    #[serde(rename = "modify_custom_stat")]
+    ModifyCustomStat {
+        target: String,
+        stat: String,
+        amount: DynInt,
+    },
+    /// Check and deduct a custom stat; if insufficient, abort remaining effects.
+    #[serde(rename = "use_custom_stat")]
+    UseCustomStat {
+        stat: String,
+        amount: DynInt,
     },
 }
 
@@ -604,6 +728,13 @@ pub fn evaluate_condition(
         Condition::Or { conditions } => {
             conditions.iter().any(|c| evaluate_condition(c, world, entity_id, rng))
         }
+        Condition::CustomStat { stat, compare, amount } => {
+            let current = world.get_entity(entity_id)
+                .and_then(|e| e.custom_stats.get(stat).copied())
+                .unwrap_or(0);
+            let threshold = amount.resolve(rng);
+            compare.evaluate(current, threshold)
+        }
     }
 }
 
@@ -643,7 +774,7 @@ fn resolve_effects_inner(
                 });
             }
             CommandEffect::Damage { target, amount } => {
-                let amount = amount.resolve(rng);
+                let amount = amount.resolve_with_world(rng, world, entity_id);
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
@@ -670,7 +801,7 @@ fn resolve_effects_inner(
                 }
             }
             CommandEffect::Heal { target, amount } => {
-                let amount = amount.resolve(rng);
+                let amount = amount.resolve_with_world(rng, world, entity_id);
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
@@ -679,7 +810,7 @@ fn resolve_effects_inner(
                 }
             }
             CommandEffect::Spawn { entity_type, offset } => {
-                let offset = offset.resolve(rng);
+                let offset = offset.resolve_with_world(rng, world, entity_id);
                 let position = world.get_entity(entity_id)
                     .map(|e| e.position + offset)
                     .unwrap_or(offset);
@@ -700,7 +831,7 @@ fn resolve_effects_inner(
                 world.queue_spawn(spawned);
             }
             CommandEffect::ModifyStat { target, stat, amount } => {
-                let amount = amount.resolve(rng);
+                let amount = amount.resolve_with_world(rng, world, entity_id);
                 let target_id = resolve_target_from_args(entity_id, target, args);
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
@@ -722,7 +853,7 @@ fn resolve_effects_inner(
                 }
             }
             CommandEffect::UseResource { stat, amount } => {
-                let amount = amount.resolve(rng);
+                let amount = amount.resolve_with_world(rng, world, entity_id);
                 let has_enough = world.get_entity(entity_id).map_or(false, |e| {
                     let current = match stat.as_str() {
                         "health" => e.health,
@@ -802,7 +933,7 @@ fn resolve_effects_inner(
                             entity_id: *vid,
                             name: vname.clone(),
                         });
-                        total_gained += per_kill.resolve(rng);
+                        total_gained += per_kill.resolve_with_world(rng, world, entity_id);
                     }
 
                     world.gain_resource(resource, total_gained);
@@ -817,11 +948,11 @@ fn resolve_effects_inner(
                 }
             }
             CommandEffect::ModifyResource { resource, amount } => {
-                let amount = amount.resolve(rng);
+                let amount = amount.resolve_with_world(rng, world, entity_id);
                 world.gain_resource(resource, amount);
             }
             CommandEffect::UseGlobalResource { resource, amount } => {
-                let amount = amount.resolve(rng);
+                let amount = amount.resolve_with_world(rng, world, entity_id);
                 if !world.try_spend_resource(resource, amount) {
                     events.push(SimEvent::ScriptOutput {
                         entity_id,
@@ -895,6 +1026,33 @@ fn resolve_effects_inner(
                             }
                         }
                     }
+                }
+            }
+            CommandEffect::ModifyCustomStat { target, stat, amount } => {
+                let amount = amount.resolve_with_world(rng, world, entity_id);
+                let target_id = resolve_target_from_args(entity_id, target, args);
+                if let Some(tid) = target_id {
+                    if let Some(entity) = world.get_entity_mut(tid) {
+                        let entry = entity.custom_stats.entry(stat.clone()).or_insert(0);
+                        *entry += amount;
+                    }
+                }
+            }
+            CommandEffect::UseCustomStat { stat, amount } => {
+                let amount = amount.resolve_with_world(rng, world, entity_id);
+                let has_enough = world.get_entity(entity_id)
+                    .and_then(|e| e.custom_stats.get(stat).copied())
+                    .unwrap_or(0) >= amount;
+                if !has_enough {
+                    events.push(SimEvent::ScriptOutput {
+                        entity_id,
+                        text: format!("[{cmd_name}] not enough {stat}"),
+                    });
+                    return EffectOutcome::Aborted;
+                }
+                if let Some(entity) = world.get_entity_mut(entity_id) {
+                    let entry = entity.custom_stats.entry(stat.clone()).or_insert(0);
+                    *entry -= amount;
                 }
             }
             CommandEffect::RemoveBuff { target, buff } => {

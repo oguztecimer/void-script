@@ -135,6 +135,9 @@ pub struct EntityDef {
     /// Autonomous behaviors for non-scripted entities of this type.
     #[serde(default)]
     pub behaviors: Vec<BehaviorDef>,
+    /// Mod-defined custom stats (e.g., armor = 5, crit_chance = 10).
+    #[serde(default)]
+    pub custom_stats: HashMap<String, i64>,
 }
 
 impl EntityDef {
@@ -147,6 +150,7 @@ impl EntityDef {
             attack_range: self.attack_range,
             attack_cooldown: self.attack_cooldown,
             shield: self.shield,
+            custom_stats: self.custom_stats.clone(),
         }
     }
 }
@@ -476,7 +480,8 @@ fn validate_effects(
             | CommandEffect::Heal { target, .. }
             | CommandEffect::ModifyStat { target, .. }
             | CommandEffect::ApplyBuff { target, .. }
-            | CommandEffect::RemoveBuff { target, .. } => Some(target.as_str()),
+            | CommandEffect::RemoveBuff { target, .. }
+            | CommandEffect::ModifyCustomStat { target, .. } => Some(target.as_str()),
             _ => None,
         };
         if let Some(target) = target_str {
@@ -558,6 +563,13 @@ fn validate_condition(
         | deadcode_sim::action::Condition::Or { conditions } => {
             for sub in conditions {
                 validate_condition(sub, cmd_name, mod_id, valid_stats);
+            }
+        }
+        deadcode_sim::action::Condition::CustomStat { stat, .. } => {
+            if stat.is_empty() {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{cmd_name}' has custom_stat condition with empty stat name",
+                );
             }
         }
     }

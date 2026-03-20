@@ -73,24 +73,24 @@ More expressive branching in effects.
 === PHASE 5: Custom Entity Stats (LOW PRIORITY) ===
 Arbitrary named stats beyond health/mana/shield/speed.
 
-[ ] custom_stats field in [[entities]] — { armor = 5, crit_chance = 10 }
-[ ] Per-entity custom stat storage in SimEntity
-[ ] modify_custom_stat effect — like modify_stat but for custom stats
-[ ] use_custom_stat effect — like use_resource but for custom stats
-[ ] custom_stat condition type
-[ ] get_custom_stat GrimScript builtin (query, instant)
-[ ] Update docs/modding.md
+[x] custom_stats field in [[entities]] — { armor = 5, crit_chance = 10 }
+[x] Per-entity custom stat storage in SimEntity
+[x] modify_custom_stat effect — like modify_stat but for custom stats
+[x] use_custom_stat effect — like use_resource but for custom stats
+[x] custom_stat condition type
+[ ] get_custom_stat GrimScript builtin (query, instant) — deferred (5-file builtin path)
+[x] Update docs/modding.md
 
 
 === PHASE 6: Computed Values (LOW PRIORITY) ===
 Dynamic amounts based on game state (replaces fixed DynInt in some contexts).
 
-[ ] DynValue enum — extends DynInt with game-state-dependent computation
+[x] DynValue enum — extends DynInt with game-state-dependent computation
     Types: fixed(N), rand(min,max), entity_count(type) * multiplier,
-           resource(name) * multiplier, stat(target, stat_name) * multiplier,
-           percent(value, percent)
-[ ] Use DynValue in effect amount fields (backward compatible with DynInt)
-[ ] Update docs/modding.md with computed value reference
+           resource(name) * multiplier, stat(target, stat_name) * multiplier
+    (percent deferred — use stat/resource with multiplier instead)
+[x] Use DynValue in effect amount fields (backward compatible with DynInt)
+[x] Update docs/modding.md with computed value reference
 
 
 === FUTURE: Lua Scripting Layer ===

@@ -3306,4 +3306,194 @@ mod tests {
         };
         assert!(evaluate_condition(&or_cond, &world, summoner, &mut rng));
     }
+
+    // ---------------------------------------------------------------
+    // Custom stats tests (Phase 5)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn custom_stat_modify_and_condition() {
+        use crate::action::{Condition, CompareOp, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+
+        // Register a command that modifies a custom stat.
+        world.register_custom_command(&CommandDef {
+            name: "train".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::ModifyCustomStat {
+                    target: "self".into(),
+                    stat: "armor".into(),
+                    amount: DynInt::Fixed(5),
+                },
+            ],
+            phases: vec![],
+            unlisted: false,
+        });
+        world.custom_command_arg_counts.insert("train".into(), 0);
+
+        let program = CompiledScript::new(
+            vec![Instruction::ActionCustom("train".into()), Instruction::Halt],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+        world.take_events();
+
+        // Custom stat should be set.
+        assert_eq!(
+            world.get_entity(summoner).unwrap().custom_stats.get("armor").copied(),
+            Some(5)
+        );
+
+        // Condition should work.
+        let mut rng = crate::rng::SimRng::new(42);
+        assert!(evaluate_condition(
+            &Condition::CustomStat {
+                stat: "armor".into(),
+                compare: CompareOp::Gte,
+                amount: DynInt::Fixed(5),
+            },
+            &world, summoner, &mut rng,
+        ));
+        assert!(!evaluate_condition(
+            &Condition::CustomStat {
+                stat: "armor".into(),
+                compare: CompareOp::Gte,
+                amount: DynInt::Fixed(10),
+            },
+            &world, summoner, &mut rng,
+        ));
+    }
+
+    #[test]
+    fn custom_stat_use_aborts_when_insufficient() {
+        use crate::action::DynInt;
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+
+        // Set initial custom stat.
+        world.get_entity_mut(summoner).unwrap().custom_stats.insert("mojo".into(), 3);
+
+        // Command that requires 5 mojo (entity only has 3).
+        world.register_custom_command(&CommandDef {
+            name: "power_move".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::UseCustomStat { stat: "mojo".into(), amount: DynInt::Fixed(5) },
+                CommandEffect::Output { message: "Should NOT appear".into() },
+            ],
+            phases: vec![],
+            unlisted: false,
+        });
+        world.custom_command_arg_counts.insert("power_move".into(), 0);
+
+        let program = CompiledScript::new(
+            vec![Instruction::ActionCustom("power_move".into()), Instruction::Halt],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let events = world.take_events();
+        let texts = output_texts(&events);
+        assert!(texts.iter().any(|t| t.contains("not enough mojo")),
+            "Should abort with insufficient custom stat, got: {:?}", texts);
+        assert!(!texts.contains(&"Should NOT appear".to_string()));
+        // Mojo should not be deducted.
+        assert_eq!(world.get_entity(summoner).unwrap().custom_stats["mojo"], 3);
+    }
+
+    #[test]
+    fn custom_stat_from_entity_config() {
+        let mut world = SimWorld::new(42);
+        let config = crate::entity::EntityConfig {
+            custom_stats: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("armor".into(), 10);
+                m.insert("crit".into(), 5);
+                m
+            },
+            ..Default::default()
+        };
+        let id = world.spawn_entity_with_config(
+            "warrior".into(), "w1".into(), 100, Some(&config),
+        );
+
+        assert_eq!(world.get_entity(id).unwrap().custom_stats["armor"], 10);
+        assert_eq!(world.get_entity(id).unwrap().custom_stats["crit"], 5);
+    }
+
+    // ---------------------------------------------------------------
+    // Computed values tests (Phase 6)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn dynint_entity_count_resolves() {
+        use crate::action::DynInt;
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        world.spawn_entity("skeleton".into(), "s1".into(), 100);
+        world.spawn_entity("skeleton".into(), "s2".into(), 200);
+        world.spawn_entity("zombie".into(), "z1".into(), 300);
+
+        let mut rng = crate::rng::SimRng::new(42);
+
+        let dyn_val = DynInt::EntityCount { entity_type: "skeleton".into(), multiplier: 1 };
+        assert_eq!(dyn_val.resolve_with_world(&mut rng, &world, summoner), 2);
+
+        let dyn_val_mult = DynInt::EntityCount { entity_type: "skeleton".into(), multiplier: 3 };
+        assert_eq!(dyn_val_mult.resolve_with_world(&mut rng, &world, summoner), 6);
+    }
+
+    #[test]
+    fn dynint_resource_value_resolves() {
+        use crate::action::DynInt;
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        world.resources.insert("gold".into(), 42);
+
+        let mut rng = crate::rng::SimRng::new(42);
+        let dyn_val = DynInt::ResourceValue { resource: "gold".into(), multiplier: 2 };
+        assert_eq!(dyn_val.resolve_with_world(&mut rng, &world, summoner), 84);
+    }
+
+    #[test]
+    fn dynint_caster_stat_resolves() {
+        use crate::action::DynInt;
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+
+        let mut rng = crate::rng::SimRng::new(42);
+        let health = world.get_entity(summoner).unwrap().health;
+        let dyn_val = DynInt::CasterStat { stat: "health".into(), multiplier: 1 };
+        assert_eq!(dyn_val.resolve_with_world(&mut rng, &world, summoner), health);
+    }
+
+    #[test]
+    fn dynint_caster_custom_stat_resolves() {
+        use crate::action::DynInt;
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        world.get_entity_mut(summoner).unwrap().custom_stats.insert("armor".into(), 7);
+
+        let mut rng = crate::rng::SimRng::new(42);
+        let dyn_val = DynInt::CasterStat { stat: "armor".into(), multiplier: 3 };
+        assert_eq!(dyn_val.resolve_with_world(&mut rng, &world, summoner), 21);
+    }
 }

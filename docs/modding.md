@@ -363,7 +363,7 @@ The `target` field in effects uses these formats:
 
 ### Stat Names
 
-For `modify_stat`, valid stat names are: `health`, `mana`, `shield`, `speed`.
+Any stat name can be used in `modify_stat` and `use_resource` effects — stats are arbitrary strings defined by entity types in `[[entities]]`. Common stats include `health`, `shield`, `speed`, `attack_damage`, `attack_range`, `attack_cooldown`, but mods can define any stat name they want.
 
 ### Base Game Commands as Effects
 
@@ -380,10 +380,10 @@ Each mod's `[[spawn]]` entries all execute, and each mod's `[commands].initial` 
 After all mods are loaded, the engine validates:
 - **Spawn entity types**: every `[[spawn]]` entry's `entity_type` must match a registered entity type. Unknown types produce a warning: `[mod:<id>] warning: spawn '<name>' references unknown entity type '<type>'`.
 - **Spawn effects in custom commands**: `spawn` effects in `[[commands.definitions]]` are also checked against known entity types.
-- **Stat names in `modify_stat` and `use_resource` effects**: must be one of `health`, `mana`, `shield`, `speed`. Unknown stat names produce a warning.
+- **Stat names in `modify_stat` and `use_resource` effects**: any stat name is valid. The engine does not restrict which stat names can be used.
 - **Target references in effects**: `target` fields must be `"self"` or `"arg:<ref>"` where `<ref>` is a valid numeric index or a name matching one of the command's `args` entries. Invalid references produce a warning.
 - **`use_resource` amounts**: must be positive. Non-positive values produce a warning.
-- **`if` conditions**: stat names in `stat` conditions must be valid (`health`, `shield`, `speed`). Empty resource or entity_type names produce a warning.
+- **`if` conditions**: empty resource or entity_type names produce a warning.
 - **`start_channel` phases**: phase ticks must be > 0, update_interval must be > 0. Effects within phases are validated recursively.
 - **Nested validation**: validation recurses into `if` branches and `start_channel` phase effect lists.
 - **Trigger event names**: must be one of the 8 supported types. Unknown event names produce a warning.
@@ -416,7 +416,7 @@ mods/core/
     skeleton_atlas.json
 ```
 
-Its `mod.toml` defines two entity types (summoner, skeleton), spawns one summoner at position 500, and unlocks the four starter commands. You can edit this file to change the starting configuration without recompiling.
+Its `mod.toml` defines the skeleton entity type and unlocks the starter commands. The summoner is hardcoded by the engine (not defined in mod.toml). You can edit this file to change the starting configuration without recompiling.
 
 ## Creating a New Mod
 
@@ -476,7 +476,7 @@ effects = [
 ]
 ```
 
-The `use_resource` effect checks and deducts the resource atomically. Valid stats: `health`, `mana`, `shield`. If the entity's current value for that stat is less than `amount`, a warning is printed (e.g., `[raise] not enough mana`) and no further effects run.
+The `use_resource` effect checks and deducts the stat atomically. Any stat name defined on the entity can be used. If the entity's current value for that stat is less than `amount`, a warning is printed and no further effects run.
 
 Since `use_resource` is just an effect, you can place multiple resource checks or interleave them with other effects for fine-grained control.
 
@@ -508,7 +508,7 @@ The `else` branch is optional (defaults to empty — nothing happens if the cond
 |------|--------|-----------|
 | `resource` | `resource`, `compare`, `amount` | Global resource value vs threshold |
 | `entity_count` | `entity_type`, `compare`, `amount` | Count of alive, ready entities of type vs threshold |
-| `stat` | `stat`, `compare`, `amount` | Caster's stat (`health`, `shield`, `speed`) vs threshold |
+| `stat` | `stat`, `compare`, `amount` | Caster's stat value vs threshold |
 
 ### Compare Operators
 
@@ -1114,7 +1114,7 @@ There are two paths for adding new game mechanics, depending on what the mechani
 | Field | What's checked | Why |
 |-------|---------------|-----|
 | `target` (in `damage`, `heal`, `modify_stat`) | Must be `"self"` or `"arg:<name>"` where `<name>` matches a declared arg | Catches typos like `"arg:victem"` when the arg is `"victim"` |
-| `stat` (in `modify_stat`, `use_resource`) | Must be one of `health`, `mana`, `shield`, `speed` | Catches invalid stat names like `"energy"` or `"hp"` |
+| `stat` (in `modify_stat`, `use_resource`) | Any string — maps to the entity's stats map | Stats not defined on the entity default to 0 |
 | `amount` (in `use_resource`) | Must be positive | A non-positive cost doesn't make sense |
 | `entity_type` (in `spawn`) | Validated separately by `validate_spawns()` — checks the type exists in some loaded mod | Catches references to undefined entity types |
 

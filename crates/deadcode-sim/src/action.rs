@@ -135,6 +135,12 @@ pub enum CommandEffect {
     /// Kill all alive, non-spawning entities of a type and gain a resource per kill.
     #[serde(rename = "sacrifice")]
     Sacrifice { entity_type: String, resource: String, per_kill: DynInt },
+    /// Add to a global resource (clamped to cap if capped). Can be negative.
+    #[serde(rename = "modify_resource")]
+    ModifyResource { resource: String, amount: DynInt },
+    /// Check and deduct a global resource; if insufficient, abort remaining effects.
+    #[serde(rename = "use_global_resource")]
+    UseGlobalResource { resource: String, amount: DynInt },
 }
 
 /// A single phase in a multi-tick phased command.
@@ -388,11 +394,6 @@ pub fn resolve_custom_effects(
                                     .max(0)
                                     .min(target_entity.max_health);
                             }
-                            "energy" => {
-                                target_entity.energy = (target_entity.energy + amount)
-                                    .max(0)
-                                    .min(target_entity.max_energy);
-                            }
                             "shield" => {
                                 target_entity.shield = (target_entity.shield + amount).max(0);
                             }
@@ -409,7 +410,6 @@ pub fn resolve_custom_effects(
                 let has_enough = world.get_entity(entity_id).map_or(false, |e| {
                     let current = match stat.as_str() {
                         "health" => e.health,
-                        "energy" => e.energy,
                         "shield" => e.shield,
                         _ => return false,
                     };
@@ -426,7 +426,6 @@ pub fn resolve_custom_effects(
                 if let Some(entity) = world.get_entity_mut(entity_id) {
                     match stat.as_str() {
                         "health" => entity.health = (entity.health - amount).max(0),
-                        "energy" => entity.energy = (entity.energy - amount).max(0),
                         "shield" => entity.shield = (entity.shield - amount).max(0),
                         _ => {}
                     }
@@ -495,6 +494,20 @@ pub fn resolve_custom_effects(
                             if count != 1 { "s" } else { "" }
                         ),
                     });
+                }
+            }
+            CommandEffect::ModifyResource { resource, amount } => {
+                let amount = amount.resolve(&mut rng);
+                world.gain_resource(resource, amount);
+            }
+            CommandEffect::UseGlobalResource { resource, amount } => {
+                let amount = amount.resolve(&mut rng);
+                if !world.try_spend_resource(resource, amount) {
+                    events.push(SimEvent::ScriptOutput {
+                        entity_id,
+                        text: format!("[{cmd_name}] not enough {resource}"),
+                    });
+                    return true; // Abort remaining effects.
                 }
             }
         }

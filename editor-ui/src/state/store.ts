@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { CommandInfo, Diagnostic, ScriptInfo, VariableInfo } from '../ipc/types';
+import type { CommandInfo, Diagnostic, ResourceValue, ScriptInfo, VariableInfo } from '../ipc/types';
 
 interface ConsoleEntry {
   text: string;
@@ -41,6 +41,7 @@ interface EditorState {
   foldedLines: Record<string, number[]>;
   availableCommands: string[];
   availableResources: string[];
+  resourceValues: ResourceValue[];
   commandInfo: CommandInfo[];
   devMode: boolean;
 
@@ -74,6 +75,7 @@ interface EditorState {
   setFoldedLines: (scriptId: string, lines: number[]) => void;
   setAvailableCommands: (commands: string[]) => void;
   setAvailableResources: (resources: string[]) => void;
+  setResourceValues: (values: ResourceValue[]) => void;
   setCommandInfo: (info: CommandInfo[]) => void;
   setDevMode: (devMode: boolean) => void;
 }
@@ -102,6 +104,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   foldedLines: {},
   availableCommands: [],
   availableResources: [],
+  resourceValues: [],
   commandInfo: [],
   devMode: false,
 
@@ -215,6 +218,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
 
   setAvailableCommands: (commands) => set({ availableCommands: commands }),
   setAvailableResources: (resources) => set({ availableResources: resources }),
+  setResourceValues: (values) => set({ resourceValues: values }),
   setCommandInfo: (info) => set({ commandInfo: info }),
   setDevMode: (devMode) => set({ devMode }),
 }), {

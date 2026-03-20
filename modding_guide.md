@@ -31,7 +31,7 @@ type = "warrior"
 sprite = "sprites/warrior_atlas"
 pivot = [24.0, 0.0]
 health = 80
-energy = 60
+mana = 60
 speed = 2
 attack_damage = 15
 attack_range = 3
@@ -44,7 +44,7 @@ Only `type` is required. All other fields have defaults:
 | Field | Default | Description |
 |-------|---------|-------------|
 | `health` | 100 | Max and starting health |
-| `energy` | 100 | Max and starting energy |
+| `mana` | 100 | Max and starting mana |
 | `speed` | 1 | Tiles moved per tick |
 | `attack_damage` | 10 | Damage per attack |
 | `attack_range` | 5 | Attack range in tiles |
@@ -100,7 +100,7 @@ The `[initial]` section defines effects that run when the game opens without loa
 [initial]
 effects = [
   { type = "output", message = "The void welcomes you..." },
-  { type = "modify_stat", target = "self", stat = "energy", amount = 10 },
+  { type = "modify_stat", target = "self", stat = "mana", amount = 10 },
 ]
 ```
 
@@ -129,7 +129,7 @@ name = "smite"
 description = "Strike with dark energy"
 args = ["target"]
 effects = [
-  { type = "use_resource", stat = "energy", amount = 25 },
+  { type = "use_resource", stat = "mana", amount = 25 },
   { type = "damage", target = "arg:target", amount = 30 },
   { type = "output", message = "[smite] Dark energy strikes!" },
 ]
@@ -200,14 +200,14 @@ Create a new entity at a position relative to the caster.
 Add to (or subtract from) a stat on a target.
 
 ```toml
-{ type = "modify_stat", target = "self", stat = "energy", amount = 20 }
+{ type = "modify_stat", target = "self", stat = "mana", amount = 20 }
 { type = "modify_stat", target = "self", stat = "health", amount = -10 }
 ```
 
 | Field | Description |
 |-------|-------------|
 | `target` | Who to modify |
-| `stat` | One of: `health`, `energy`, `shield`, `speed` |
+| `stat` | One of: `health`, `mana`, `shield`, `speed` |
 | `amount` | Value to add (negative to subtract). Clamped to 0 at minimum, max stat at maximum. |
 
 ### `use_resource`
@@ -215,12 +215,12 @@ Add to (or subtract from) a stat on a target.
 Check that the caster has enough of a resource, then deduct it. If the caster doesn't have enough, the command **stops** — no further effects execute, and a warning is printed to the console.
 
 ```toml
-{ type = "use_resource", stat = "energy", amount = 30 }
+{ type = "use_resource", stat = "mana", amount = 30 }
 ```
 
 | Field | Description |
 |-------|-------------|
-| `stat` | One of: `health`, `energy`, `shield` |
+| `stat` | One of: `health`, `mana`, `shield` |
 | `amount` | Amount required and deducted |
 
 Place `use_resource` **before** the effects it should gate. You can use multiple `use_resource` effects to require different resources, or place them at different points in the effect list for fine-grained control.
@@ -233,7 +233,7 @@ name = "sacrifice"
 description = "Power through pain"
 args = []
 effects = [
-  { type = "use_resource", stat = "energy", amount = 20 },
+  { type = "use_resource", stat = "mana", amount = 20 },
   { type = "use_resource", stat = "health", amount = 10 },
   { type = "modify_stat", target = "self", stat = "shield", amount = 50 },
   { type = "output", message = "[sacrifice] Shield surges!" },
@@ -286,7 +286,7 @@ type = "wraith"
 sprite = "sprites/wraith_atlas"
 pivot = [24.0, 0.0]
 health = 40
-energy = 80
+mana = 80
 speed = 3
 shield = 20
 
@@ -308,7 +308,7 @@ name = "haunt"
 description = "Send a wraith to terrorize"
 args = []
 effects = [
-  { type = "use_resource", stat = "energy", amount = 40 },
+  { type = "use_resource", stat = "mana", amount = 40 },
   { type = "spawn", entity_type = "wraith", offset = 2 },
   { type = "output", message = "[haunt] A wraith appears!" },
 ]
@@ -318,7 +318,7 @@ name = "devour"
 description = "Consume a target's essence"
 args = ["prey"]
 effects = [
-  { type = "use_resource", stat = "energy", amount = 15 },
+  { type = "use_resource", stat = "mana", amount = 15 },
   { type = "damage", target = "arg:prey", amount = 25 },
   { type = "heal", target = "self", amount = 15 },
   { type = "output", message = "[devour] Essence consumed!" },
@@ -330,7 +330,7 @@ effects = [
 The engine validates your mod at load time and prints warnings for:
 
 - Spawn definitions referencing unknown entity types
-- Unknown stat names in `modify_stat` or `use_resource` effects (valid: `health`, `energy`, `shield`, `speed`)
+- Unknown stat names in `modify_stat` or `use_resource` effects (valid: `health`, `mana`, `shield`, `speed`)
 - Invalid target references in effects
 - Non-positive `use_resource` amounts
 

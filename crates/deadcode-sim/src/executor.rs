@@ -558,11 +558,6 @@ pub fn execute_unit(
                 let val = query::get_stat(world, eid, "health")?;
                 state.stack.push(val);
             }
-            Instruction::QueryGetEnergy => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::get_stat(world, eid, "energy")?;
-                state.stack.push(val);
-            }
             Instruction::QueryGetShield => {
                 let eid = pop_entity_ref(&mut state.stack)?;
                 let val = query::get_stat(world, eid, "shield")?;

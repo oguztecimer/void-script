@@ -24,7 +24,6 @@ pub enum QueryBuiltin {
     Distance,
     GetPos,
     GetHealth,
-    GetEnergy,
     GetShield,
     GetTarget,
     HasTarget,
@@ -82,7 +81,6 @@ pub fn classify(name: &str) -> BuiltinKind {
         "distance" => BuiltinKind::Query(QueryBuiltin::Distance),
         "get_pos" => BuiltinKind::Query(QueryBuiltin::GetPos),
         "get_health" => BuiltinKind::Query(QueryBuiltin::GetHealth),
-        "get_energy" => BuiltinKind::Query(QueryBuiltin::GetEnergy),
         "get_shield" => BuiltinKind::Query(QueryBuiltin::GetShield),
         "get_target" => BuiltinKind::Query(QueryBuiltin::GetTarget),
         "has_target" => BuiltinKind::Query(QueryBuiltin::HasTarget),
@@ -124,7 +122,6 @@ pub fn query_instruction(q: &QueryBuiltin) -> Instruction {
         QueryBuiltin::Distance => Instruction::QueryDistance,
         QueryBuiltin::GetPos => Instruction::QueryGetPos,
         QueryBuiltin::GetHealth => Instruction::QueryGetHealth,
-        QueryBuiltin::GetEnergy => Instruction::QueryGetEnergy,
         QueryBuiltin::GetShield => Instruction::QueryGetShield,
         QueryBuiltin::GetTarget => Instruction::QueryGetTarget,
         QueryBuiltin::HasTarget => Instruction::QueryHasTarget,
@@ -152,7 +149,6 @@ pub fn query_takes_implicit_self(q: &QueryBuiltin) -> bool {
         q,
         QueryBuiltin::GetPos
             | QueryBuiltin::GetHealth
-            | QueryBuiltin::GetEnergy
             | QueryBuiltin::GetShield
             | QueryBuiltin::GetTarget
             | QueryBuiltin::HasTarget
@@ -166,7 +162,6 @@ pub fn query_expected_args(q: &QueryBuiltin) -> usize {
         QueryBuiltin::Distance => 2,
         QueryBuiltin::GetPos
         | QueryBuiltin::GetHealth
-        | QueryBuiltin::GetEnergy
         | QueryBuiltin::GetShield
         | QueryBuiltin::GetTarget
         | QueryBuiltin::HasTarget

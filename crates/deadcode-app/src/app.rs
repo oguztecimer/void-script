@@ -235,6 +235,20 @@ impl App {
 
                 let msg = RustToJs::SimulationTick { tick: snapshot.tick };
                 self.webview_manager.send_to_all(&msg);
+
+                // Send available global resource values to the editor.
+                let resources: Vec<_> = sim.resources.iter()
+                    .filter(|(name, _)| {
+                        sim.available_resources.as_ref()
+                            .map_or(true, |set| set.contains(name.as_str()))
+                    })
+                    .map(|(name, &value)| deadcode_editor::ipc::ResourceValue {
+                        name: name.clone(),
+                        value,
+                        max_value: sim.resource_caps.get(name).copied(),
+                    })
+                    .collect();
+                self.webview_manager.send_to_all(&RustToJs::ResourceUpdate { resources });
             }
 
             self.active_until = Some(Instant::now() + Duration::from_secs(1));
@@ -503,7 +517,6 @@ impl ApplicationHandler<UserEvent> for App {
         self.pivot_registry.insert("summoner".into(), [49.0, 2.0]);
         self.entity_configs.insert("summoner".into(), EntityConfig {
             health: Some(100),
-            energy: Some(100),
             speed: Some(1),
             ..Default::default()
         });
@@ -587,7 +600,9 @@ impl ApplicationHandler<UserEvent> for App {
         sim.command_order = self.available_commands.clone();
 
         // Initialize global resources from mod definitions.
-        sim.resources = modding::collect_initial_resources(&mods);
+        let collected = modding::collect_initial_resources(&mods);
+        sim.resources = collected.values;
+        sim.resource_caps = collected.caps;
 
         // Set available resources (None = all available in dev mode).
         sim.available_resources = if deadcode_desktop::is_dev_mode() {
@@ -799,7 +814,7 @@ impl App {
             let mut cmds: Vec<String> = vec![
                 "move", "get_pos", "scan", "nearest", "distance", "attack",
                 "flee", "wait", "set_target", "get_target", "has_target",
-                "get_health", "get_energy", "get_shield", "get_type",
+                "get_health", "get_shield", "get_type",
                 "get_name", "get_owner",
                 "get_resource", "gain_resource", "try_spend_resource",
             ]

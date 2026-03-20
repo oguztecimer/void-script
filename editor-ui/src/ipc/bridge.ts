@@ -72,7 +72,9 @@ export function initIpcBridge(): void {
         store.addTerminalOutput('--- Simulation stopped ---', 'info');
         break;
       case 'simulation_tick':
-        // Tick updates can be used by UI components if needed.
+        break;
+      case 'resource_update':
+        store.setResourceValues(msg.resources);
         break;
       case 'available_commands':
         store.setAvailableCommands(msg.commands);

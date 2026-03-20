@@ -77,7 +77,6 @@ pub enum Instruction {
     /// Get health of entity. Pop EntityRef, push Int.
     QueryGetHealth,
     /// Get energy of entity. Pop EntityRef, push Int.
-    QueryGetEnergy,
     /// Get shield of entity. Pop EntityRef, push Int.
     QueryGetShield,
     /// Get current target. Pop EntityRef, push EntityRef or None.

@@ -52,7 +52,6 @@ pub fn is_builtin_static(name: &str) -> bool {
             | "attack"
             | "flee"
             | "get_health"
-            | "get_energy"
             | "get_shield"
             | "wait"
             | "set_target"
@@ -411,7 +410,6 @@ pub fn call_builtin(
             Ok(Value::None)
         }
         "get_health" => Ok(Value::Int(100)),
-        "get_energy" => Ok(Value::Int(100)),
         "get_shield" => Ok(Value::Int(50)),
         "wait" => {
             send_output(output_tx, "[wait] Waiting...");

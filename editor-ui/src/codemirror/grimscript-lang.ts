@@ -17,7 +17,6 @@ const stdlibFunctions = new Set([
 const allGameFunctions = new Set([
   'move', 'get_pos', 'scan', 'nearest', 'distance', 'attack',
   'flee', 'wait', 'set_target', 'get_target', 'has_target',
-  'get_health', 'get_energy', 'get_shield',
   'get_type', 'get_name', 'get_owner',
   'consult', 'raise', 'harvest', 'pact',
 ]);

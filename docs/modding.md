@@ -38,7 +38,7 @@ sprite = "sprites/warrior_atlas"    # Path to sprite files (relative to mod dir,
                                     # Expects both .png and .json to exist
 pivot = [24.0, 0.0]                 # Sprite pivot point [x, y] for positioning
 health = 80                         # Max health (also sets current health)
-energy = 60                         # Max energy
+mana = 60                         # Max mana
 speed = 2                           # Movement speed (tiles per tick)
 attack_damage = 15                  # Damage per attack
 attack_range = 3                    # Attack range in tiles
@@ -79,7 +79,7 @@ effects = [
 ]
 ```
 
-All fields in `[[entities]]` except `type` are optional. Omitted stats use engine defaults (health=100, energy=100, speed=1, etc.). Omitted `sprite` means the entity won't have a render unit.
+All fields in `[[entities]]` except `type` are optional. Omitted stats use engine defaults (health=100, mana=100, speed=1, etc.). Omitted `sprite` means the entity won't have a render unit.
 
 **Reserved entity type:** The `"summoner"` entity type is hardcoded by the game engine and cannot be defined or overridden by mods. It is always spawned at position 500 with fixed stats. Mods that define an entity with `type = "summoner"` will see a warning and their definition will be ignored.
 
@@ -92,7 +92,7 @@ Entity definitions register types that can be spawned — either at startup via 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `health` | 100 | Max and current health |
-| `energy` | 100 | Max and current energy |
+| `mana` | 100 | Max and current mana |
 | `speed` | 1 | Movement speed (tiles per tick) |
 | `attack_damage` | 10 | Damage dealt per attack |
 | `attack_range` | 5 | Range for attack actions |
@@ -199,7 +199,7 @@ Game commands that can be gated:
 | `distance` | Get distance to an entity |
 | `get_pos` | Get entity position |
 | `get_health` | Get entity health |
-| `get_energy` | Get entity energy |
+| `get_mana` | Get entity mana |
 | `get_shield` | Get entity shield |
 | `get_type` | Get entity type string |
 | `get_name` | Get entity name |
@@ -217,7 +217,7 @@ In dev mode (`--features dev-mode`), all commands (including custom) are availab
 
 ## Global Resources
 
-Mods define world-level integer resources in a `[resources]` table in `mod.toml`. Resources are shared across all entities — they are not per-entity stats like health or energy.
+Mods define world-level integer resources in a `[resources]` table in `mod.toml`. Resources are shared across all entities — they are not per-entity stats like health or mana.
 
 ```toml
 [resources]
@@ -330,7 +330,7 @@ The `target` field in effects uses these formats:
 
 ### Stat Names
 
-For `modify_stat`, valid stat names are: `health`, `energy`, `shield`, `speed`.
+For `modify_stat`, valid stat names are: `health`, `mana`, `shield`, `speed`.
 
 ### Base Game Commands as Effects
 
@@ -347,7 +347,7 @@ Each mod's `[[spawn]]` entries all execute, and each mod's `[commands].initial` 
 After all mods are loaded, the engine validates:
 - **Spawn entity types**: every `[[spawn]]` entry's `entity_type` must match a registered entity type. Unknown types produce a warning: `[mod:<id>] warning: spawn '<name>' references unknown entity type '<type>'`.
 - **Spawn effects in custom commands**: `spawn` effects in `[[commands.definitions]]` are also checked against known entity types.
-- **Stat names in `modify_stat` and `use_resource` effects**: must be one of `health`, `energy`, `shield`, `speed`. Unknown stat names produce a warning.
+- **Stat names in `modify_stat` and `use_resource` effects**: must be one of `health`, `mana`, `shield`, `speed`. Unknown stat names produce a warning.
 - **Target references in effects**: `target` fields must be `"self"` or `"arg:<ref>"` where `<ref>` is a valid numeric index or a name matching one of the command's `args` entries. Invalid references produce a warning.
 - **`use_resource` amounts**: must be positive. Non-positive values produce a warning.
 
@@ -415,7 +415,7 @@ commands = ["raise", "harvest"]
 resources = ["souls"]
 effects = [
   { type = "output", message = "Welcome to the void..." },
-  { type = "modify_stat", target = "self", stat = "energy", amount = 10 },
+  { type = "modify_stat", target = "self", stat = "mana", amount = 10 },
 ]
 ```
 
@@ -431,13 +431,13 @@ name = "raise"
 description = "Raise the dead"
 args = []
 effects = [
-  { type = "use_resource", stat = "energy", amount = 30 },
+  { type = "use_resource", stat = "mana", amount = 30 },
   { type = "spawn", entity_type = "skeleton", offset = 1 },
   { type = "output", message = "[raise] A skeleton rises!" },
 ]
 ```
 
-The `use_resource` effect checks and deducts the resource atomically. Valid stats: `health`, `energy`, `shield`. If the entity's current value for that stat is less than `amount`, a warning is printed (e.g., `[raise] not enough energy`) and no further effects run.
+The `use_resource` effect checks and deducts the resource atomically. Valid stats: `health`, `mana`, `shield`. If the entity's current value for that stat is less than `amount`, a warning is printed (e.g., `[raise] not enough mana`) and no further effects run.
 
 Since `use_resource` is just an effect, you can place multiple resource checks or interleave them with other effects for fine-grained control.
 
@@ -454,7 +454,7 @@ description = "Channel a fireball"
 args = ["target"]
 phases = [
   { ticks = 5, interruptible = true, per_tick = [
-    { type = "use_resource", stat = "energy", amount = 10 },
+    { type = "use_resource", stat = "mana", amount = 10 },
   ], on_start = [
     { type = "output", message = "[fireball] Channeling..." },
   ]},
@@ -495,7 +495,7 @@ For the fireball example above (5 + 1 + 4 = 10 phase ticks):
 | Tick | What happens |
 |------|-------------|
 | N | Script calls `fireball(target)` → channel set up |
-| N+1 to N+5 | Phase 0: windup (interruptible, drains 10 energy/tick) |
+| N+1 to N+5 | Phase 0: windup (interruptible, drains 10 mana/tick) |
 | N+6 | Phase 1: impact (50 damage, non-interruptible) |
 | N+7 to N+10 | Phase 2: recovery (non-interruptible) |
 | N+11 | Script resumes normally |
@@ -617,7 +617,7 @@ There are two paths for adding new game mechanics, depending on what the mechani
 | Field | What's checked | Why |
 |-------|---------------|-----|
 | `target` (in `damage`, `heal`, `modify_stat`) | Must be `"self"` or `"arg:<name>"` where `<name>` matches a declared arg | Catches typos like `"arg:victem"` when the arg is `"victim"` |
-| `stat` (in `modify_stat`, `use_resource`) | Must be one of `health`, `energy`, `shield`, `speed` | Catches invalid stat names like `"mana"` or `"hp"` |
+| `stat` (in `modify_stat`, `use_resource`) | Must be one of `health`, `mana`, `shield`, `speed` | Catches invalid stat names like `"energy"` or `"hp"` |
 | `amount` (in `use_resource`) | Must be positive | A non-positive cost doesn't make sense |
 | `entity_type` (in `spawn`) | Validated separately by `validate_spawns()` — checks the type exists in some loaded mod | Catches references to undefined entity types |
 

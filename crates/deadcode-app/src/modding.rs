@@ -29,9 +29,58 @@ pub struct ModManifest {
     pub commands: Option<CommandsDef>,
     #[serde(default)]
     pub initial: Option<InitialDef>,
-    /// Global resources: name → initial value.
+    /// Global resources: name → definition (plain int for capless, or {value, max} for capped).
     #[serde(default)]
-    pub resources: HashMap<String, i64>,
+    pub resources: HashMap<String, ResourceDef>,
+}
+
+/// A resource definition: either a plain integer (capless) or `{ value, max }` (capped).
+#[derive(Debug, Clone)]
+pub struct ResourceDef {
+    pub value: i64,
+    pub max: Option<i64>,
+}
+
+impl<'de> Deserialize<'de> for ResourceDef {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de;
+
+        struct ResourceDefVisitor;
+
+        impl<'de> de::Visitor<'de> for ResourceDefVisitor {
+            type Value = ResourceDef;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "an integer or {{ value, max }}")
+            }
+
+            fn visit_i64<E: de::Error>(self, v: i64) -> Result<ResourceDef, E> {
+                Ok(ResourceDef { value: v, max: None })
+            }
+
+            fn visit_u64<E: de::Error>(self, v: u64) -> Result<ResourceDef, E> {
+                Ok(ResourceDef { value: v as i64, max: None })
+            }
+
+            fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<ResourceDef, A::Error> {
+                let mut value = None;
+                let mut max = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "value" => value = Some(map.next_value::<i64>()?),
+                        "max" => max = Some(map.next_value::<i64>()?),
+                        _ => { let _ = map.next_value::<de::IgnoredAny>()?; }
+                    }
+                }
+                Ok(ResourceDef {
+                    value: value.unwrap_or(0),
+                    max,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(ResourceDefVisitor)
+    }
 }
 
 /// The `[initial]` section: commands, resources, and effects available at game start.
@@ -72,7 +121,6 @@ pub struct EntityDef {
     #[serde(default)]
     pub pivot: Option<[f32; 2]>,
     pub health: Option<i64>,
-    pub energy: Option<i64>,
     pub speed: Option<i64>,
     pub attack_damage: Option<i64>,
     pub attack_range: Option<i64>,
@@ -85,7 +133,6 @@ impl EntityDef {
     pub fn to_entity_config(&self) -> EntityConfig {
         EntityConfig {
             health: self.health,
-            energy: self.energy,
             speed: self.speed,
             attack_damage: self.attack_damage,
             attack_range: self.attack_range,
@@ -271,14 +318,13 @@ fn embedded_fallback() -> LoadedMod {
         }),
         resources: {
             let mut r = HashMap::new();
-            r.insert("bones".into(), 0);
+            r.insert("bones".into(), ResourceDef { value: 0, max: None });
             r
         },
     };
 
     entity_configs.insert("skeleton".into(), EntityConfig {
         health: Some(50),
-        energy: Some(50),
         speed: Some(2),
         ..Default::default()
     });
@@ -408,7 +454,7 @@ fn validate_effects(
 /// For phased commands: validates mutual exclusivity with `effects`, phase ticks > 0,
 /// and effects within `on_start`/`per_tick` lists.
 pub fn validate_command_defs(mods: &[LoadedMod]) {
-    let valid_stats: HashSet<&str> = ["health", "energy", "shield", "speed"].into_iter().collect();
+    let valid_stats: HashSet<&str> = ["health", "shield", "speed"].into_iter().collect();
 
     for m in mods {
         let Some(cmds) = &m.manifest.commands else { continue };
@@ -528,23 +574,33 @@ pub fn collect_initial_commands(mods: &[LoadedMod]) -> Vec<String> {
     commands
 }
 
+/// Collected resource definitions: values and optional caps.
+pub struct CollectedResources {
+    pub values: deadcode_sim::IndexMap<String, i64>,
+    pub caps: std::collections::HashMap<String, i64>,
+}
+
 /// Collect global resources from all loaded mods, merging them.
 /// Duplicate resource names: first-defined wins (with a warning).
-pub fn collect_initial_resources(mods: &[LoadedMod]) -> deadcode_sim::IndexMap<String, i64> {
-    let mut resources = deadcode_sim::IndexMap::new();
+pub fn collect_initial_resources(mods: &[LoadedMod]) -> CollectedResources {
+    let mut values = deadcode_sim::IndexMap::new();
+    let mut caps = std::collections::HashMap::new();
     for m in mods {
-        for (name, &value) in &m.manifest.resources {
-            if resources.contains_key(name) {
+        for (name, def) in &m.manifest.resources {
+            if values.contains_key(name) {
                 eprintln!(
                     "[mod] warning: resource '{}' already defined, skipping duplicate from '{}'",
                     name, m.manifest.meta.id
                 );
             } else {
-                resources.insert(name.clone(), value);
+                values.insert(name.clone(), def.value);
+                if let Some(max) = def.max {
+                    caps.insert(name.clone(), max);
+                }
             }
         }
     }
-    resources
+    CollectedResources { values, caps }
 }
 
 /// Collect initially available resource names from all loaded mods.

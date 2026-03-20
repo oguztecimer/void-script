@@ -94,6 +94,8 @@ pub struct SimWorld {
     pub command_order: Vec<String>,
     /// Global resources shared across all entities.
     pub resources: IndexMap<String, i64>,
+    /// Optional max values for resources. Absent = capless.
+    pub resource_caps: HashMap<String, i64>,
     /// Available resource names. None = all available (dev mode).
     pub available_resources: Option<HashSet<String>>,
 }
@@ -118,6 +120,7 @@ impl SimWorld {
             spawn_durations: HashMap::new(),
             command_order: Vec::new(),
             resources: IndexMap::new(),
+            resource_caps: HashMap::new(),
             available_resources: None,
         }
     }
@@ -140,11 +143,19 @@ impl SimWorld {
         self.resources.get(name).copied().unwrap_or(0)
     }
 
-    /// Add to a global resource, returning the new total.
+    /// Add to a global resource, returning the new total. Clamped to max if capped.
     pub fn gain_resource(&mut self, name: &str, amount: i64) -> i64 {
         let entry = self.resources.entry(name.to_string()).or_insert(0);
         *entry += amount;
+        if let Some(&cap) = self.resource_caps.get(name) {
+            *entry = (*entry).min(cap);
+        }
         *entry
+    }
+
+    /// Get the max value of a resource, if capped.
+    pub fn get_resource_cap(&self, name: &str) -> Option<i64> {
+        self.resource_caps.get(name).copied()
     }
 
     /// Try to spend a global resource. Returns true if successful, false if insufficient.
@@ -884,11 +895,11 @@ mod tests {
     }
 
     #[test]
-    fn phased_command_use_resource_failure_cancels() {
+    fn phased_command_use_global_resource_failure_cancels() {
         let mut world = SimWorld::new(42);
         let id = world.spawn_entity("summoner".into(), "s".into(), 0);
-        // Set energy to 15 — enough for 1 tick of 10 drain but not 2.
-        world.get_entity_mut(id).unwrap().energy = 15;
+        // Set mana resource to 15 — enough for 1 tick of 10 drain but not 2.
+        world.resources.insert("mana".into(), 15);
 
         let def = CommandDef {
             name: "drain".into(),
@@ -900,7 +911,7 @@ mod tests {
                     ticks: 3,
                     interruptible: false,
                     per_tick: vec![
-                        CommandEffect::UseResource { stat: "energy".into(), amount: crate::action::DynInt::Fixed(10) },
+                        CommandEffect::UseGlobalResource { resource: "mana".into(), amount: crate::action::DynInt::Fixed(10) },
                         CommandEffect::Output { message: "drained".into() },
                     ],
                     on_start: vec![],
@@ -932,11 +943,11 @@ mod tests {
         world.tick();
         world.take_events();
 
-        // Tick 2: phase 0, tick 0 — drains 10 energy (15 → 5). Should succeed.
+        // Tick 2: phase 0, tick 0 — drains 10 mana (15 → 5). Should succeed.
         world.tick();
         let texts = output_texts(&world.take_events());
         assert!(texts.contains(&"drained".to_string()), "First drain should succeed: {:?}", texts);
-        assert_eq!(world.get_entity(id).unwrap().energy, 5);
+        assert_eq!(world.get_resource("mana"), 5);
 
         // Tick 3: phase 0, tick 1 — needs 10 energy but only 5 → abort.
         world.tick();

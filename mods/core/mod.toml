@@ -8,15 +8,15 @@ type = "skeleton"
 sprite = "sprites/skeleton_atlas"
 pivot = [24.0, 0.0]
 health = 50
-energy = 50
 speed = 2
 
 [resources]
+mana = { value = 100, max = 100 }
 bones = 0
 
 [initial]
 commands = ["help", "raise", "harvest", "pact"]
-resources = ["bones"]
+resources = ["mana", "bones"]
 effects = [
   { type = "output", message = "The dead stir beneath your feet" },
   { type = "output", message = "Call for <hl>help()</hl> to hear them speak" },
@@ -27,7 +27,7 @@ name = "help"
 description = "Hidden wisdom will be found"
 args = []
 effects = [
-  { type = "modify_stat", target = "self", stat = "energy", amount = 10 },
+  { type = "modify_resource", resource = "mana", amount = 10 },
   { type = "list_commands" },
 ]
 
@@ -37,15 +37,13 @@ description = "From the ground, the dead are bound"
 args = []
 phases = [
   { ticks = 12, interruptible = true, on_start = [
-    { type = "animate", target = "self", animation = "cast" },
-    { type = "output", message = "[raise] Casting..." }
+    { type = "animate", target = "self", animation = "cast" }
   ]},
   { ticks = 1, interruptible = false, on_start = [
-    { type = "spawn", entity_type = "skeleton", offset = "rand(-300,300)"},
-    { type = "output", message = "[raise] A skeleton rises!" },
+    { type = "use_global_resource", resource = "mana", amount = 30}
   ]},
   { ticks = 18, interruptible = false, on_start = [
-    { type = "output", message = "[raise] Recovering..." },
+    { type = "spawn", entity_type = "skeleton", offset = "rand(-300,300)"}
   ]},
 ]
 
@@ -53,6 +51,15 @@ phases = [
 name = "harvest"
 description = "The children slain, bones remain"
 args = []
+phases = [
+  { ticks = 12, interruptible = true, on_start = [
+    { type = "animate", target = "self", animation = "cast" }
+  ]},
+  { ticks = 1, interruptible = false, on_start = [
+    { type = "sacrifice", entity_type = "skeleton", resource = "bones", per_kill = "rand(1,2)" },
+  ]},
+  { ticks = 18, interruptible = false, on_start = []},
+]
 effects = [
   { type = "sacrifice", entity_type = "skeleton", resource = "bones", per_kill = "rand(1,2)" },
 ]
@@ -63,6 +70,6 @@ description = "Pledge your bones to my domain"
 args = []
 effects = [
   { type = "modify_stat", target = "self", stat = "health", amount = -10 },
-  { type = "modify_stat", target = "self", stat = "energy", amount = 50 },
+  { type = "modify_resource", resource = "mana", amount = 50 },
   { type = "output", message = "[pact] Power surges through you..." },
 ]

@@ -67,7 +67,6 @@ pub struct ChannelState {
 #[derive(Debug, Clone, Default)]
 pub struct EntityConfig {
     pub health: Option<i64>,
-    pub energy: Option<i64>,
     pub speed: Option<i64>,
     pub attack_damage: Option<i64>,
     pub attack_range: Option<i64>,
@@ -90,8 +89,6 @@ pub struct SimEntity {
     // Stats
     pub health: i64,
     pub max_health: i64,
-    pub energy: i64,
-    pub max_energy: i64,
     pub shield: i64,
     pub max_shield: i64,
 
@@ -125,8 +122,6 @@ impl SimEntity {
             position,
             health: 100,
             max_health: 100,
-            energy: 100,
-            max_energy: 100,
             shield: 0,
             max_shield: 0,
             speed: 1,
@@ -152,10 +147,6 @@ impl SimEntity {
         if let Some(h) = config.health {
             self.health = h;
             self.max_health = h;
-        }
-        if let Some(e) = config.energy {
-            self.energy = e;
-            self.max_energy = e;
         }
         if let Some(s) = config.speed {
             self.speed = s;

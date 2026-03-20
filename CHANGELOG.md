@@ -18,7 +18,7 @@
 ### Core
 
 #### Changed
-- **Summoner is now a hardcoded core entity** — The summoner is no longer defined or spawned via `mod.toml`. It is always created by the game engine at position 500 with fixed stats (100 HP, 100 energy, speed 1) using embedded sprite assets. Mods cannot override or redefine the summoner entity type. This ensures the player's core entity is always present and consistent regardless of mod configuration.
+- **Summoner is now a hardcoded core entity** — The summoner is no longer defined or spawned via `mod.toml`. It is always created by the game engine at position 500 with fixed stats (100 HP, 100 mana, speed 1) using embedded sprite assets. Mods cannot override or redefine the summoner entity type. This ensures the player's core entity is always present and consistent regardless of mod configuration.
 
 ### Simulation Engine
 
@@ -58,7 +58,7 @@
 - **M-02: Reserved dependency fields in mod.toml** — `depends_on`, `conflicts_with`, and `min_game_version` fields added to `[mod]` section schema. Parsed but not enforced yet — reserves schema space for future dependency resolution.
 - **M-03: Custom command definition validation** — Stat names in `modify_stat` effects and `arg:` target references are now validated at mod load time. Unknown stat names, out-of-range arg indices, and unrecognized arg names produce clear warnings.
 - **M-08: `[initial]` section with startup effects** — Mods can now define an `[initial]` section with an `effects` list in `mod.toml`. These effects run in order when the game opens (without loading a saved game state). The intro text ("The dead stir beneath your feet") is now data-driven via `output` effects in the core mod's `[initial]` section instead of hardcoded in the frontend.
-- **M-06: `use_resource` effect replaces cost system** — The separate `cost` field on custom commands has been removed. Resource costs are now expressed as a `use_resource` effect (e.g., `{ type = "use_resource", stat = "energy", amount = 30 }`). When a `use_resource` effect encounters insufficient resources, it aborts the command early — remaining effects are skipped and a console warning is printed. This unifies costs into the effect pipeline, giving modders precise control over when resource checks happen relative to other effects.
+- **M-06: `use_resource` effect replaces cost system** — The separate `cost` field on custom commands has been removed. Resource costs are now expressed as a `use_resource` effect (e.g., `{ type = "use_resource", stat = "mana", amount = 30 }`). When a `use_resource` effect encounters insufficient resources, it aborts the command early — remaining effects are skipped and a console warning is printed. This unifies costs into the effect pipeline, giving modders precise control over when resource checks happen relative to other effects.
 - **M-05: Phase 2 library API design sketch** — Reserved `libraries` field in `[commands]` schema. Design sketch for `.grim` library files added to `docs/modding.md` covering namespace strategy, gating, and compilation order.
 - **M-09: Developer guide for effects vs builtins** — New "Adding New Effects (Developer Guide)" section in `docs/modding.md` explaining the two paths for adding game mechanics (effect system vs builtins), when to use each, step-by-step instructions for adding a new effect, and when validation in `modding.rs` is needed.
 

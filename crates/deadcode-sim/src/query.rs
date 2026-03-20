@@ -70,7 +70,6 @@ pub fn get_stat(world: &SimWorld, id: EntityId, stat: &str) -> Result<SimValue, 
         .ok_or_else(|| SimError::entity_not_found(id.0))?;
     let val = match stat {
         "health" => e.health,
-        "energy" => e.energy,
         "shield" => e.shield,
         _ => return Err(SimError::type_error(format!("unknown stat: {stat}"))),
     };
@@ -133,8 +132,6 @@ pub fn get_entity_attr(
         "position" | "pos" | "x" => Ok(SimValue::Int(e.position)),
         "health" | "hp" => Ok(SimValue::Int(e.health)),
         "max_health" | "max_hp" => Ok(SimValue::Int(e.max_health)),
-        "energy" => Ok(SimValue::Int(e.energy)),
-        "max_energy" => Ok(SimValue::Int(e.max_energy)),
         "shield" => Ok(SimValue::Int(e.shield)),
         "max_shield" => Ok(SimValue::Int(e.max_shield)),
         "speed" => Ok(SimValue::Int(e.speed)),

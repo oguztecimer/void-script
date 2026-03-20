@@ -65,6 +65,10 @@ pub enum RustToJs {
     SimulationTick {
         tick: u64,
     },
+    #[serde(rename = "resource_update")]
+    ResourceUpdate {
+        resources: Vec<ResourceValue>,
+    },
     #[serde(rename = "available_commands")]
     AvailableCommands {
         commands: Vec<String>,
@@ -74,6 +78,14 @@ pub enum RustToJs {
         #[serde(default)]
         resources: Vec<String>,
     },
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceValue {
+    pub name: String,
+    pub value: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_value: Option<i64>,
 }
 
 /// Metadata about a command (for editor autocomplete/syntax highlighting).

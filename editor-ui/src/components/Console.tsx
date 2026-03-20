@@ -36,8 +36,11 @@ export function Console({ variant = 'console' }: { variant?: 'console' | 'termin
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
 
+  const resourceValues = useStore((s) => s.resourceValues);
+
   const isTerminal = variant === 'terminal' || tier === 0;
   const output = isTerminal ? terminalOutput : consoleOutput;
+
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -99,6 +102,18 @@ export function Console({ variant = 'console' }: { variant?: 'console' | 'termin
   if (isTerminal) {
     return (
       <div className={`${styles.consoleTier0} ${variant === 'terminal' ? styles.editorTerminal : ''}`} onClick={handleConsoleClick}>
+        {resourceValues.length > 0 && (
+          <div className={styles.resourceBar}>
+            {resourceValues.map((r) => (
+              <div key={r.name} className={styles.resourceItem}>
+                <span className={styles.resourceName}>{r.name}</span>
+                <span className={r.name === 'mana' ? styles.resourceValueMana : styles.resourceValue}>
+                  {r.max_value != null ? `${r.value}/${r.max_value}` : r.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         <div ref={scrollRef} className={styles.tier0Scroll}>
           <div className={styles.tier0Spacer} />
           {output.map((entry, i) => (

@@ -1171,7 +1171,6 @@ fn query_name(q: &QueryBuiltin) -> &'static str {
         QueryBuiltin::Distance => "distance",
         QueryBuiltin::GetPos => "get_pos",
         QueryBuiltin::GetHealth => "get_health",
-        QueryBuiltin::GetEnergy => "get_energy",
         QueryBuiltin::GetShield => "get_shield",
         QueryBuiltin::GetTarget => "get_target",
         QueryBuiltin::HasTarget => "has_target",

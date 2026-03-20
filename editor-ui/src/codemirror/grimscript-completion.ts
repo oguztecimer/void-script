@@ -31,7 +31,6 @@ const gameCommandCompletions: Completion[] = [
   { label: 'get_target', detail: '()', info: 'Get current target' },
   { label: 'has_target', detail: '()', info: 'Check if target is set' },
   { label: 'get_health', detail: '([entity])', info: 'Get health' },
-  { label: 'get_energy', detail: '([entity])', info: 'Get energy' },
   { label: 'get_shield', detail: '([entity])', info: 'Get shield' },
   { label: 'get_type', detail: '(entity)', info: 'Get entity type' },
   { label: 'get_name', detail: '(entity)', info: 'Get entity name' },

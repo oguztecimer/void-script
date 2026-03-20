@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use deadcode_desktop::animation::{SKELETON_ATLAS_PNG, skeleton_atlas_json};
-use deadcode_sim::action::{CommandDef, CommandEffect};
+use deadcode_sim::action::{BehaviorDef, BuffDef, CommandDef, CommandEffect, TriggerDef};
 use deadcode_sim::entity::EntityConfig;
 
 // ---------------------------------------------------------------------------
@@ -32,6 +32,12 @@ pub struct ModManifest {
     /// Global resources: name → definition (plain int for capless, or {value, max} for capped).
     #[serde(default)]
     pub resources: HashMap<String, ResourceDef>,
+    /// Event-driven triggers that fire effects when game events match.
+    #[serde(default)]
+    pub triggers: Vec<TriggerDef>,
+    /// Buff definitions (temporary stat modifiers with automatic expiry).
+    #[serde(default)]
+    pub buffs: Vec<BuffDef>,
 }
 
 /// A resource definition: either a plain integer (capless) or `{ value, max }` (capped).
@@ -126,6 +132,9 @@ pub struct EntityDef {
     pub attack_range: Option<i64>,
     pub attack_cooldown: Option<i64>,
     pub shield: Option<i64>,
+    /// Autonomous behaviors for non-scripted entities of this type.
+    #[serde(default)]
+    pub behaviors: Vec<BehaviorDef>,
 }
 
 impl EntityDef {
@@ -321,6 +330,8 @@ fn embedded_fallback() -> LoadedMod {
             r.insert("bones".into(), ResourceDef { value: 0, max: None });
             r
         },
+        triggers: Vec::new(),
+        buffs: Vec::new(),
     };
 
     entity_configs.insert("skeleton".into(), EntityConfig {
@@ -463,7 +474,9 @@ fn validate_effects(
         let target_str = match effect {
             CommandEffect::Damage { target, .. }
             | CommandEffect::Heal { target, .. }
-            | CommandEffect::ModifyStat { target, .. } => Some(target.as_str()),
+            | CommandEffect::ModifyStat { target, .. }
+            | CommandEffect::ApplyBuff { target, .. }
+            | CommandEffect::RemoveBuff { target, .. } => Some(target.as_str()),
             _ => None,
         };
         if let Some(target) = target_str {
@@ -525,6 +538,26 @@ fn validate_condition(
                     "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition referencing unknown stat '{stat}' \
                      (valid: health, shield, speed)",
                 );
+            }
+        }
+        deadcode_sim::action::Condition::HasBuff { buff } => {
+            if buff.is_empty() {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition with empty buff name",
+                );
+            }
+        }
+        deadcode_sim::action::Condition::RandomChance { percent } => {
+            if *percent <= 0 || *percent > 100 {
+                eprintln!(
+                    "[mod:{mod_id}] warning: command '{cmd_name}' has random_chance with percent={percent} (expected 1-100)",
+                );
+            }
+        }
+        deadcode_sim::action::Condition::And { conditions }
+        | deadcode_sim::action::Condition::Or { conditions } => {
+            for sub in conditions {
+                validate_condition(sub, cmd_name, mod_id, valid_stats);
             }
         }
     }
@@ -689,4 +722,188 @@ pub fn collect_initial_effects(mods: &[LoadedMod]) -> Vec<CommandEffect> {
         }
     }
     effects
+}
+
+/// Collect triggers from all loaded mods (in load order).
+pub fn collect_triggers(mods: &[LoadedMod]) -> Vec<TriggerDef> {
+    let mut triggers = Vec::new();
+    for m in mods {
+        triggers.extend(m.manifest.triggers.iter().cloned());
+    }
+    triggers
+}
+
+/// Collect buff definitions from all loaded mods.
+pub fn collect_buffs(mods: &[LoadedMod]) -> Vec<BuffDef> {
+    let mut buffs = Vec::new();
+    let mut seen = HashSet::new();
+    for m in mods {
+        for buff in &m.manifest.buffs {
+            if seen.contains(&buff.name) {
+                eprintln!(
+                    "[mod] warning: buff '{}' already defined, skipping duplicate from '{}'",
+                    buff.name, m.manifest.meta.id
+                );
+            } else {
+                seen.insert(buff.name.clone());
+                buffs.push(buff.clone());
+            }
+        }
+    }
+    buffs
+}
+
+/// Validate buff definitions at load time.
+pub fn validate_buffs(mods: &[LoadedMod]) {
+    let valid_stats: HashSet<&str> = ["health", "shield", "speed", "attack_damage", "attack_range"]
+        .into_iter().collect();
+
+    for m in mods {
+        let mod_id = &m.manifest.meta.id;
+        for buff in &m.manifest.buffs {
+            if buff.name.is_empty() {
+                eprintln!("[mod:{mod_id}] warning: buff has empty name");
+            }
+            if buff.duration <= 0 {
+                eprintln!(
+                    "[mod:{mod_id}] warning: buff '{}' has non-positive duration ({})",
+                    buff.name, buff.duration
+                );
+            }
+            for stat in buff.modifiers.keys() {
+                if !valid_stats.contains(stat.as_str()) {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: buff '{}' references unknown stat '{stat}' \
+                         (valid: health, shield, speed, attack_damage, attack_range)",
+                        buff.name
+                    );
+                }
+            }
+            // Validate effect lists.
+            let effect_ctx = format!("buff '{}'", buff.name);
+            let valid_effect_stats: HashSet<&str> = ["health", "shield", "speed"].into_iter().collect();
+            validate_effects(&buff.per_tick, &[], &effect_ctx, mod_id, &valid_effect_stats);
+            validate_effects(&buff.on_apply, &[], &effect_ctx, mod_id, &valid_effect_stats);
+            validate_effects(&buff.on_expire, &[], &effect_ctx, mod_id, &valid_effect_stats);
+        }
+    }
+}
+
+/// Collect entity behaviors from all loaded mods.
+/// Returns a map from entity type to behavior definitions.
+pub fn collect_behaviors(mods: &[LoadedMod]) -> HashMap<String, Vec<BehaviorDef>> {
+    let mut behaviors = HashMap::new();
+    for m in mods {
+        for entity_def in &m.manifest.entities {
+            if !entity_def.behaviors.is_empty() {
+                behaviors.insert(entity_def.entity_type.clone(), entity_def.behaviors.clone());
+            }
+        }
+    }
+    behaviors
+}
+
+/// Validate entity behavior definitions at load time.
+pub fn validate_behaviors(mods: &[LoadedMod]) {
+    let valid_stats: HashSet<&str> = ["health", "shield", "speed"].into_iter().collect();
+
+    for m in mods {
+        let mod_id = &m.manifest.meta.id;
+        for entity_def in &m.manifest.entities {
+            for (i, behavior) in entity_def.behaviors.iter().enumerate() {
+                let ctx = format!("entity '{}' behavior {i}", entity_def.entity_type);
+
+                // Validate cooldown.
+                if behavior.cooldown < 0 {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: {ctx} has negative cooldown ({})",
+                        behavior.cooldown
+                    );
+                }
+
+                // Validate behavior action.
+                match &behavior.action {
+                    deadcode_sim::action::BehaviorAction::FleeWhenLow { stat, .. } => {
+                        if !valid_stats.contains(stat.as_str()) {
+                            eprintln!(
+                                "[mod:{mod_id}] warning: {ctx} references unknown stat '{stat}' \
+                                 (valid: health, shield, speed)"
+                            );
+                        }
+                    }
+                    deadcode_sim::action::BehaviorAction::RunEffects { effects } => {
+                        validate_effects(effects, &[], &ctx, mod_id, &valid_stats);
+                    }
+                    _ => {}
+                }
+
+                // Validate conditions.
+                for condition in &behavior.conditions {
+                    validate_condition(condition, &ctx, mod_id, &valid_stats);
+                }
+            }
+        }
+    }
+}
+
+/// Validate trigger definitions at load time.
+///
+/// Checks event names, filter fields, conditions, and effects within triggers.
+pub fn validate_triggers(mods: &[LoadedMod]) {
+    let valid_events: HashSet<&str> = [
+        "entity_died", "entity_spawned", "entity_damaged",
+        "resource_changed", "command_used", "tick_interval",
+        "channel_completed", "channel_interrupted",
+    ].into_iter().collect();
+
+    let valid_stats: HashSet<&str> = ["health", "shield", "speed"].into_iter().collect();
+
+    for m in mods {
+        let mod_id = &m.manifest.meta.id;
+        for (i, trigger) in m.manifest.triggers.iter().enumerate() {
+            // Validate event name.
+            if !valid_events.contains(trigger.event.as_str()) {
+                eprintln!(
+                    "[mod:{mod_id}] warning: trigger {i} references unknown event '{}'",
+                    trigger.event
+                );
+            }
+
+            // tick_interval requires a positive interval filter.
+            if trigger.event == "tick_interval" {
+                match trigger.filter.interval {
+                    None | Some(0) => {
+                        eprintln!(
+                            "[mod:{mod_id}] warning: trigger {i} (tick_interval) missing or zero interval filter"
+                        );
+                    }
+                    Some(v) if v < 0 => {
+                        eprintln!(
+                            "[mod:{mod_id}] warning: trigger {i} (tick_interval) has negative interval ({v})"
+                        );
+                    }
+                    _ => {}
+                }
+            }
+
+            // Validate conditions.
+            for condition in &trigger.conditions {
+                validate_condition(
+                    condition,
+                    &format!("trigger {i}"),
+                    mod_id,
+                    &valid_stats,
+                );
+            }
+
+            // Validate effects (reuses existing recursive validation).
+            validate_effects(
+                &trigger.effects,
+                &[], // triggers have no args
+                &format!("trigger {i}"),
+                mod_id,
+                &valid_stats,
+            );
+        }
+    }
 }

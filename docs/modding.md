@@ -358,6 +358,9 @@ After all mods are loaded, the engine validates:
 - **`if` conditions**: stat names in `stat` conditions must be valid (`health`, `shield`, `speed`). Empty resource or entity_type names produce a warning.
 - **`start_channel` phases**: phase ticks must be > 0, update_interval must be > 0. Effects within phases are validated recursively.
 - **Nested validation**: validation recurses into `if` branches and `start_channel` phase effect lists.
+- **Trigger event names**: must be one of the 8 supported types. Unknown event names produce a warning.
+- **Trigger `tick_interval`**: must have a positive `interval` filter value.
+- **Trigger conditions and effects**: validated with the same checks as command effects and conditions.
 
 ## Runtime Entity Spawning
 
@@ -545,6 +548,376 @@ effects = [
 - When `start_channel` is reached, remaining effects are skipped and the channel begins.
 - The phase definitions use the same schema as top-level `phases` (see Phased Commands below).
 - `start_channel` inside an already-active channel (e.g., in phase `on_start`/`per_update`) is ignored — entities can only have one active channel.
+
+## Event Triggers
+
+Mods can define **triggers** — event-driven rules that fire effects when game events occur. Triggers reuse the existing effect resolution engine and condition system.
+
+### Schema
+
+```toml
+[[triggers]]
+event = "entity_died"
+filter = { entity_type = "skeleton" }
+conditions = [
+  { type = "entity_count", entity_type = "skeleton", compare = "eq", amount = 0 },
+]
+effects = [
+  { type = "output", message = "All skeletons have fallen!" },
+]
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `event` | Yes | — | Event type to listen for (see table below) |
+| `filter` | No | `{}` | Type-specific filters to narrow which events match |
+| `conditions` | No | `[]` | Conditions that must all be true for the trigger to fire |
+| `effects` | No | `[]` | Effects to run when the trigger fires |
+
+### Event Types
+
+| Event | Description | Filter Fields |
+|-------|-------------|---------------|
+| `entity_died` | An entity was killed | `entity_type` — match only deaths of this type |
+| `entity_spawned` | An entity was spawned | `entity_type` — match only spawns of this type |
+| `entity_damaged` | An entity took damage | `entity_type` — match only damage to this type |
+| `resource_changed` | A global resource value changed | `resource` — match only changes to this resource |
+| `command_used` | A custom command was used | `command` — match only this command name |
+| `tick_interval` | Fires periodically every N ticks | `interval` — tick interval (required, must be > 0) |
+| `channel_completed` | A phased channel finished all phases | `command` — match only this command name |
+| `channel_interrupted` | A phased channel was interrupted | `command` — match only this command name |
+
+### Filter Fields
+
+```toml
+# Only match skeleton deaths
+filter = { entity_type = "skeleton" }
+
+# Only match mana changes
+filter = { resource = "mana" }
+
+# Only match when "raise" is used
+filter = { command = "raise" }
+
+# Fire every 300 ticks (10 seconds at 30 TPS)
+filter = { interval = 300 }
+```
+
+Filters are type-specific. Use `entity_type` for entity events, `resource` for resource events, `command` for command/channel events, and `interval` for tick_interval.
+
+### Conditions
+
+Triggers reuse the same condition system as `if` effects. All conditions must be true for the trigger to fire:
+
+```toml
+conditions = [
+  { type = "resource", resource = "souls", compare = "gte", amount = 10 },
+  { type = "entity_count", entity_type = "skeleton", compare = "lt", amount = 5 },
+]
+```
+
+See [Condition Types](#condition-types) for the full list.
+
+### Trigger Effects
+
+Trigger effects use the same effect types as custom commands (`output`, `damage`, `heal`, `spawn`, `modify_stat`, `modify_resource`, etc.). Effects resolve against the first alive entity in the world (typically the summoner) as the "caster" — `self` in effect targets refers to this entity.
+
+### Execution Model
+
+1. Triggers are processed once at the end of each tick, after all actions are resolved and pending spawns/despawns are flushed.
+2. Each trigger is checked against every matching event from the tick.
+3. If multiple events match (e.g., 3 skeletons die), the trigger fires once per matching event.
+4. Trigger effects do **not** re-trigger other triggers within the same tick (no cascading).
+5. Effects from triggers that modify world state (spawning, resources) take effect immediately and are visible to subsequent trigger condition checks.
+
+### Examples
+
+**Spawn wave every 300 ticks:**
+
+```toml
+[[triggers]]
+event = "tick_interval"
+filter = { interval = 300 }
+effects = [
+  { type = "spawn", entity_type = "skeleton", offset = "rand(-200,200)" },
+  { type = "output", message = "A new wave approaches!" },
+]
+```
+
+**Gain bones when skeletons die:**
+
+```toml
+[[triggers]]
+event = "entity_died"
+filter = { entity_type = "skeleton" }
+effects = [
+  { type = "modify_resource", resource = "bones", amount = 1 },
+]
+```
+
+**Alert when mana is full:**
+
+```toml
+[[triggers]]
+event = "resource_changed"
+filter = { resource = "mana" }
+conditions = [
+  { type = "resource", resource = "mana", compare = "gte", amount = 100 },
+]
+effects = [
+  { type = "output", message = "Mana is full!" },
+]
+```
+
+**React to raise command:**
+
+```toml
+[[triggers]]
+event = "command_used"
+filter = { command = "raise" }
+effects = [
+  { type = "output", message = "The earth trembles..." },
+]
+```
+
+### Validation
+
+At mod load time, the engine validates:
+- **Event names**: must be one of the 8 supported event types
+- **tick_interval interval**: must be present and > 0
+- **Conditions**: same validation as `if` effect conditions
+- **Effects**: same recursive validation as command effects (stat names, target references, etc.)
+
+## Buffs/Modifiers
+
+Mods can define **buffs** — temporary stat modifiers with automatic expiry. Buffs are applied and removed via effect types and provide per_tick/on_apply/on_expire effect hooks.
+
+### Buff Definition
+
+```toml
+[[buffs]]
+name = "rage"
+duration = 60
+stackable = true
+max_stacks = 3
+[buffs.modifiers]
+attack_damage = 5
+speed = 2
+
+[[buffs]]
+name = "regen"
+duration = 30
+per_tick = [
+  { type = "modify_stat", target = "self", stat = "health", amount = 1 },
+]
+on_expire = [
+  { type = "output", message = "Regeneration faded." },
+]
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | Yes | — | Unique buff identifier |
+| `duration` | No | `0` | Default duration in ticks |
+| `modifiers` | No | `{}` | Stat modifiers applied while active (stat → amount) |
+| `per_tick` | No | `[]` | Effects that run each tick while active |
+| `on_apply` | No | `[]` | Effects that run when the buff is first applied |
+| `on_expire` | No | `[]` | Effects that run when the buff expires or is removed |
+| `stackable` | No | `false` | Whether multiple applications stack |
+| `max_stacks` | No | `0` | Maximum stack count (0 = unlimited, only if stackable) |
+
+### Valid Modifier Stats
+
+`health`, `shield`, `speed`, `attack_damage`, `attack_range`
+
+Modifiers are applied additively when the buff is applied and reversed when it expires. Health is clamped to at least 1 on reversal to prevent buff-expiry death.
+
+### Apply/Remove Effects
+
+```toml
+effects = [
+  { type = "apply_buff", target = "self", buff = "rage" },
+  { type = "apply_buff", target = "self", buff = "regen", duration = 100 },
+  { type = "remove_buff", target = "self", buff = "rage" },
+]
+```
+
+| Effect | Fields | Description |
+|--------|--------|-------------|
+| `apply_buff` | `target`, `buff`, `duration` (optional) | Apply a buff. Duration overrides the buff's default if specified. |
+| `remove_buff` | `target`, `buff` | Remove a buff, reversing all modifiers and running on_expire effects. |
+
+### Stacking Behavior
+
+- **Non-stackable** (`stackable = false`): re-applying refreshes the duration without adding additional modifiers.
+- **Stackable** (`stackable = true`): each application adds a stack (up to `max_stacks`), applying modifiers again. All stacks share the same duration timer (refreshed on each application).
+
+### Buff Lifecycle
+
+1. **Apply**: modifiers are applied to entity stats, on_apply effects run, ActiveBuff is tracked on the entity.
+2. **Each tick** (step 6b): per_tick effects run, duration is decremented.
+3. **Expire** (duration reaches 0): modifiers are reversed, on_expire effects run, buff is removed.
+4. **Manual remove** (via `remove_buff` effect): same as expire — modifiers reversed, on_expire effects run.
+
+### has_buff Condition
+
+Check if an entity has a specific buff:
+
+```toml
+{ type = "if",
+  condition = { type = "has_buff", buff = "rage" },
+  then = [{ type = "output", message = "Raging!" }],
+}
+```
+
+## Extended Conditions
+
+In addition to the base conditions (`resource`, `entity_count`, `stat`), the following condition types are available:
+
+| Type | Fields | Evaluates |
+|------|--------|-----------|
+| `has_buff` | `buff` | Whether the caster has a specific active buff |
+| `random_chance` | `percent` | Random check: fires if deterministic roll < percent (1-100) |
+| `and` | `conditions` | All sub-conditions must be true |
+| `or` | `conditions` | At least one sub-condition must be true |
+
+### Compound Conditions
+
+```toml
+{ type = "if",
+  condition = { type = "and", conditions = [
+    { type = "resource", resource = "mana", compare = "gte", amount = 20 },
+    { type = "entity_count", entity_type = "skeleton", compare = "lt", amount = 5 },
+  ]},
+  then = [{ type = "spawn", entity_type = "skeleton", offset = "rand(-100,100)" }],
+}
+```
+
+### Random Chance
+
+```toml
+{ type = "if",
+  condition = { type = "random_chance", percent = 25 },
+  then = [{ type = "output", message = "Critical hit!" }],
+}
+```
+
+Randomness is deterministic — same seed produces same result. The `percent` field should be 1-100.
+
+## Entity Behaviors
+
+Mods can define **behaviors** for entity types, giving spawned entities autonomous AI. Behaviors only run on entities that don't have a player script and aren't channeling — they're for making minions, enemies, and NPCs feel alive.
+
+### Schema
+
+```toml
+[[entities]]
+type = "skeleton"
+sprite = "sprites/skeleton_atlas"
+health = 50
+speed = 2
+behaviors = [
+  { action = { type = "attack_nearest", entity_type = "zombie" }, cooldown = 3, priority = 10 },
+  { action = { type = "flee_when_low", stat = "health", threshold = 10 }, priority = 20 },
+  { action = { type = "idle" }, priority = 0 },
+]
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `action` | Yes | — | What the behavior does (see action types below) |
+| `conditions` | No | `[]` | Conditions that must all be true for this behavior to activate |
+| `cooldown` | No | `0` | Ticks between activations (0 = every tick) |
+| `priority` | No | `0` | Higher priority behaviors are checked first |
+
+### Behavior Actions
+
+| Action | Fields | Description |
+|--------|--------|-------------|
+| `attack_nearest` | `entity_type` (optional), `range` (optional) | Attack the nearest entity. Filters by entity_type if specified. Uses entity's attack_range if range not set. |
+| `flee_when_low` | `stat`, `threshold` | Flee from the nearest entity when a stat (health, shield, speed) is below the threshold. |
+| `move_toward` | `target` | Move toward a target. Supports `"nearest:<type>"`, `"nearest_enemy"`, or a fixed position (integer string). |
+| `idle` | *(none)* | Do nothing (wait one tick). |
+| `effects` | `effects` | Run data-driven effects. Does NOT consume the tick — lower-priority behaviors can still fire. |
+
+### Execution Model
+
+1. Behaviors are processed in step 4b of the tick loop, **after** script execution and **before** action resolution.
+2. Only entities that are alive, ready (not spawning), have no script, and have no active channel run behaviors.
+3. Behaviors are sorted by priority (highest first) and checked in order.
+4. For each behavior: check cooldown → check conditions → execute action.
+5. **Action behaviors** (attack, flee, move, idle): the first one that fires produces the entity's action for the tick. No further behaviors run.
+6. **Effects behaviors**: fire their effects and continue to the next behavior. This allows passive effects (regeneration, auras) alongside active behaviors (attack, move).
+7. Cooldowns are tracked per-entity per-behavior. They are decremented each tick in step 6 (passive systems).
+
+### Conditions
+
+Behaviors reuse the same condition system as `if` effects and triggers:
+
+```toml
+behaviors = [
+  { action = { type = "attack_nearest" },
+    conditions = [
+      { type = "stat", stat = "health", compare = "gte", amount = 20 },
+    ],
+    priority = 10 },
+]
+```
+
+### Target Resolution
+
+- `attack_nearest` with `entity_type`: finds and attacks the nearest alive, ready entity of that type within range.
+- `attack_nearest` without `entity_type`: finds and attacks the nearest alive, ready entity of any type (excluding self) within range.
+- `flee_when_low`: flees from the nearest entity of any type.
+- `move_toward` with `"nearest:<type>"`: moves toward the nearest entity of the specified type.
+- `move_toward` with `"nearest_enemy"`: moves toward the nearest entity of a different type.
+- `move_toward` with a number (e.g., `"500"`): moves toward a fixed position.
+
+### Examples
+
+**Aggressive melee unit:**
+
+```toml
+behaviors = [
+  { action = { type = "attack_nearest" }, cooldown = 3, priority = 10 },
+  { action = { type = "move_toward", target = "nearest_enemy" }, priority = 5 },
+  { action = { type = "idle" }, priority = 0 },
+]
+```
+
+**Passive regeneration + attack:**
+
+```toml
+behaviors = [
+  { action = { type = "effects", effects = [
+    { type = "modify_stat", target = "self", stat = "health", amount = 1 },
+  ]}, cooldown = 30, priority = 100 },
+  { action = { type = "attack_nearest" }, cooldown = 5, priority = 10 },
+  { action = { type = "idle" }, priority = 0 },
+]
+```
+
+**Cowardly unit that flees when low:**
+
+```toml
+behaviors = [
+  { action = { type = "flee_when_low", stat = "health", threshold = 20 }, priority = 20 },
+  { action = { type = "attack_nearest", entity_type = "zombie" }, cooldown = 3, priority = 10 },
+  { action = { type = "idle" }, priority = 0 },
+]
+```
+
+### Validation
+
+At mod load time, the engine validates:
+- **Cooldown**: must be non-negative
+- **Stat names** in `flee_when_low`: must be `health`, `shield`, or `speed`
+- **Effects** in effects behaviors: validated with the same checks as command effects
+- **Conditions**: validated with the same checks as command conditions
+
+### Interaction with Scripts
+
+Entities with a script assigned (via Run/Debug) will **not** execute behaviors — the script takes priority. Behaviors are exclusively for entities without scripts, like spawned minions.
 
 ## Phased Commands
 
@@ -761,6 +1134,10 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 | `CommandEffect` | Effect type enum (output, damage, heal, spawn, modify_stat, use_resource, list_commands, animate, sacrifice, modify_resource, use_global_resource, if, start_channel) — lives in `deadcode-sim/action.rs` |
 | `Condition` | Condition enum for `if` effects (resource, entity_count, stat) with `CompareOp` — lives in `deadcode-sim/action.rs` |
 | `EffectOutcome` | Result of effect resolution: Complete, Aborted, or StartChannel — lives in `deadcode-sim/action.rs` |
+| `BehaviorDef` | Behavior definition (action, conditions, cooldown, priority) — lives in `deadcode-sim/action.rs` |
+| `BehaviorAction` | Behavior action enum (attack_nearest, flee_when_low, move_toward, idle, effects) — lives in `deadcode-sim/action.rs` |
+| `TriggerDef` | Trigger definition (event, filter, conditions, effects) — lives in `deadcode-sim/action.rs` |
+| `TriggerFilter` | Filter fields for narrowing trigger event matches — lives in `deadcode-sim/action.rs` |
 | `DynInt` | Integer value: fixed or `rand(min,max)` — deserialized from TOML, resolved at effect execution time — lives in `deadcode-sim/action.rs` |
 | `SpriteData` | Loaded PNG bytes + JSON metadata string |
 | `LoadedMod` | Fully resolved mod with sprite/pivot/config/command registries |
@@ -773,9 +1150,11 @@ The mod system lives in `crates/deadcode-app/src/modding.rs`. Key types:
 3. Registries (sprites, pivots, entity configs) are merged into `App`, with collision warnings on duplicates
 4. `modding::validate_spawns()` checks all spawn entity types and spawn effects against known types
 5. `modding::validate_command_defs()` checks stat names, target references, `use_resource` amounts, phase ticks > 0, phase update_interval > 0, effects/phases mutual exclusivity, effects within phase `on_start`/`per_update` lists, `if` conditions (empty names, unknown stats), and `start_channel` phase parameters. Validation recurses into `if` branches and `start_channel` phases.
+5b. `modding::validate_triggers()` checks event names, tick_interval interval values, conditions, and effects within triggers.
 6. `[[spawn]]` entries create both sim entities and render units
 7. `[initial].commands` entries populate `App::available_commands`
 8. `[[commands.definitions]]` entries populate `App::command_defs` and are registered with `SimWorld` (effects, arg counts), with collision warnings on duplicate command names
+8b. `[[triggers]]` entries are collected via `collect_triggers()` and registered with `SimWorld`
 9. `[resources]` entries are collected via `collect_initial_resources()` and stored in `SimWorld.resources`
 10. `[initial].resources` entries are collected via `collect_available_resources()` and stored in `SimWorld.available_resources`
 

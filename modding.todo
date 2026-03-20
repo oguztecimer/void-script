@@ -1,0 +1,135 @@
+VOID//SCRIPT — Modding System Roadmap
+======================================
+
+Status: Current system is a solid data-driven command-definition system (TOML).
+Strategy: Extend TOML with reactive/autonomous features first. Add Lua scripting later
+         as an advanced modding layer (TOML extensions become the Lua API surface).
+
+Compared against: Factorio (Lua), CK3/Stellaris (Paradox script), Rimworld (XML+C#),
+                  Don't Starve (Lua), Noita (Lua), Balatro (Lua)
+
+
+=== PHASE 1: Event/Trigger System (HIGH PRIORITY) ===
+Unlocks ~80% of modding potential. Reuses existing effect resolution engine.
+
+[x] Event bus in SimWorld — collect events during tick, fire triggers after resolution
+    Events: entity_died, entity_spawned, entity_damaged, resource_changed,
+            command_used, tick_interval, channel_completed, channel_interrupted
+[x] [[triggers]] section in mod.toml
+    Schema: event, filter (type-specific), conditions (reuse existing), effects
+[x] Trigger filters — match on entity_type, resource name, command name, etc.
+[x] Trigger conditions — reuse existing Condition types (resource, entity_count, stat)
+[x] Tick-interval triggers — periodic effects (e.g., spawn wave every 300 ticks)
+[x] Trigger validation at load time (event names, filter fields, nested effects)
+[x] Trigger gating — triggers respect available_commands/resources
+    (effects use same resolution path as commands, which respects resource availability)
+[x] Update docs/modding.md with trigger reference and examples
+[x] Update CLAUDE.md with trigger architecture
+
+
+=== PHASE 2: Entity Behaviors (MEDIUM PRIORITY) ===
+Makes spawned entities feel alive instead of being inert targets.
+
+[x] Behavior system in SimWorld — per-entity-type behaviors processed each tick
+[x] [[entities.behaviors]] section in mod.toml (inline behaviors field)
+    Built-in behaviors: attack_nearest, flee_when_low, move_toward, idle, effects
+[x] Data-driven periodic behaviors — cooldown + effects (reuse effect engine)
+[x] Behavior cooldowns — per-entity per-behavior cooldown tracking
+[x] Behavior conditions — only activate when condition met
+[x] Target resolution for behaviors — "nearest_enemy", "nearest:<type>", fixed position
+    ("nearest_ally" and "owner" deferred — no ownership system yet)
+[x] Behavior validation at load time
+[x] Update docs/modding.md with behavior reference
+
+
+=== PHASE 3: Buffs/Modifiers (MEDIUM PRIORITY) ===
+Temporary stat changes with automatic expiry.
+
+[x] Buff registry — [[buffs]] definitions in mod.toml
+    Schema: name, duration (ticks), modifiers (stat→amount), per_tick effects,
+            on_apply effects, on_expire effects, stackable (bool), max_stacks
+[x] apply_buff effect type — { type = "apply_buff", target, buff, duration }
+[x] remove_buff effect type — { type = "remove_buff", target, buff }
+[x] Per-entity active buff tracking in SimEntity
+[x] Buff tick processing in SimWorld::tick() — decrement durations, fire per_tick, expire
+[x] Stat calculation with active modifiers — direct modify/reverse on apply/expire
+[x] has_buff condition type for if effects
+[x] Buff validation at load time
+[x] Update docs/modding.md with buff reference
+
+
+=== PHASE 4: Extended Conditions (LOW-MEDIUM PRIORITY) ===
+More expressive branching in effects.
+
+[x] random_chance condition — { type = "random_chance", percent = 25 } (deterministic RNG)
+[x] has_buff condition — { type = "has_buff", buff = "rage" }
+[ ] is_alive condition — { type = "is_alive", target = "arg:target" }
+[ ] distance condition — { type = "distance", target = "arg:target", compare, amount }
+[ ] custom_stat condition — for Phase 5 custom stats
+[x] Compound conditions — { type = "and", conditions = [...] }, { type = "or", ... }
+[x] Update docs/modding.md with condition reference
+
+
+=== PHASE 5: Custom Entity Stats (LOW PRIORITY) ===
+Arbitrary named stats beyond health/mana/shield/speed.
+
+[ ] custom_stats field in [[entities]] — { armor = 5, crit_chance = 10 }
+[ ] Per-entity custom stat storage in SimEntity
+[ ] modify_custom_stat effect — like modify_stat but for custom stats
+[ ] use_custom_stat effect — like use_resource but for custom stats
+[ ] custom_stat condition type
+[ ] get_custom_stat GrimScript builtin (query, instant)
+[ ] Update docs/modding.md
+
+
+=== PHASE 6: Computed Values (LOW PRIORITY) ===
+Dynamic amounts based on game state (replaces fixed DynInt in some contexts).
+
+[ ] DynValue enum — extends DynInt with game-state-dependent computation
+    Types: fixed(N), rand(min,max), entity_count(type) * multiplier,
+           resource(name) * multiplier, stat(target, stat_name) * multiplier,
+           percent(value, percent)
+[ ] Use DynValue in effect amount fields (backward compatible with DynInt)
+[ ] Update docs/modding.md with computed value reference
+
+
+=== FUTURE: Lua Scripting Layer ===
+Advanced modding for mechanics that are awkward in TOML.
+Build AFTER phases 1-3 — those TOML features become the Lua API.
+
+[ ] Embed mlua crate with LuaJIT or Lua 5.4
+[ ] Sandbox: disable os, io, loadfile, debug, require (whitelist only)
+[ ] Deterministic RNG wrapper — replace math.random with seeded game RNG
+[ ] Lua API surface (mirrors TOML effects):
+    damage(target, amount), heal(target, amount), spawn(type, offset),
+    modify_stat(target, stat, amount), get_resource(name), gain_resource(name, amt),
+    try_spend_resource(name, amt), get_entity_count(type), scan(range), nearest(range),
+    apply_buff(target, buff, duration), remove_buff(target, buff)
+[ ] Event hooks in Lua — on_entity_died(fn), on_tick(fn), on_command_used(fn)
+[ ] Custom entity behaviors in Lua — behavior functions called per tick
+[ ] Custom conditions in Lua — return bool, usable in TOML if effects
+[ ] Per-mod Lua state isolation — each mod gets its own Lua VM or sandbox
+[ ] Lua error handling — catch + log without crashing sim
+[ ] Lua mod loading — mods/mymod/scripts/*.lua loaded after mod.toml
+[ ] Hybrid: TOML structure + Lua logic coexist (simple mods stay TOML-only)
+
+
+=== FUTURE: Mod UI ===
+Config panels and HUD elements for mods.
+
+[ ] [[settings]] in mod.toml — define mod config options
+    Types: toggle (bool), slider (int, min/max), dropdown (string, options)
+[ ] Settings panel in editor UI — renders mod settings, persists to save file
+[ ] IPC: ModSettings message (Rust<->JS) for setting sync
+[ ] Custom HUD widgets (later) — mod-defined resource bars, counters, timers
+    Rendered on strip or editor panel, positioned by mod definition
+
+
+=== BACKLOG: Other Ideas ===
+
+[ ] Prototype inheritance — entity types extending base types
+[ ] Scoped targets — "owner", "attacker", "killer" in addition to self/arg
+[ ] Mod dependencies — enforce depends_on, conflicts_with, min_game_version
+[ ] Mod browser/manager UI — list installed mods, enable/disable, load order
+[ ] Hot-reload for mod.toml — detect file changes, reload without restart
+[ ] Library system (M-05) — mod-provided .grim files with reusable functions

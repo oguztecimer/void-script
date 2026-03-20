@@ -544,10 +544,13 @@ impl ApplicationHandler<UserEvent> for App {
             }
         }
 
-        // Validate spawn entity type references.
+        // Validate spawn entity type references, commands, triggers, behaviors, and buffs.
         let known_types: HashSet<String> = self.entity_configs.keys().cloned().collect();
         modding::validate_spawns(&mods, &known_types);
         modding::validate_command_defs(&mods);
+        modding::validate_triggers(&mods);
+        modding::validate_behaviors(&mods);
+        modding::validate_buffs(&mods);
 
         // --- Unit system init ---
         let mut um = UnitManager::new();
@@ -594,6 +597,21 @@ impl ApplicationHandler<UserEvent> for App {
         // Register custom command definitions with the sim.
         for def in self.command_defs.values() {
             sim.register_custom_command(def);
+        }
+
+        // Register triggers from all loaded mods.
+        for trigger in modding::collect_triggers(&mods) {
+            sim.register_trigger(trigger);
+        }
+
+        // Register entity behaviors from all loaded mods.
+        for (entity_type, behaviors) in modding::collect_behaviors(&mods) {
+            sim.register_behaviors(entity_type, behaviors);
+        }
+
+        // Register buff definitions from all loaded mods.
+        for buff in modding::collect_buffs(&mods) {
+            sim.register_buff(buff);
         }
 
         // Set command display order to match available_commands insertion order.

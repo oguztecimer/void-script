@@ -128,6 +128,26 @@ pub enum Condition {
         compare: CompareOp,
         amount: DynInt,
     },
+    /// Check if the caster has a specific buff active.
+    #[serde(rename = "has_buff")]
+    HasBuff {
+        buff: String,
+    },
+    /// Random chance check (deterministic). Fires if roll < percent.
+    #[serde(rename = "random_chance")]
+    RandomChance {
+        percent: i64,
+    },
+    /// Logical AND: all sub-conditions must be true.
+    #[serde(rename = "and")]
+    And {
+        conditions: Vec<Condition>,
+    },
+    /// Logical OR: at least one sub-condition must be true.
+    #[serde(rename = "or")]
+    Or {
+        conditions: Vec<Condition>,
+    },
 }
 
 /// Outcome of resolving a list of effects.
@@ -215,6 +235,21 @@ pub enum CommandEffect {
     /// Start a phased channel from within an effect list.
     #[serde(rename = "start_channel")]
     StartChannel { phases: Vec<PhaseDef> },
+    /// Apply a buff to a target entity.
+    #[serde(rename = "apply_buff")]
+    ApplyBuff {
+        target: String,
+        buff: String,
+        /// Duration override (uses buff's default if omitted).
+        #[serde(default)]
+        duration: Option<i64>,
+    },
+    /// Remove a buff from a target entity.
+    #[serde(rename = "remove_buff")]
+    RemoveBuff {
+        target: String,
+        buff: String,
+    },
 }
 
 /// A single phase in a multi-tick phased command.
@@ -253,6 +288,129 @@ pub struct CommandDef {
     /// If true, the command is hidden from `list_commands` output.
     #[serde(default)]
     pub unlisted: bool,
+}
+
+/// A trigger definition: fires effects when a game event matches.
+///
+/// Triggers are defined in `[[triggers]]` sections in `mod.toml`. Each trigger
+/// listens for a specific event type, optionally filters by type-specific fields,
+/// checks conditions against the current world state, and runs effects if all pass.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerDef {
+    /// Event type: "entity_died", "entity_spawned", "entity_damaged",
+    /// "resource_changed", "command_used", "tick_interval",
+    /// "channel_completed", "channel_interrupted"
+    pub event: String,
+    /// Type-specific filters to narrow which events match.
+    #[serde(default)]
+    pub filter: TriggerFilter,
+    /// Conditions that must all be true for the trigger to fire.
+    #[serde(default)]
+    pub conditions: Vec<Condition>,
+    /// Effects to run when the trigger fires.
+    #[serde(default)]
+    pub effects: Vec<CommandEffect>,
+}
+
+/// Filters for narrowing which events a trigger matches.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TriggerFilter {
+    /// Match only events involving this entity type (for entity_died, entity_spawned, entity_damaged).
+    #[serde(default)]
+    pub entity_type: Option<String>,
+    /// Match only events for this resource (for resource_changed).
+    #[serde(default)]
+    pub resource: Option<String>,
+    /// Match only events for this command (for command_used, channel_completed, channel_interrupted).
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Tick interval for tick_interval triggers (fires when tick % interval == 0).
+    #[serde(default)]
+    pub interval: Option<i64>,
+}
+
+/// A behavior definition for autonomous entities (non-scripted).
+///
+/// Behaviors give spawned entities AI by processing them each tick.
+/// Defined in `behaviors` field of `[[entities]]` in `mod.toml`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BehaviorDef {
+    /// What action to take.
+    pub action: BehaviorAction,
+    /// Conditions that must all be true for this behavior to activate.
+    #[serde(default)]
+    pub conditions: Vec<Condition>,
+    /// Cooldown in ticks between activations. 0 = every tick.
+    #[serde(default)]
+    pub cooldown: i64,
+    /// Priority: higher priority behaviors are checked first.
+    #[serde(default)]
+    pub priority: i64,
+}
+
+/// The action a behavior performs when activated.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum BehaviorAction {
+    /// Attack the nearest entity (optionally filtered by type).
+    #[serde(rename = "attack_nearest")]
+    AttackNearest {
+        /// Only attack entities of this type. If omitted, attacks any entity.
+        #[serde(default)]
+        entity_type: Option<String>,
+        /// Override the entity's attack range for target finding.
+        #[serde(default)]
+        range: Option<i64>,
+    },
+    /// Flee from the nearest entity when a stat is below a threshold.
+    #[serde(rename = "flee_when_low")]
+    FleeWhenLow {
+        stat: String,
+        threshold: i64,
+    },
+    /// Move toward a target. Supports "nearest:<type>" or "nearest_enemy".
+    #[serde(rename = "move_toward")]
+    MoveToward {
+        target: String,
+    },
+    /// Do nothing (wait one tick).
+    #[serde(rename = "idle")]
+    Idle,
+    /// Run data-driven effects (doesn't consume the tick — other behaviors can still fire).
+    #[serde(rename = "effects")]
+    RunEffects {
+        effects: Vec<CommandEffect>,
+    },
+}
+
+/// A buff definition that can be applied to entities.
+///
+/// Defined in `[[buffs]]` sections in `mod.toml`. Buffs provide temporary
+/// stat modifications with automatic expiry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuffDef {
+    pub name: String,
+    /// Default duration in ticks.
+    #[serde(default)]
+    pub duration: i64,
+    /// Stat modifiers applied while active (stat → amount).
+    #[serde(default)]
+    pub modifiers: std::collections::HashMap<String, i64>,
+    /// Effects that run each tick while the buff is active.
+    #[serde(default)]
+    pub per_tick: Vec<CommandEffect>,
+    /// Effects that run when the buff is applied.
+    #[serde(default)]
+    pub on_apply: Vec<CommandEffect>,
+    /// Effects that run when the buff expires or is removed.
+    #[serde(default)]
+    pub on_expire: Vec<CommandEffect>,
+    /// Whether multiple applications stack (true) or refresh duration (false).
+    #[serde(default)]
+    pub stackable: bool,
+    /// Maximum stack count (0 = unlimited). Only relevant if stackable.
+    #[serde(default)]
+    pub max_stacks: i64,
 }
 
 /// Resolve a unit's action against the world state.
@@ -355,6 +513,10 @@ pub fn resolve_action(
         UnitAction::GainResource { .. } | UnitAction::TrySpendResource { .. } => {}
 
         UnitAction::Custom { name, args } => {
+            events.push(SimEvent::CommandUsed {
+                entity_id,
+                command: name.clone(),
+            });
             // Check if this is a phased command.
             if let Some(phases) = world.custom_command_phases.get(&name).cloned() {
                 if !phases.is_empty() {
@@ -398,7 +560,7 @@ pub fn resolve_action(
 }
 
 /// Evaluate a condition against the current world state.
-fn evaluate_condition(
+pub fn evaluate_condition(
     condition: &Condition,
     world: &SimWorld,
     entity_id: EntityId,
@@ -426,6 +588,21 @@ fn evaluate_condition(
             });
             let threshold = amount.resolve(rng);
             compare.evaluate(current, threshold)
+        }
+        Condition::HasBuff { buff } => {
+            world.get_entity(entity_id).map_or(false, |e| {
+                e.active_buffs.iter().any(|b| b.name == *buff)
+            })
+        }
+        Condition::RandomChance { percent } => {
+            let roll = rng.next_bounded(100) as i64;
+            roll < *percent
+        }
+        Condition::And { conditions } => {
+            conditions.iter().all(|c| evaluate_condition(c, world, entity_id, rng))
+        }
+        Condition::Or { conditions } => {
+            conditions.iter().any(|c| evaluate_condition(c, world, entity_id, rng))
         }
     }
 }
@@ -669,9 +846,135 @@ fn resolve_effects_inner(
             CommandEffect::StartChannel { phases } => {
                 return EffectOutcome::StartChannel { phases: phases.clone() };
             }
+            CommandEffect::ApplyBuff { target, buff, duration } => {
+                let target_id = resolve_target_from_args(entity_id, target, args);
+                if let Some(tid) = target_id {
+                    if let Some(buff_def) = world.buff_registry.get(buff).cloned() {
+                        let dur = duration.unwrap_or(buff_def.duration);
+
+                        // Check if the entity already has this buff.
+                        let existing = world.get_entity(tid)
+                            .and_then(|e| e.active_buffs.iter().position(|b| b.name == *buff));
+
+                        if let Some(idx) = existing {
+                            if buff_def.stackable {
+                                let at_max = buff_def.max_stacks > 0
+                                    && world.get_entity(tid).map_or(true, |e| e.active_buffs[idx].stacks >= buff_def.max_stacks);
+                                if !at_max {
+                                    // Add a stack: apply modifiers, increment stacks.
+                                    apply_buff_modifiers(world, tid, &buff_def);
+                                    if let Some(entity) = world.get_entity_mut(tid) {
+                                        entity.active_buffs[idx].stacks += 1;
+                                        entity.active_buffs[idx].remaining_ticks = dur;
+                                    }
+                                }
+                            } else {
+                                // Refresh duration.
+                                if let Some(entity) = world.get_entity_mut(tid) {
+                                    entity.active_buffs[idx].remaining_ticks = dur;
+                                }
+                            }
+                        } else {
+                            // New buff: apply modifiers, run on_apply, create tracking.
+                            apply_buff_modifiers(world, tid, &buff_def);
+                            if let Some(entity) = world.get_entity_mut(tid) {
+                                entity.active_buffs.push(crate::entity::ActiveBuff {
+                                    name: buff.clone(),
+                                    remaining_ticks: dur,
+                                    stacks: 1,
+                                });
+                            }
+                            // Run on_apply effects.
+                            if !buff_def.on_apply.is_empty() {
+                                let outcome = resolve_effects_inner(
+                                    world, tid, cmd_name, &buff_def.on_apply, args, events, rng,
+                                );
+                                if !matches!(outcome, EffectOutcome::Complete) {
+                                    return outcome;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            CommandEffect::RemoveBuff { target, buff } => {
+                let target_id = resolve_target_from_args(entity_id, target, args);
+                if let Some(tid) = target_id {
+                    if let Some(buff_def) = world.buff_registry.get(buff).cloned() {
+                        let removed = world.get_entity(tid)
+                            .and_then(|e| e.active_buffs.iter().position(|b| b.name == *buff))
+                            .map(|idx| {
+                                let stacks = world.get_entity(tid).unwrap().active_buffs[idx].stacks;
+                                (idx, stacks)
+                            });
+                        if let Some((idx, stacks)) = removed {
+                            // Reverse all stacks of modifiers.
+                            for _ in 0..stacks {
+                                reverse_buff_modifiers(world, tid, &buff_def);
+                            }
+                            if let Some(entity) = world.get_entity_mut(tid) {
+                                entity.active_buffs.remove(idx);
+                            }
+                            // Run on_expire effects.
+                            if !buff_def.on_expire.is_empty() {
+                                let outcome = resolve_effects_inner(
+                                    world, tid, cmd_name, &buff_def.on_expire, args, events, rng,
+                                );
+                                if !matches!(outcome, EffectOutcome::Complete) {
+                                    return outcome;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     EffectOutcome::Complete
+}
+
+/// Apply a buff's stat modifiers to an entity (one stack worth).
+pub(crate) fn apply_buff_modifiers(world: &mut SimWorld, entity_id: EntityId, buff_def: &BuffDef) {
+    if let Some(entity) = world.get_entity_mut(entity_id) {
+        for (stat, amount) in &buff_def.modifiers {
+            match stat.as_str() {
+                "health" => {
+                    entity.max_health = (entity.max_health + amount).max(1);
+                    entity.health = (entity.health + amount).max(1).min(entity.max_health);
+                }
+                "shield" => {
+                    entity.max_shield = (entity.max_shield + amount).max(0);
+                    entity.shield = (entity.shield + amount).max(0).min(entity.max_shield);
+                }
+                "speed" => entity.speed = (entity.speed + amount).max(0),
+                "attack_damage" => entity.attack_damage = (entity.attack_damage + amount).max(0),
+                "attack_range" => entity.attack_range = (entity.attack_range + amount).max(0),
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Reverse a buff's stat modifiers on an entity (one stack worth).
+pub(crate) fn reverse_buff_modifiers(world: &mut SimWorld, entity_id: EntityId, buff_def: &BuffDef) {
+    if let Some(entity) = world.get_entity_mut(entity_id) {
+        for (stat, amount) in &buff_def.modifiers {
+            match stat.as_str() {
+                "health" => {
+                    entity.max_health = (entity.max_health - amount).max(1);
+                    entity.health = entity.health.min(entity.max_health).max(1);
+                }
+                "shield" => {
+                    entity.max_shield = (entity.max_shield - amount).max(0);
+                    entity.shield = entity.shield.min(entity.max_shield).max(0);
+                }
+                "speed" => entity.speed = (entity.speed - amount).max(0),
+                "attack_damage" => entity.attack_damage = (entity.attack_damage - amount).max(0),
+                "attack_range" => entity.attack_range = (entity.attack_range - amount).max(0),
+                _ => {}
+            }
+        }
+    }
 }
 
 /// Resolve target string to EntityId using positional args.

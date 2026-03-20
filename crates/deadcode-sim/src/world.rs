@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::action::{CommandDef, CommandEffect, EffectOutcome, PhaseDef, UnitAction, resolve_action, resolve_custom_effects};
+use crate::action::{BehaviorAction, BehaviorDef, BuffDef, CommandDef, CommandEffect, EffectOutcome, PhaseDef, TriggerDef, UnitAction, evaluate_condition, resolve_action, resolve_custom_effects, reverse_buff_modifiers};
 use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
@@ -46,6 +46,21 @@ pub enum SimEvent {
     PlayAnimation {
         entity_id: EntityId,
         animation: String,
+    },
+    /// A custom command was used by an entity (for triggers).
+    CommandUsed {
+        entity_id: EntityId,
+        command: String,
+    },
+    /// A phased channel completed all phases (for triggers).
+    ChannelCompleted {
+        entity_id: EntityId,
+        command: String,
+    },
+    /// A phased channel was interrupted (for triggers).
+    ChannelInterrupted {
+        entity_id: EntityId,
+        command: String,
     },
 }
 
@@ -100,6 +115,12 @@ pub struct SimWorld {
     pub available_resources: Option<HashSet<String>>,
     /// Commands hidden from `list_commands` output.
     pub unlisted_commands: HashSet<String>,
+    /// Registered triggers — fire effects when game events match.
+    pub triggers: Vec<TriggerDef>,
+    /// Entity type → sorted behavior definitions (for autonomous entity AI).
+    pub behaviors: HashMap<String, Vec<BehaviorDef>>,
+    /// Buff name → buff definition registry.
+    pub buff_registry: HashMap<String, BuffDef>,
 }
 
 impl SimWorld {
@@ -125,6 +146,9 @@ impl SimWorld {
             resource_caps: HashMap::new(),
             available_resources: None,
             unlisted_commands: HashSet::new(),
+            triggers: Vec::new(),
+            behaviors: HashMap::new(),
+            buff_registry: HashMap::new(),
         }
     }
 
@@ -186,6 +210,22 @@ impl SimWorld {
         if def.unlisted {
             self.unlisted_commands.insert(def.name.clone());
         }
+    }
+
+    /// Register a buff definition.
+    pub fn register_buff(&mut self, def: BuffDef) {
+        self.buff_registry.insert(def.name.clone(), def);
+    }
+
+    /// Register behaviors for an entity type. Behaviors are sorted by priority (highest first).
+    pub fn register_behaviors(&mut self, entity_type: String, mut behaviors: Vec<BehaviorDef>) {
+        behaviors.sort_by(|a, b| b.priority.cmp(&a.priority));
+        self.behaviors.insert(entity_type, behaviors);
+    }
+
+    /// Register a trigger that fires effects when game events match.
+    pub fn register_trigger(&mut self, trigger: TriggerDef) {
+        self.triggers.push(trigger);
     }
 
     /// Get the next entity ID (for pre-allocating IDs in effect resolution).
@@ -315,6 +355,14 @@ impl SimWorld {
         self.tick += 1;
         self.events.clear();
 
+        // 1b. Snapshot state for trigger processing.
+        let resource_snapshot = self.resources.clone();
+        let entity_type_map: HashMap<EntityId, String> = self
+            .entities
+            .iter()
+            .map(|e| (e.id, e.entity_type.clone()))
+            .collect();
+
         // 2. Derive per-tick RNG.
         let mut rng = SimRng::new(self.seed ^ self.tick);
 
@@ -422,6 +470,10 @@ impl SimWorld {
                         entity_id: eid,
                         text: format!("[{}] interrupted", channel.command_name),
                     });
+                    self.events.push(SimEvent::ChannelInterrupted {
+                        entity_id: eid,
+                        command: channel.command_name.clone(),
+                    });
                     // Channel cancelled, entity proceeds with interrupting action.
                     continue;
                 }
@@ -476,8 +528,13 @@ impl SimWorld {
                     if let Some(entity) = self.get_entity_mut(eid) {
                         entity.active_channel = Some(channel);
                     }
+                } else {
+                    // Channel done — entity resumes normal script execution next tick.
+                    self.events.push(SimEvent::ChannelCompleted {
+                        entity_id: eid,
+                        command: channel.command_name.clone(),
+                    });
                 }
-                // else: channel done, entity resumes normal script execution next tick.
 
                 continue;
             }
@@ -559,6 +616,27 @@ impl SimWorld {
             }
         }
 
+        // 4b. Process behaviors for non-scripted, non-channeling entities.
+        if !self.behaviors.is_empty() {
+            let behavior_ids: Vec<EntityId> = self
+                .entities
+                .iter()
+                .filter(|e| {
+                    e.is_ready()
+                        && e.script_state.is_none()
+                        && e.active_channel.is_none()
+                        && self.behaviors.contains_key(&e.entity_type)
+                })
+                .map(|e| e.id)
+                .collect();
+
+            for &eid in &behavior_ids {
+                if let Some(action) = self.process_entity_behaviors(eid) {
+                    actions.push((eid, action));
+                }
+            }
+        }
+
         // 5. Resolve all actions (shuffled order = conflict resolution order).
         for (eid, action) in actions {
             let action_events = resolve_action(self, eid, action);
@@ -574,6 +652,17 @@ impl SimWorld {
             if entity.cooldown_remaining > 0 {
                 entity.cooldown_remaining -= 1;
             }
+            // Behavior cooldown ticking.
+            for cd in &mut entity.behavior_cooldowns {
+                if *cd > 0 {
+                    *cd -= 1;
+                }
+            }
+        }
+
+        // 6b. Tick buffs: per_tick effects, duration decrement, expiry.
+        if !self.buff_registry.is_empty() {
+            self.tick_buffs();
         }
 
         // 7. Flush pending spawns/despawns.
@@ -602,6 +691,369 @@ impl SimWorld {
         // Clean up dead entities (swap-remove for performance).
         self.entities.retain(|e| e.alive);
         self.rebuild_index();
+
+        // 8. Process triggers against events collected during this tick.
+        self.process_triggers(&entity_type_map, &resource_snapshot);
+    }
+
+    /// Tick all active buffs: run per_tick effects, decrement durations, expire.
+    fn tick_buffs(&mut self) {
+        // Collect entity IDs with active buffs.
+        let entities_with_buffs: Vec<EntityId> = self
+            .entities
+            .iter()
+            .filter(|e| e.alive && !e.active_buffs.is_empty())
+            .map(|e| e.id)
+            .collect();
+
+        for eid in entities_with_buffs {
+            // Get buff names for this entity.
+            let buff_names: Vec<String> = self
+                .get_entity(eid)
+                .map(|e| e.active_buffs.iter().map(|b| b.name.clone()).collect())
+                .unwrap_or_default();
+
+            // Run per_tick effects for each buff.
+            for name in &buff_names {
+                if let Some(buff_def) = self.buff_registry.get(name).cloned() {
+                    if !buff_def.per_tick.is_empty() {
+                        let mut events = Vec::new();
+                        resolve_custom_effects(
+                            self, eid, "buff", &buff_def.per_tick, &[], &mut events,
+                        );
+                        self.events.extend(events);
+                    }
+                }
+            }
+
+            // Decrement durations and collect expired buffs.
+            let mut expired: Vec<(String, i64)> = Vec::new(); // (name, stacks)
+            if let Some(entity) = self.get_entity_mut(eid) {
+                entity.active_buffs.retain_mut(|buff| {
+                    buff.remaining_ticks -= 1;
+                    if buff.remaining_ticks <= 0 {
+                        expired.push((buff.name.clone(), buff.stacks));
+                        false
+                    } else {
+                        true
+                    }
+                });
+            }
+
+            // Handle expired buffs: reverse modifiers and run on_expire effects.
+            for (name, stacks) in expired {
+                if let Some(buff_def) = self.buff_registry.get(&name).cloned() {
+                    // Reverse all stacks of modifiers.
+                    for _ in 0..stacks {
+                        reverse_buff_modifiers(self, eid, &buff_def);
+                    }
+                    // Run on_expire effects.
+                    if !buff_def.on_expire.is_empty() {
+                        let mut events = Vec::new();
+                        resolve_custom_effects(
+                            self, eid, "buff_expire", &buff_def.on_expire, &[], &mut events,
+                        );
+                        self.events.extend(events);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Process behaviors for a non-scripted entity. Returns the first action-producing
+    /// behavior's action. Effects-type behaviors fire their effects but don't produce
+    /// an action, allowing lower-priority behaviors to also fire.
+    fn process_entity_behaviors(&mut self, eid: EntityId) -> Option<UnitAction> {
+        let entity_type = self.get_entity(eid)?.entity_type.clone();
+        let behaviors = self.behaviors.get(&entity_type)?.clone();
+
+        // Ensure cooldown vector matches behavior count.
+        if let Some(entity) = self.get_entity_mut(eid) {
+            entity.behavior_cooldowns.resize(behaviors.len(), 0);
+        }
+
+        let mut result_action = None;
+
+        for (i, behavior) in behaviors.iter().enumerate() {
+            // Check cooldown.
+            let on_cooldown = self.get_entity(eid)
+                .map_or(true, |e| e.behavior_cooldowns.get(i).copied().unwrap_or(0) > 0);
+            if on_cooldown {
+                continue;
+            }
+
+            // Check conditions.
+            if !behavior.conditions.is_empty() {
+                let mut rng = SimRng::new(self.tick_seed() ^ eid.0 as u64);
+                let met = behavior.conditions.iter()
+                    .all(|c| evaluate_condition(c, self, eid, &mut rng));
+                if !met {
+                    continue;
+                }
+            }
+
+            // Execute behavior action.
+            match &behavior.action {
+                BehaviorAction::AttackNearest { entity_type, range } => {
+                    let filter = entity_type.as_deref().unwrap_or("*");
+                    let target = crate::query::nearest(self, eid, filter);
+                    if let crate::value::SimValue::EntityRef(tid) = target {
+                        // Check range.
+                        let in_range = self.get_entity(eid).and_then(|e| {
+                            let atk_range = range.unwrap_or(e.attack_range);
+                            self.get_entity(tid).map(|t| (e.position - t.position).abs() <= atk_range)
+                        }).unwrap_or(false);
+                        if in_range {
+                            // Set cooldown.
+                            if let Some(entity) = self.get_entity_mut(eid) {
+                                entity.behavior_cooldowns[i] = behavior.cooldown;
+                            }
+                            result_action = Some(UnitAction::Attack { target: tid });
+                            break;
+                        }
+                    }
+                }
+                BehaviorAction::FleeWhenLow { stat, threshold } => {
+                    let stat_low = self.get_entity(eid).map_or(false, |e| {
+                        let current = match stat.as_str() {
+                            "health" => e.health,
+                            "shield" => e.shield,
+                            "speed" => e.speed,
+                            _ => return false,
+                        };
+                        current < *threshold
+                    });
+                    if stat_low {
+                        // Find nearest entity of any type to flee from.
+                        let threat = crate::query::nearest(self, eid, "*");
+                        if let crate::value::SimValue::EntityRef(tid) = threat {
+                            if let Some(entity) = self.get_entity_mut(eid) {
+                                entity.behavior_cooldowns[i] = behavior.cooldown;
+                            }
+                            result_action = Some(UnitAction::Flee { threat: tid });
+                            break;
+                        }
+                    }
+                }
+                BehaviorAction::MoveToward { target } => {
+                    let target_pos = if let Some(type_filter) = target.strip_prefix("nearest:") {
+                        // Move toward nearest entity of type.
+                        let found = crate::query::nearest(self, eid, type_filter);
+                        if let crate::value::SimValue::EntityRef(tid) = found {
+                            self.get_entity(tid).map(|e| e.position)
+                        } else {
+                            None
+                        }
+                    } else if target == "nearest_enemy" {
+                        // Move toward nearest entity of any other type.
+                        let self_type = self.get_entity(eid).map(|e| e.entity_type.clone());
+                        if let Some(st) = self_type {
+                            let mut best: Option<(i64, i64)> = None; // (pos, dist)
+                            let self_pos = self.get_entity(eid).map(|e| e.position).unwrap_or(0);
+                            for e in self.entities() {
+                                if !e.is_ready() || e.id == eid || e.entity_type == st {
+                                    continue;
+                                }
+                                let dist = (e.position - self_pos).abs();
+                                if best.is_none() || dist < best.unwrap().1 {
+                                    best = Some((e.position, dist));
+                                }
+                            }
+                            best.map(|(pos, _)| pos)
+                        } else {
+                            None
+                        }
+                    } else {
+                        // Fixed position.
+                        target.parse::<i64>().ok()
+                    };
+
+                    if let Some(pos) = target_pos {
+                        if let Some(entity) = self.get_entity_mut(eid) {
+                            entity.behavior_cooldowns[i] = behavior.cooldown;
+                        }
+                        result_action = Some(UnitAction::Move { target_pos: pos });
+                        break;
+                    }
+                }
+                BehaviorAction::Idle => {
+                    if let Some(entity) = self.get_entity_mut(eid) {
+                        entity.behavior_cooldowns[i] = behavior.cooldown;
+                    }
+                    result_action = Some(UnitAction::Wait);
+                    break;
+                }
+                BehaviorAction::RunEffects { effects } => {
+                    // Effects don't consume the tick — fire and continue.
+                    let mut events = Vec::new();
+                    resolve_custom_effects(self, eid, "behavior", effects, &[], &mut events);
+                    self.events.extend(events);
+                    if let Some(entity) = self.get_entity_mut(eid) {
+                        entity.behavior_cooldowns[i] = behavior.cooldown;
+                    }
+                    // Don't break — lower-priority behaviors can still fire.
+                }
+            }
+        }
+
+        result_action
+    }
+
+    /// Process triggers against events collected during this tick.
+    ///
+    /// Trigger effects use the first alive entity as the "caster" (typically the
+    /// summoner), consistent with how `[initial].effects` are resolved.
+    /// Trigger effects do not re-trigger other triggers within the same tick.
+    fn process_triggers(
+        &mut self,
+        entity_type_map: &HashMap<EntityId, String>,
+        resource_snapshot: &IndexMap<String, i64>,
+    ) {
+        if self.triggers.is_empty() {
+            return;
+        }
+
+        // Find the first alive entity as the "caster" for trigger effects.
+        let caster_id = self.entities.iter().find(|e| e.alive).map(|e| e.id);
+        let Some(caster) = caster_id else { return };
+
+        // Clone events and triggers to avoid borrow conflicts.
+        let tick_events = self.events.clone();
+        let triggers = self.triggers.clone();
+
+        for trigger in &triggers {
+            match trigger.event.as_str() {
+                "entity_died" => {
+                    for event in &tick_events {
+                        if let SimEvent::EntityDied { entity_id, .. } = event {
+                            if let Some(ref filter_type) = trigger.filter.entity_type {
+                                let et = entity_type_map.get(entity_id).map(|s| s.as_str()).unwrap_or("");
+                                if et != filter_type { continue; }
+                            }
+                            if self.check_trigger_conditions(trigger, caster) {
+                                self.fire_trigger_effects(trigger, caster);
+                            }
+                        }
+                    }
+                }
+                "entity_spawned" => {
+                    for event in &tick_events {
+                        if let SimEvent::EntitySpawned { entity_type, .. } = event {
+                            if let Some(ref filter_type) = trigger.filter.entity_type {
+                                if entity_type != filter_type { continue; }
+                            }
+                            if self.check_trigger_conditions(trigger, caster) {
+                                self.fire_trigger_effects(trigger, caster);
+                            }
+                        }
+                    }
+                }
+                "entity_damaged" => {
+                    for event in &tick_events {
+                        if let SimEvent::EntityDamaged { entity_id, .. } = event {
+                            if let Some(ref filter_type) = trigger.filter.entity_type {
+                                let et = entity_type_map.get(entity_id).map(|s| s.as_str()).unwrap_or("");
+                                if et != filter_type { continue; }
+                            }
+                            if self.check_trigger_conditions(trigger, caster) {
+                                self.fire_trigger_effects(trigger, caster);
+                            }
+                        }
+                    }
+                }
+                "resource_changed" => {
+                    // Compare current resource values to snapshot to detect changes.
+                    for (name, &old_value) in resource_snapshot.iter() {
+                        let new_value = self.get_resource(name);
+                        if old_value != new_value {
+                            if let Some(ref filter_res) = trigger.filter.resource {
+                                if name != filter_res { continue; }
+                            }
+                            if self.check_trigger_conditions(trigger, caster) {
+                                self.fire_trigger_effects(trigger, caster);
+                            }
+                        }
+                    }
+                    // Also check for newly created resources (not in snapshot).
+                    let new_resources: Vec<String> = self.resources.keys()
+                        .filter(|name| !resource_snapshot.contains_key(*name))
+                        .cloned()
+                        .collect();
+                    for name in &new_resources {
+                        if let Some(ref filter_res) = trigger.filter.resource {
+                            if name != filter_res { continue; }
+                        }
+                        if self.check_trigger_conditions(trigger, caster) {
+                            self.fire_trigger_effects(trigger, caster);
+                        }
+                    }
+                }
+                "command_used" => {
+                    for event in &tick_events {
+                        if let SimEvent::CommandUsed { command, .. } = event {
+                            if let Some(ref filter_cmd) = trigger.filter.command {
+                                if command != filter_cmd { continue; }
+                            }
+                            if self.check_trigger_conditions(trigger, caster) {
+                                self.fire_trigger_effects(trigger, caster);
+                            }
+                        }
+                    }
+                }
+                "tick_interval" => {
+                    if let Some(interval) = trigger.filter.interval {
+                        if interval > 0 && self.tick % interval as u64 == 0 {
+                            if self.check_trigger_conditions(trigger, caster) {
+                                self.fire_trigger_effects(trigger, caster);
+                            }
+                        }
+                    }
+                }
+                "channel_completed" => {
+                    for event in &tick_events {
+                        if let SimEvent::ChannelCompleted { command, .. } = event {
+                            if let Some(ref filter_cmd) = trigger.filter.command {
+                                if command != filter_cmd { continue; }
+                            }
+                            if self.check_trigger_conditions(trigger, caster) {
+                                self.fire_trigger_effects(trigger, caster);
+                            }
+                        }
+                    }
+                }
+                "channel_interrupted" => {
+                    for event in &tick_events {
+                        if let SimEvent::ChannelInterrupted { command, .. } = event {
+                            if let Some(ref filter_cmd) = trigger.filter.command {
+                                if command != filter_cmd { continue; }
+                            }
+                            if self.check_trigger_conditions(trigger, caster) {
+                                self.fire_trigger_effects(trigger, caster);
+                            }
+                        }
+                    }
+                }
+                _ => {} // Unknown event type — skip silently (validated at load time).
+            }
+        }
+    }
+
+    /// Check all conditions on a trigger against current world state.
+    fn check_trigger_conditions(&self, trigger: &TriggerDef, caster: EntityId) -> bool {
+        if trigger.conditions.is_empty() {
+            return true;
+        }
+        let mut rng = SimRng::new(self.tick_seed() ^ caster.0 as u64);
+        trigger.conditions.iter().all(|c| evaluate_condition(c, self, caster, &mut rng))
+    }
+
+    /// Fire a trigger's effects against the world.
+    fn fire_trigger_effects(&mut self, trigger: &TriggerDef, caster: EntityId) {
+        let mut events = Vec::new();
+        resolve_custom_effects(
+            self, caster, "trigger", &trigger.effects, &[], &mut events,
+        );
+        self.events.extend(events);
     }
 
     /// Handle an instant action (Print, GainResource, TrySpendResource).
@@ -1889,5 +2341,969 @@ mod tests {
         let texts = output_texts(&world.take_events());
         assert_eq!(texts, vec!["5"]);
         assert_eq!(world.get_resource("bones"), 5);
+    }
+
+    // ---------------------------------------------------------------
+    // Trigger system tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn trigger_entity_died_fires_effects() {
+        use crate::action::{TriggerDef, TriggerFilter};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 502);
+
+        // Register a trigger: when a skeleton dies, output a message.
+        world.register_trigger(TriggerDef {
+            event: "entity_died".into(),
+            filter: TriggerFilter {
+                entity_type: Some("skeleton".into()),
+                ..Default::default()
+            },
+            conditions: vec![],
+            effects: vec![
+                CommandEffect::Output { message: "A skeleton has fallen!".into() },
+            ],
+        });
+
+        // Give summoner a script that attacks the skeleton.
+        // First, set skeleton health low so one attack kills it.
+        world.get_entity_mut(skeleton).unwrap().health = 1;
+
+        // Give summoner a script: attack(skeleton), halt
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::EntityRef(skeleton)),
+                Instruction::ActionAttack,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let events = world.take_events();
+        let texts = output_texts(&events);
+        assert!(texts.contains(&"A skeleton has fallen!".to_string()),
+            "Expected trigger output, got: {:?}", texts);
+    }
+
+    #[test]
+    fn trigger_entity_died_filter_ignores_wrong_type() {
+        use crate::action::{TriggerDef, TriggerFilter};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let zombie = world.spawn_entity("zombie".into(), "z1".into(), 502);
+
+        // Trigger only fires for skeleton deaths, not zombie deaths.
+        world.register_trigger(TriggerDef {
+            event: "entity_died".into(),
+            filter: TriggerFilter {
+                entity_type: Some("skeleton".into()),
+                ..Default::default()
+            },
+            conditions: vec![],
+            effects: vec![
+                CommandEffect::Output { message: "Should NOT appear".into() },
+            ],
+        });
+
+        world.get_entity_mut(zombie).unwrap().health = 1;
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::EntityRef(zombie)),
+                Instruction::ActionAttack,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let events = world.take_events();
+        let texts = output_texts(&events);
+        assert!(!texts.contains(&"Should NOT appear".to_string()),
+            "Trigger should not fire for zombie death, got: {:?}", texts);
+    }
+
+    #[test]
+    fn trigger_tick_interval_fires_periodically() {
+        use crate::action::{TriggerDef, TriggerFilter};
+
+        let mut world = SimWorld::new(42);
+        world.spawn_entity("summoner".into(), "summoner".into(), 500);
+
+        // Trigger fires every 5 ticks.
+        world.register_trigger(TriggerDef {
+            event: "tick_interval".into(),
+            filter: TriggerFilter {
+                interval: Some(5),
+                ..Default::default()
+            },
+            conditions: vec![],
+            effects: vec![
+                CommandEffect::Output { message: "interval!".into() },
+            ],
+        });
+
+        world.start();
+
+        // Tick 1-4: no trigger
+        let mut fired_count = 0;
+        for _ in 0..4 {
+            world.tick();
+            let events = world.take_events();
+            if output_texts(&events).contains(&"interval!".to_string()) {
+                fired_count += 1;
+            }
+        }
+        assert_eq!(fired_count, 0, "Should not fire before tick 5");
+
+        // Tick 5: trigger fires
+        world.tick();
+        let events = world.take_events();
+        assert!(output_texts(&events).contains(&"interval!".to_string()),
+            "Should fire at tick 5");
+
+        // Tick 10: fires again
+        for _ in 0..4 {
+            world.tick();
+            world.take_events();
+        }
+        world.tick();
+        let events = world.take_events();
+        assert!(output_texts(&events).contains(&"interval!".to_string()),
+            "Should fire at tick 10");
+    }
+
+    #[test]
+    fn trigger_resource_changed_detects_modification() {
+        use crate::action::{TriggerDef, TriggerFilter, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        world.resources.insert("gold".into(), 0);
+
+        // Register a custom command that modifies gold.
+        world.register_custom_command(&CommandDef {
+            name: "earn".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::ModifyResource { resource: "gold".into(), amount: DynInt::Fixed(10) },
+            ],
+            phases: vec![],
+            unlisted: false,
+        });
+
+        // Trigger: when gold changes, output a message.
+        world.register_trigger(TriggerDef {
+            event: "resource_changed".into(),
+            filter: TriggerFilter {
+                resource: Some("gold".into()),
+                ..Default::default()
+            },
+            conditions: vec![],
+            effects: vec![
+                CommandEffect::Output { message: "Gold changed!".into() },
+            ],
+        });
+
+        // Script: earn(), halt
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("earn".into()),
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.custom_command_arg_counts.insert("earn".into(), 0);
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let events = world.take_events();
+        let texts = output_texts(&events);
+        assert!(texts.contains(&"Gold changed!".to_string()),
+            "Should detect gold change, got: {:?}", texts);
+    }
+
+    #[test]
+    fn trigger_with_conditions_only_fires_when_met() {
+        use crate::action::{Condition, CompareOp, TriggerDef, TriggerFilter, DynInt};
+
+        let mut world = SimWorld::new(42);
+        world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        world.resources.insert("souls".into(), 5);
+
+        // Trigger: on tick_interval(1), but only if souls >= 10.
+        world.register_trigger(TriggerDef {
+            event: "tick_interval".into(),
+            filter: TriggerFilter {
+                interval: Some(1),
+                ..Default::default()
+            },
+            conditions: vec![
+                Condition::Resource {
+                    resource: "souls".into(),
+                    compare: CompareOp::Gte,
+                    amount: DynInt::Fixed(10),
+                },
+            ],
+            effects: vec![
+                CommandEffect::Output { message: "Souls threshold!".into() },
+            ],
+        });
+
+        world.start();
+
+        // Tick 1: souls=5 < 10, should NOT fire.
+        world.tick();
+        let events = world.take_events();
+        assert!(!output_texts(&events).contains(&"Souls threshold!".to_string()),
+            "Should not fire when souls < 10");
+
+        // Set souls to 15, tick again.
+        *world.resources.get_mut("souls").unwrap() = 15;
+        world.tick();
+        let events = world.take_events();
+        assert!(output_texts(&events).contains(&"Souls threshold!".to_string()),
+            "Should fire when souls >= 10");
+    }
+
+    #[test]
+    fn trigger_command_used_fires_on_custom_command() {
+        use crate::action::{TriggerDef, TriggerFilter};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+
+        // Register a simple custom command.
+        world.register_custom_command(&CommandDef {
+            name: "meditate".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::Output { message: "Meditating...".into() },
+            ],
+            phases: vec![],
+            unlisted: false,
+        });
+
+        // Trigger: when "meditate" is used, output a bonus message.
+        world.register_trigger(TriggerDef {
+            event: "command_used".into(),
+            filter: TriggerFilter {
+                command: Some("meditate".into()),
+                ..Default::default()
+            },
+            conditions: vec![],
+            effects: vec![
+                CommandEffect::Output { message: "Bonus from trigger!".into() },
+            ],
+        });
+
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("meditate".into()),
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.custom_command_arg_counts.insert("meditate".into(), 0);
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        let events = world.take_events();
+        let texts = output_texts(&events);
+        assert!(texts.contains(&"Meditating...".to_string()));
+        assert!(texts.contains(&"Bonus from trigger!".to_string()),
+            "Command trigger should fire, got: {:?}", texts);
+    }
+
+    #[test]
+    fn trigger_entity_died_with_spawn_effect() {
+        use crate::action::{TriggerDef, TriggerFilter, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 502);
+
+        // When a skeleton dies, spawn a ghost.
+        world.register_trigger(TriggerDef {
+            event: "entity_died".into(),
+            filter: TriggerFilter {
+                entity_type: Some("skeleton".into()),
+                ..Default::default()
+            },
+            conditions: vec![],
+            effects: vec![
+                CommandEffect::Spawn { entity_type: "ghost".into(), offset: DynInt::Fixed(0) },
+            ],
+        });
+
+        world.get_entity_mut(skeleton).unwrap().health = 1;
+        let program = CompiledScript::new(
+            vec![
+                Instruction::LoadConst(SimValue::EntityRef(skeleton)),
+                Instruction::ActionAttack,
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        // The ghost should be queued for spawn (pending). It won't be flushed
+        // because trigger effects fire after flush_pending. Check pending_spawns.
+        // Actually, trigger effects call queue_spawn which adds to pending_spawns.
+        // These will be flushed next tick.
+        world.tick(); // flush the pending spawn
+
+        let ghost_count = world.entities()
+            .filter(|e| e.entity_type == "ghost" && e.alive)
+            .count();
+        assert_eq!(ghost_count, 1, "Trigger should have spawned a ghost");
+    }
+
+    // ---------------------------------------------------------------
+    // Behavior system tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn behavior_attack_nearest_attacks_in_range() {
+        use crate::action::{BehaviorDef, BehaviorAction};
+
+        let mut world = SimWorld::new(42);
+        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let _skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 503);
+        let zombie = world.spawn_entity("zombie".into(), "z1".into(), 505);
+
+        // Give zombie 1 HP so skeleton can kill it.
+        world.get_entity_mut(zombie).unwrap().health = 1;
+
+        // Register skeleton behavior: attack nearest zombie.
+        world.register_behaviors("skeleton".into(), vec![
+            BehaviorDef {
+                action: BehaviorAction::AttackNearest {
+                    entity_type: Some("zombie".into()),
+                    range: None,
+                },
+                conditions: vec![],
+                cooldown: 0,
+                priority: 10,
+            },
+        ]);
+
+        world.start();
+        world.tick();
+
+        // Zombie should have taken damage.
+        let events = world.take_events();
+        let died = events.iter().any(|e| matches!(e, SimEvent::EntityDied { name, .. } if name == "z1"));
+        assert!(died, "Skeleton should have killed the zombie, events: {:?}", events);
+    }
+
+    #[test]
+    fn behavior_attack_nearest_ignores_out_of_range() {
+        use crate::action::{BehaviorDef, BehaviorAction};
+
+        let mut world = SimWorld::new(42);
+        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 0);
+        let _skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
+        let zombie = world.spawn_entity("zombie".into(), "z1".into(), 200);
+
+        world.get_entity_mut(zombie).unwrap().health = 1;
+
+        // Range is 5 (default), distance is 100 — out of range.
+        world.register_behaviors("skeleton".into(), vec![
+            BehaviorDef {
+                action: BehaviorAction::AttackNearest {
+                    entity_type: Some("zombie".into()),
+                    range: None,
+                },
+                conditions: vec![],
+                cooldown: 0,
+                priority: 10,
+            },
+        ]);
+
+        world.start();
+        world.tick();
+
+        // Zombie should still be alive (out of range).
+        assert!(world.get_entity(zombie).unwrap().alive,
+            "Zombie should survive — skeleton is out of range");
+    }
+
+    #[test]
+    fn behavior_idle_produces_wait() {
+        use crate::action::{BehaviorDef, BehaviorAction};
+
+        let mut world = SimWorld::new(42);
+        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
+
+        world.register_behaviors("skeleton".into(), vec![
+            BehaviorDef {
+                action: BehaviorAction::Idle,
+                conditions: vec![],
+                cooldown: 0,
+                priority: 0,
+            },
+        ]);
+
+        world.start();
+        world.tick();
+
+        // Skeleton should still be at position 100 (idle = no movement).
+        assert_eq!(world.get_entity(skeleton).unwrap().position, 100);
+    }
+
+    #[test]
+    fn behavior_effects_fires_without_consuming_tick() {
+        use crate::action::{BehaviorDef, BehaviorAction, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
+        world.resources.insert("bones".into(), 0);
+
+        // Effects behavior (passive) + idle behavior (active).
+        world.register_behaviors("skeleton".into(), vec![
+            BehaviorDef {
+                action: BehaviorAction::RunEffects {
+                    effects: vec![
+                        CommandEffect::ModifyResource { resource: "bones".into(), amount: DynInt::Fixed(1) },
+                    ],
+                },
+                conditions: vec![],
+                cooldown: 0,
+                priority: 100, // higher priority, fires first
+            },
+            BehaviorDef {
+                action: BehaviorAction::Idle,
+                conditions: vec![],
+                cooldown: 0,
+                priority: 0,
+            },
+        ]);
+
+        world.start();
+        world.tick();
+
+        // Effects should have fired (bones increased) AND skeleton should idle.
+        assert_eq!(world.get_resource("bones"), 1);
+        assert_eq!(world.get_entity(skeleton).unwrap().position, 100);
+    }
+
+    #[test]
+    fn behavior_cooldown_prevents_repeated_firing() {
+        use crate::action::{BehaviorDef, BehaviorAction, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let _skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
+        world.resources.insert("gold".into(), 0);
+
+        // Effects with cooldown of 3.
+        // Cooldown=3: fires, then cooldown ticks 3→2→1→0 over 3 ticks, fires again on tick 4.
+        world.register_behaviors("skeleton".into(), vec![
+            BehaviorDef {
+                action: BehaviorAction::RunEffects {
+                    effects: vec![
+                        CommandEffect::ModifyResource { resource: "gold".into(), amount: DynInt::Fixed(1) },
+                    ],
+                },
+                conditions: vec![],
+                cooldown: 3,
+                priority: 10,
+            },
+        ]);
+
+        world.start();
+
+        // Tick 1: fires (gold = 1), cooldown set to 3
+        world.tick(); world.take_events();
+        assert_eq!(world.get_resource("gold"), 1);
+
+        // Ticks 2-3: on cooldown (gold stays at 1)
+        world.tick(); world.take_events();
+        world.tick(); world.take_events();
+        assert_eq!(world.get_resource("gold"), 1);
+
+        // Tick 4: cooldown expired, fires again (gold = 2)
+        world.tick(); world.take_events();
+        assert_eq!(world.get_resource("gold"), 2);
+    }
+
+    #[test]
+    fn behavior_conditions_gate_activation() {
+        use crate::action::{BehaviorDef, BehaviorAction, Condition, CompareOp, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
+        world.resources.insert("mana".into(), 5);
+
+        // Only fires when mana >= 10.
+        world.register_behaviors("skeleton".into(), vec![
+            BehaviorDef {
+                action: BehaviorAction::RunEffects {
+                    effects: vec![
+                        CommandEffect::Output { message: "Behavior fired!".into() },
+                    ],
+                },
+                conditions: vec![
+                    Condition::Resource {
+                        resource: "mana".into(),
+                        compare: CompareOp::Gte,
+                        amount: DynInt::Fixed(10),
+                    },
+                ],
+                cooldown: 0,
+                priority: 10,
+            },
+        ]);
+
+        world.start();
+
+        // mana = 5 < 10: should NOT fire.
+        world.tick();
+        let events = world.take_events();
+        assert!(!output_texts(&events).contains(&"Behavior fired!".to_string()));
+
+        // Set mana to 15, should fire.
+        *world.resources.get_mut("mana").unwrap() = 15;
+        world.tick();
+        let events = world.take_events();
+        assert!(output_texts(&events).contains(&"Behavior fired!".to_string()));
+
+        // Set it back to the entity for the condition check to pass on the ENTITY level
+        // (condition is resource-based, should still work)
+        let _ = skeleton; // suppress unused warning
+    }
+
+    #[test]
+    fn behavior_move_toward_nearest() {
+        use crate::action::{BehaviorDef, BehaviorAction};
+
+        let mut world = SimWorld::new(42);
+        let _summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        let skeleton = world.spawn_entity("skeleton".into(), "skel1".into(), 100);
+        let _zombie = world.spawn_entity("zombie".into(), "z1".into(), 200);
+
+        world.register_behaviors("skeleton".into(), vec![
+            BehaviorDef {
+                action: BehaviorAction::MoveToward {
+                    target: "nearest:zombie".into(),
+                },
+                conditions: vec![],
+                cooldown: 0,
+                priority: 10,
+            },
+        ]);
+
+        world.start();
+        world.tick();
+
+        // Skeleton should have moved toward position 200.
+        let pos = world.get_entity(skeleton).unwrap().position;
+        assert!(pos > 100, "Skeleton should move toward zombie, pos={pos}");
+    }
+
+    #[test]
+    fn behavior_scripted_entities_ignore_behaviors() {
+        use crate::action::{BehaviorDef, BehaviorAction, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        world.resources.insert("bones".into(), 0);
+
+        // Register behaviors for summoner type.
+        world.register_behaviors("summoner".into(), vec![
+            BehaviorDef {
+                action: BehaviorAction::RunEffects {
+                    effects: vec![
+                        CommandEffect::ModifyResource { resource: "bones".into(), amount: DynInt::Fixed(99) },
+                    ],
+                },
+                conditions: vec![],
+                cooldown: 0,
+                priority: 10,
+            },
+        ]);
+
+        // Give summoner a script (making it scripted, not behavior-driven).
+        let program = CompiledScript::new(
+            vec![Instruction::ActionWait, Instruction::Halt],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick();
+
+        // Behavior should NOT fire because entity has a script.
+        assert_eq!(world.get_resource("bones"), 0,
+            "Scripted entities should not run behaviors");
+    }
+
+    // ---------------------------------------------------------------
+    // Buff system tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn buff_apply_modifies_stats_and_expires() {
+        use crate::action::{BuffDef, DynInt};
+        use std::collections::HashMap as StdMap;
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+
+        // Register a buff that adds 5 speed for 3 ticks.
+        world.register_buff(BuffDef {
+            name: "haste".into(),
+            duration: 3,
+            modifiers: { let mut m = StdMap::new(); m.insert("speed".into(), 5); m },
+            per_tick: vec![],
+            on_apply: vec![],
+            on_expire: vec![CommandEffect::Output { message: "Haste expired!".into() }],
+            stackable: false,
+            max_stacks: 0,
+        });
+
+        let base_speed = world.get_entity(summoner).unwrap().speed;
+
+        // Apply buff via custom command.
+        world.register_custom_command(&CommandDef {
+            name: "cast_haste".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::ApplyBuff { target: "self".into(), buff: "haste".into(), duration: None },
+            ],
+            phases: vec![],
+            unlisted: false,
+        });
+        world.custom_command_arg_counts.insert("cast_haste".into(), 0);
+
+        let program = CompiledScript::new(
+            vec![Instruction::ActionCustom("cast_haste".into()), Instruction::Halt],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick(); // Apply buff
+        world.take_events();
+
+        // Speed should be increased.
+        assert_eq!(world.get_entity(summoner).unwrap().speed, base_speed + 5,
+            "Buff should increase speed");
+
+        // Buff was applied in tick 1 (remaining=3), then buff tick decrements to 2.
+        // Tick 2: remaining 2→1. Tick 3: remaining 1→0 → expires.
+        world.tick(); world.take_events(); // tick 2
+        world.tick();                       // tick 3: remaining=0 → expires
+
+        let events = world.take_events();
+        let texts = output_texts(&events);
+
+        // Speed should be back to base.
+        assert_eq!(world.get_entity(summoner).unwrap().speed, base_speed,
+            "Buff expiry should reverse speed modifier");
+        assert!(texts.contains(&"Haste expired!".to_string()),
+            "on_expire effects should fire, got: {:?}", texts);
+    }
+
+    #[test]
+    fn buff_stackable_adds_multiple_stacks() {
+        use crate::action::BuffDef;
+        use std::collections::HashMap as StdMap;
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+
+        world.register_buff(BuffDef {
+            name: "rage".into(),
+            duration: 10,
+            modifiers: { let mut m = StdMap::new(); m.insert("attack_damage".into(), 3); m },
+            per_tick: vec![],
+            on_apply: vec![],
+            on_expire: vec![],
+            stackable: true,
+            max_stacks: 5,
+        });
+
+        let base_dmg = world.get_entity(summoner).unwrap().attack_damage;
+
+        // Apply buff twice.
+        world.register_custom_command(&CommandDef {
+            name: "rage_up".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::ApplyBuff { target: "self".into(), buff: "rage".into(), duration: None },
+            ],
+            phases: vec![],
+            unlisted: false,
+        });
+        world.custom_command_arg_counts.insert("rage_up".into(), 0);
+
+        // Script: rage_up(), wait, rage_up(), halt
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("rage_up".into()),
+                Instruction::ActionWait,
+                Instruction::ActionCustom("rage_up".into()),
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick(); world.take_events(); // Apply first stack
+        world.tick(); world.take_events(); // Wait
+        world.tick(); world.take_events(); // Apply second stack
+
+        assert_eq!(world.get_entity(summoner).unwrap().attack_damage, base_dmg + 6,
+            "Two stacks should add 6 attack damage");
+        assert_eq!(world.get_entity(summoner).unwrap().active_buffs[0].stacks, 2);
+    }
+
+    #[test]
+    fn buff_non_stackable_refreshes_duration() {
+        use crate::action::BuffDef;
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+
+        world.register_buff(BuffDef {
+            name: "shield_up".into(),
+            duration: 5,
+            modifiers: std::collections::HashMap::new(),
+            per_tick: vec![],
+            on_apply: vec![],
+            on_expire: vec![],
+            stackable: false,
+            max_stacks: 0,
+        });
+
+        world.register_custom_command(&CommandDef {
+            name: "shield_cast".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::ApplyBuff { target: "self".into(), buff: "shield_up".into(), duration: None },
+            ],
+            phases: vec![],
+            unlisted: false,
+        });
+        world.custom_command_arg_counts.insert("shield_cast".into(), 0);
+
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("shield_cast".into()),
+                Instruction::ActionWait,
+                Instruction::ActionWait,
+                Instruction::ActionCustom("shield_cast".into()), // Refresh at tick 4
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick(); world.take_events(); // tick 1: apply (remaining=5)
+        world.tick(); world.take_events(); // tick 2: wait (remaining=4 after buff tick)
+        world.tick(); world.take_events(); // tick 3: wait (remaining=3)
+        world.tick(); world.take_events(); // tick 4: re-apply → refreshes to 5
+
+        let remaining = world.get_entity(summoner).unwrap().active_buffs[0].remaining_ticks;
+        // After re-apply at tick 4, remaining is set to 5, then buff tick decrements to 4
+        assert_eq!(remaining, 4, "Non-stackable re-apply should refresh duration");
+    }
+
+    #[test]
+    fn buff_remove_reverses_modifiers() {
+        use crate::action::BuffDef;
+        use std::collections::HashMap as StdMap;
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+
+        world.register_buff(BuffDef {
+            name: "armor".into(),
+            duration: 100,
+            modifiers: { let mut m = StdMap::new(); m.insert("shield".into(), 20); m },
+            per_tick: vec![],
+            on_apply: vec![],
+            on_expire: vec![],
+            stackable: false,
+            max_stacks: 0,
+        });
+
+        world.register_custom_command(&CommandDef {
+            name: "armor_on".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::ApplyBuff { target: "self".into(), buff: "armor".into(), duration: None },
+            ],
+            phases: vec![],
+            unlisted: false,
+        });
+        world.register_custom_command(&CommandDef {
+            name: "armor_off".into(),
+            description: "".into(),
+            args: vec![],
+            effects: vec![
+                CommandEffect::RemoveBuff { target: "self".into(), buff: "armor".into() },
+            ],
+            phases: vec![],
+            unlisted: false,
+        });
+        world.custom_command_arg_counts.insert("armor_on".into(), 0);
+        world.custom_command_arg_counts.insert("armor_off".into(), 0);
+
+        let base_shield = world.get_entity(summoner).unwrap().shield;
+
+        let program = CompiledScript::new(
+            vec![
+                Instruction::ActionCustom("armor_on".into()),
+                Instruction::ActionCustom("armor_off".into()),
+                Instruction::Halt,
+            ],
+            0,
+        );
+        world.get_entity_mut(summoner).unwrap().script_state =
+            Some(ScriptState::new(program, 0));
+
+        world.start();
+        world.tick(); world.take_events(); // Apply armor
+        assert_eq!(world.get_entity(summoner).unwrap().shield, base_shield + 20);
+
+        world.tick(); world.take_events(); // Remove armor
+        assert_eq!(world.get_entity(summoner).unwrap().shield, base_shield,
+            "remove_buff should reverse shield modifier");
+        assert!(world.get_entity(summoner).unwrap().active_buffs.is_empty());
+    }
+
+    #[test]
+    fn condition_has_buff_works() {
+        use crate::action::{BuffDef, Condition};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+
+        world.register_buff(BuffDef {
+            name: "berserk".into(),
+            duration: 10,
+            modifiers: std::collections::HashMap::new(),
+            per_tick: vec![],
+            on_apply: vec![],
+            on_expire: vec![],
+            stackable: false,
+            max_stacks: 0,
+        });
+
+        // has_buff should be false initially.
+        let mut rng = crate::rng::SimRng::new(42);
+        assert!(!evaluate_condition(
+            &Condition::HasBuff { buff: "berserk".into() },
+            &world, summoner, &mut rng
+        ));
+
+        // Apply buff.
+        world.get_entity_mut(summoner).unwrap().active_buffs.push(
+            crate::entity::ActiveBuff { name: "berserk".into(), remaining_ticks: 10, stacks: 1 }
+        );
+
+        assert!(evaluate_condition(
+            &Condition::HasBuff { buff: "berserk".into() },
+            &world, summoner, &mut rng
+        ));
+    }
+
+    #[test]
+    fn condition_random_chance_is_deterministic() {
+        use crate::action::Condition;
+
+        let world = SimWorld::new(42);
+        let eid = EntityId(1); // doesn't need to exist for random_chance
+
+        // Run the same seed twice — should get the same result.
+        let mut rng1 = crate::rng::SimRng::new(99);
+        let result1 = evaluate_condition(
+            &Condition::RandomChance { percent: 50 },
+            &world, eid, &mut rng1
+        );
+        let mut rng2 = crate::rng::SimRng::new(99);
+        let result2 = evaluate_condition(
+            &Condition::RandomChance { percent: 50 },
+            &world, eid, &mut rng2
+        );
+        assert_eq!(result1, result2, "Same seed should produce same random result");
+    }
+
+    #[test]
+    fn condition_compound_and_or() {
+        use crate::action::{Condition, CompareOp, DynInt};
+
+        let mut world = SimWorld::new(42);
+        let summoner = world.spawn_entity("summoner".into(), "summoner".into(), 500);
+        world.resources.insert("gold".into(), 50);
+        world.resources.insert("mana".into(), 10);
+        let mut rng = crate::rng::SimRng::new(42);
+
+        // AND: gold >= 30 AND mana >= 5 → true
+        let and_cond = Condition::And {
+            conditions: vec![
+                Condition::Resource { resource: "gold".into(), compare: CompareOp::Gte, amount: DynInt::Fixed(30) },
+                Condition::Resource { resource: "mana".into(), compare: CompareOp::Gte, amount: DynInt::Fixed(5) },
+            ],
+        };
+        assert!(evaluate_condition(&and_cond, &world, summoner, &mut rng));
+
+        // AND: gold >= 30 AND mana >= 20 → false (mana too low)
+        let and_fail = Condition::And {
+            conditions: vec![
+                Condition::Resource { resource: "gold".into(), compare: CompareOp::Gte, amount: DynInt::Fixed(30) },
+                Condition::Resource { resource: "mana".into(), compare: CompareOp::Gte, amount: DynInt::Fixed(20) },
+            ],
+        };
+        assert!(!evaluate_condition(&and_fail, &world, summoner, &mut rng));
+
+        // OR: gold >= 100 OR mana >= 5 → true (mana passes)
+        let or_cond = Condition::Or {
+            conditions: vec![
+                Condition::Resource { resource: "gold".into(), compare: CompareOp::Gte, amount: DynInt::Fixed(100) },
+                Condition::Resource { resource: "mana".into(), compare: CompareOp::Gte, amount: DynInt::Fixed(5) },
+            ],
+        };
+        assert!(evaluate_condition(&or_cond, &world, summoner, &mut rng));
     }
 }

@@ -48,7 +48,7 @@ Editor UI is embedded into the Rust binary via `rust-embed` in `deadcode-editor/
 ## Testing
 
 ```bash
-cargo test                          # All Rust tests (132 tests)
+cargo test                          # All Rust tests (183 tests)
 cargo test -p deadcode-sim          # Sim engine + compiler tests
 cargo test -p grimscript-lang       # Language crate only
 cargo test -p deadcode-app --test interpreter_compiler_parity  # Parity tests
@@ -75,8 +75,8 @@ src/
   entity.rs       — SimEntity, EntityId, EntityType, ScriptState (incl. step_limit_hit), CallFrame, spawn_ticks_remaining
   ir.rs           — 60+ stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
-  world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots, global resources
-  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/DynInt/CompareOp/Condition/EffectOutcome types for mod-defined commands
+  world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots, global resources, trigger processing
+  action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/DynInt/CompareOp/Condition/EffectOutcome/TriggerDef/TriggerFilter types for mod-defined commands and triggers
   query.rs        — scan(), nearest(), distance() — linear scan over entities
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
     mod.rs        — compile(), compile_source(), compile_source_with(), compile_source_full(), initial_variables()
@@ -104,6 +104,14 @@ src/
 
 **Global resources:** World-level integer resources (e.g. `souls`, `gold`) stored in `SimWorld.resources: IndexMap<String, i64>`. Defined by mods via `[resources]` table in `mod.toml`, merged at load time (first-defined wins). Three builtins: `get_resource(name)` → Int (query, instant), `gain_resource(name, amount)` → Int (instant effect), `try_spend_resource(name, amount)` → Bool (instant effect). Instant effects use the `try_handle_instant()` pattern: the executor returns a `UnitAction` variant without yielding, the tick loop handles mutation and pushes the return value onto the stack before re-entering the executor. **Resource availability:** Resources have an available/unavailable mechanic mirroring commands. `[initial].resources` in `mod.toml` lists initially available resource names; if omitted, all defined resources are available. The executor checks `SimWorld.available_resources: Option<HashSet<String>>` at runtime — unavailable resources produce a runtime error. In dev mode, `available_resources` is `None` (all available).
 
+**Buff system:** Mods define temporary stat modifiers via `[[buffs]]` in `mod.toml`. Each `BuffDef` has `name`, `duration`, `modifiers` (stat→amount), `per_tick`/`on_apply`/`on_expire` effect lists, `stackable`, and `max_stacks`. Two new effect types: `apply_buff { target, buff, duration? }` and `remove_buff { target, buff }`. Active buffs tracked per-entity via `SimEntity.active_buffs`. Modifiers directly modify stats on apply and reverse on expire. Stackable buffs accumulate stacks; non-stackable refresh duration. Buff tick processing (step 6b) runs per_tick effects, decrements durations, and handles expiry (reverse modifiers, run on_expire effects). Buff definitions stored in `SimWorld.buff_registry`.
+
+**Extended conditions:** Four new `Condition` variants: `has_buff { buff }` checks if the caster has an active buff, `random_chance { percent }` uses deterministic RNG (roll < percent), `and { conditions }` requires all sub-conditions true, `or { conditions }` requires at least one true. Compound conditions support nesting.
+
+**Entity behaviors:** Mods define autonomous AI for non-scripted entities via `behaviors` field in `[[entities]]` in `mod.toml`. Each `BehaviorDef` has a `BehaviorAction` (attack_nearest, flee_when_low, move_toward, idle, effects), optional `conditions` (reuse `Condition` enum), `cooldown` (ticks between activations), and `priority` (higher = checked first). Behaviors are registered on `SimWorld` per entity type. Processing occurs in step 4b of the tick loop for entities that are ready, have no script, and have no active channel. Behaviors are sorted by priority descending. Effects-type behaviors don't consume the tick (allowing action behaviors to also fire). Cooldowns are tracked per-entity per-behavior via `SimEntity.behavior_cooldowns`. Target resolution supports entity type filtering, "nearest_enemy", and "nearest:<type>".
+
+**Event triggers:** Mods define reactive rules via `[[triggers]]` in `mod.toml`. Each `TriggerDef` has an `event` (entity_died, entity_spawned, entity_damaged, resource_changed, command_used, tick_interval, channel_completed, channel_interrupted), a `TriggerFilter` (entity_type, resource, command, interval), optional `conditions` (reuse `Condition` enum), and `effects` (reuse `CommandEffect`). Triggers are registered on `SimWorld` at load time. Processing occurs at the end of each tick (step 8): events from the tick are matched against triggers, filters narrow matches, conditions gate firing, effects resolve against the first alive entity (summoner). Trigger effects do not re-trigger within the same tick. `resource_changed` uses snapshot comparison (resources at tick start vs current). `tick_interval` fires when `tick % interval == 0`. Validated at load time by `validate_triggers()`.
+
 **Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
 
 **Spawn state:** Dynamically spawned entities (from effects) have `spawn_ticks_remaining > 0` — they play their spawn animation and can't act or be targeted by queries until the timer reaches 0. Duration is computed from the entity type's atlas JSON spawn animation. Initial mod spawns start ready (`spawn_ticks_remaining = 0`).
@@ -113,13 +121,16 @@ src/
 **Fixed timestep:** The sim runs at exactly 30 TPS via an accumulator in `do_tick()`. Wall-clock delta is accumulated; `sim.tick()` fires once per 33ms. Capped at 4 sim ticks per frame to prevent spiral of death. Animations are sim-driven (advanced once per sim tick via `UnitManager::tick_animations()`), movement interpolation remains render-driven.
 
 **Tick loop** (`SimWorld::tick()`):
-1. Derive per-tick RNG: `SimRng::new(seed ^ tick)`
+1. Derive per-tick RNG: `SimRng::new(seed ^ tick)`. Snapshot entity types and resource values for trigger processing.
 2. Decrement spawn timers on spawning entities
 3. Shuffle ready entity IDs (excludes spawning entities, includes entities with active channels)
 4. For each: process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print, resource ops — re-enter executor), collect tick-consuming action, put state back
+4b. Process behaviors for non-scripted, non-channeling entities: iterate behaviors by priority, check cooldowns and conditions, fire effects or produce actions
 5. Resolve all actions against world state
-6. Tick passive systems (cooldowns)
+6. Tick passive systems (cooldowns, behavior cooldowns)
+6b. Tick buffs: run per_tick effects, decrement durations, handle expiry (reverse modifiers, fire on_expire)
 7. Flush pending spawns/despawns
+8. Process triggers: match events collected during the tick against registered triggers, check filters and conditions, fire effects. Trigger effects do not re-trigger within the same tick.
 
 ### IPC
 
@@ -183,6 +194,10 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 | Add conditional effect logic | `crates/deadcode-sim/src/action.rs` → `Condition` enum + `evaluate_condition()` |
 | Add instant effect builtin | `ir.rs` (InstantXxx) + `executor.rs` + `action.rs` (UnitAction) + `builtins.rs` (InstantEffectBuiltin) + `world.rs` (try_handle_instant) |
 | Define mod resources | `mods/<mod>/mod.toml` → `[resources]` table (name = initial_value), `[initial] resources` list for availability |
+| Define buff | `mods/<mod>/mod.toml` → `[[buffs]]` with name, duration, modifiers, per_tick/on_apply/on_expire effects |
+| Add entity behavior | `mods/<mod>/mod.toml` → `[[entities]]` `behaviors` field with action, conditions, cooldown, priority |
+| Add event trigger | `mods/<mod>/mod.toml` → `[[triggers]]` with event, filter, conditions, effects |
+| Add trigger event type | `crates/deadcode-sim/src/world.rs` → `SimEvent` enum + emit in tick loop + match in `process_triggers()` |
 
 ## Documentation Maintenance
 

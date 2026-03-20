@@ -53,6 +53,14 @@ impl ScriptState {
     }
 }
 
+/// An active buff on an entity.
+#[derive(Debug, Clone)]
+pub struct ActiveBuff {
+    pub name: String,
+    pub remaining_ticks: i64,
+    pub stacks: i64,
+}
+
 /// Active channel state for a multi-tick phased command.
 #[derive(Debug, Clone)]
 pub struct ChannelState {
@@ -110,6 +118,12 @@ pub struct SimEntity {
 
     /// Active channel for a multi-tick phased command (None when idle).
     pub active_channel: Option<ChannelState>,
+
+    /// Per-behavior cooldown tracking (indexed by behavior position).
+    pub behavior_cooldowns: Vec<i64>,
+
+    /// Active buffs on this entity.
+    pub active_buffs: Vec<ActiveBuff>,
 }
 
 impl SimEntity {
@@ -134,6 +148,8 @@ impl SimEntity {
             spawn_ticks_remaining: 0,
             script_state: None,
             active_channel: None,
+            behavior_cooldowns: Vec::new(),
+            active_buffs: Vec::new(),
         }
     }
 

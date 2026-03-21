@@ -58,14 +58,9 @@ fn draw_number(canvas: &mut Pixmap, n: u32, center_x: i32, y: i32, sz: i32, colo
     }
 }
 
-pub const WORLD_WIDTH: u32 = 1000;
+pub const DEFAULT_WORLD_WIDTH: u32 = 1000;
 
 pub type UnitId = u64;
-
-pub struct MovementState {
-    pub target_x: f32,
-    pub speed: f32,
-}
 
 pub struct Unit {
     pub id: UnitId,
@@ -77,7 +72,8 @@ pub struct Unit {
     pub pivot_x: f32,
     /// Y pivot offset in frame pixels (0 = bottom edge, frame_height = top).
     pub pivot_y: f32,
-    pub movement: Option<MovementState>,
+    /// Previous x position (for walk/idle animation transitions).
+    pub prev_x: f32,
     pub z_order: i32,
     pub visible: bool,
     /// Marked for removal after death animation finishes.
@@ -94,6 +90,7 @@ pub struct UnitManager {
     units: HashMap<UnitId, Unit>,
     next_id: UnitId,
     time: f32,
+    pub world_width: u32,
 }
 
 impl UnitManager {
@@ -102,6 +99,7 @@ impl UnitManager {
             units: HashMap::new(),
             next_id: 0,
             time: 0.0,
+            world_width: DEFAULT_WORLD_WIDTH,
         }
     }
 
@@ -120,15 +118,16 @@ impl UnitManager {
         let mut animation = AnimationPlayer::from_bytes(png_bytes, json_str);
         animation.play("spawn");
 
+        let clamped_x = x.clamp(0.0, self.world_width as f32);
         self.units.insert(id, Unit {
             id,
             name: name.to_string(),
             animation,
-            x: x.clamp(0.0, WORLD_WIDTH as f32),
+            x: clamped_x,
             y: 0.0,
             pivot_x,
             pivot_y,
-            movement: None,
+            prev_x: clamped_x,
             z_order: 0,
             visible: true,
             pending_destroy: false,
@@ -144,16 +143,9 @@ impl UnitManager {
         self.units.remove(&id).is_some()
     }
 
-    pub fn move_to(&mut self, id: UnitId, target_x: f32, speed: f32) {
+    pub fn move_to(&mut self, id: UnitId, target_x: f32, _speed: f32) {
         if let Some(unit) = self.units.get_mut(&id) {
-            let clamped = target_x.clamp(0.0, WORLD_WIDTH as f32);
-            unit.movement = Some(MovementState { target_x: clamped, speed });
-        }
-    }
-
-    pub fn stop(&mut self, id: UnitId) {
-        if let Some(unit) = self.units.get_mut(&id) {
-            unit.movement = None;
+            unit.x = target_x.clamp(0.0, self.world_width as f32);
         }
     }
 
@@ -169,7 +161,6 @@ impl UnitManager {
     /// If no "death" animation exists, the unit is destroyed immediately.
     pub fn kill(&mut self, id: UnitId) {
         if let Some(unit) = self.units.get_mut(&id) {
-            unit.movement = None;
             unit.pending_destroy = true;
             unit.animation.hold_on_finish = true;
             unit.animation.play("death");
@@ -195,52 +186,10 @@ impl UnitManager {
         }
     }
 
-    /// Advance movement interpolation (render-driven, called every frame).
+    /// Per-frame update (render-driven).
     pub fn tick(&mut self, delta: Duration) {
         let dt = delta.as_secs_f32();
         self.time += dt;
-
-        for unit in self.units.values_mut() {
-            // Don't override PlayOnce animations (attack, summon, death) with walk/idle.
-            if unit.animation.is_action_playing() {
-                if let Some(movement) = &unit.movement {
-                    let dx = movement.target_x - unit.x;
-                    let step = movement.speed * dt;
-                    if dx.abs() <= step {
-                        unit.x = movement.target_x;
-                        unit.movement = None;
-                    } else if dx > 0.0 {
-                        unit.x = (unit.x + step).min(WORLD_WIDTH as f32);
-                    } else {
-                        unit.x = (unit.x - step).max(0.0);
-                    }
-                }
-                continue;
-            }
-
-            if let Some(movement) = &unit.movement {
-                let dx = movement.target_x - unit.x;
-                let step = movement.speed * dt;
-
-                if dx.abs() <= step {
-                    unit.x = movement.target_x;
-                    unit.movement = None;
-                    unit.animation.play("idle");
-                } else if dx > 0.0 {
-                    unit.x = (unit.x + step).min(WORLD_WIDTH as f32);
-                    unit.animation.facing_left = false;
-                    if unit.animation.current_animation() != "walk" {
-                        unit.animation.play("walk");
-                    }
-                } else {
-                    unit.x = (unit.x - step).max(0.0);
-                    unit.animation.facing_left = true;
-                    if unit.animation.current_animation() != "walk" {
-                        unit.animation.play("walk");
-                    }
-                }
-            }
-        }
     }
 
     /// Advance all animations by one sim tick (sim-driven, deterministic).
@@ -250,6 +199,23 @@ impl UnitManager {
 
         for unit in self.units.values_mut() {
             unit.animation.tick();
+
+            // Walk/idle transitions based on position delta (sim-tick driven).
+            if !unit.animation.is_action_playing() && !unit.pending_destroy {
+                let dx = unit.x - unit.prev_x;
+                let moved = dx.abs() > 0.01;
+
+                if moved && unit.animation.current_animation() == "idle" {
+                    unit.animation.play("walk");
+                    unit.animation.facing_left = dx < 0.0;
+                } else if !moved && unit.animation.current_animation() == "walk" {
+                    unit.animation.play("idle");
+                } else if moved {
+                    unit.animation.facing_left = dx < 0.0;
+                }
+            }
+            unit.prev_x = unit.x;
+
             if unit.pending_destroy {
                 unit.death_timer += 1;
                 let fade_start = unit.death_anim_ticks + LINGER_TICKS;
@@ -268,7 +234,7 @@ impl UnitManager {
         let dock_height = dock_height + 2;
         let scale = pixel_scale as f32;
         let screen_width = canvas.width();
-        let world_px = WORLD_WIDTH * pixel_scale;
+        let world_px = self.world_width * pixel_scale;
         let offset_x = (screen_width as i32 - world_px as i32) / 2;
 
         // Draw units.
@@ -283,7 +249,13 @@ impl UnitManager {
             let base_y = strip_height as i32 - dock_height as i32 - 20 - ((unit.y + 20.0) * scale) as i32;
             let sh = (unit.animation.frame_height() as f32 * us) as i32;
             let draw_y = base_y - sh + (unit.pivot_y * us) as i32;
-            let x = offset_x + (unit.x * scale) as i32 - (unit.pivot_x * us) as i32;
+            // Mirror pivot_x when facing left so the anchor stays at the entity's world position.
+            let effective_pivot_x = if unit.animation.facing_left {
+                unit.animation.frame_width() as f32 - unit.pivot_x
+            } else {
+                unit.pivot_x
+            };
+            let x = offset_x + (unit.x * scale) as i32 - (effective_pivot_x * us) as i32;
             let reflection_y = base_y - sh;
             unit.animation.draw_reflection(canvas, x, reflection_y, 0.4 * unit.opacity, us);
             unit.animation.draw(canvas, x, draw_y, us, unit.opacity);
@@ -296,16 +268,16 @@ impl UnitManager {
             .collect();
 
         // Draw grid on top of everything.
-        Self::draw_grid(canvas, strip_height, pixel_scale, offset_x, dock_height, &unit_xs);
+        Self::draw_grid(canvas, strip_height, pixel_scale, offset_x, dock_height, &unit_xs, self.world_width);
     }
 
-    fn draw_grid(canvas: &mut Pixmap, strip_height: u32, pixel_scale: u32, offset_x: i32, dock_height: u32, unit_xs: &[f32]) {
+    fn draw_grid(canvas: &mut Pixmap, strip_height: u32, pixel_scale: u32, offset_x: i32, dock_height: u32, unit_xs: &[f32], world_width: u32) {
         let scale = pixel_scale as i32;
-        let line_count = (WORLD_WIDTH / 20) as i32;
+        let line_count = (world_width / 20) as i32;
 
         // Font size scales with both pixel_scale and DPI (canvas width / logical world pixels).
         // This ensures numbers are visually the same size on all DPI displays.
-        let canvas_scale = (canvas.width() as f32) / (WORLD_WIDTH as f32 * pixel_scale as f32);
+        let canvas_scale = (canvas.width() as f32) / (world_width as f32 * pixel_scale as f32);
         let sz = ((scale as f32 * canvas_scale) as i32).max(2);
 
         let ground_y = strip_height as i32 - (dock_height) as i32;

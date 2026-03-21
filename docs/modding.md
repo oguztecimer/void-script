@@ -440,6 +440,9 @@ Buff stat modifiers (`modifiers` field) and duration remain in TOML `[[buffs]]`.
 | `ctx:get_stat(target, stat)` | Read stat value (0 if unset) |
 | `ctx:spawn(entity_id, opts)` | Spawn entity. `opts = { offset = N }` |
 | `ctx:animate(target, animation)` | Trigger sprite animation |
+| `ctx:move_to(position)` | Teleport caster to absolute 1D position |
+| `ctx:move_by(offset)` | Move caster by relative offset |
+| `ctx:face_to(target)` | Turn caster to face towards target entity |
 | `ctx:apply_buff(target, buff, opts)` | Apply buff. `opts = { duration = N }` |
 | `ctx:remove_buff(target, buff)` | Remove buff |
 

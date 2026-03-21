@@ -121,6 +121,23 @@ impl mlua::UserData for CtxUserData {
             Ok(())
         });
 
+        methods.add_method("move_to", |lua, this, position: i64| {
+            with_world(lua, |w| w.move_to(this.caster_id, position));
+            Ok(())
+        });
+
+        methods.add_method("move_by", |lua, this, offset: i64| {
+            with_world(lua, |w| w.move_by(this.caster_id, offset));
+            Ok(())
+        });
+
+        methods.add_method("face_to", |lua, this, target: Value| {
+            let target_id = resolve_target_val(&target, this.caster_id)
+                .ok_or_else(|| mlua::Error::runtime("invalid target"))?;
+            with_world(lua, |w| w.face_to(this.caster_id, target_id));
+            Ok(())
+        });
+
         methods.add_method("apply_buff", |lua, this, (target, buff, opts): (Value, String, Option<mlua::Table>)| {
             let target_id = resolve_target_val(&target, this.caster_id)
                 .ok_or_else(|| mlua::Error::runtime("invalid target"))?;
@@ -265,6 +282,14 @@ impl mlua::UserData for CtxUserData {
 
         methods.add_method("get_caster", |_lua, this, ()| {
             Ok(this.caster_id.0 as i64)
+        });
+
+        methods.add_method("get_args", |lua, this, ()| {
+            let table = lua.create_table()?;
+            for (i, arg) in this.args.iter().enumerate() {
+                table.set(i + 1, convert::sim_to_lua(lua, arg)?)?;
+            }
+            Ok(Value::Table(table))
         });
 
         methods.add_method("get_tick", |lua, _this, ()| {
@@ -454,6 +479,8 @@ pub fn setup_mod_tables(lua: &Lua, mod_id: &str) -> Result<(), LuaModError> {
                         return ctx:get_caster()
                     elseif key == "tick" then
                         return ctx:get_tick()
+                    elseif key == "args" then
+                        return ctx:get_args()
                     else
                         -- Delegate to the userdata method
                         return function(self, ...)

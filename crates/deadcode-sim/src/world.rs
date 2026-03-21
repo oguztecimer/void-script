@@ -9,6 +9,9 @@ use crate::executor;
 use crate::rng::SimRng;
 use crate::value::SimValue;
 
+/// Default width of the 1D world strip in logical units.
+pub const DEFAULT_WORLD_WIDTH: i64 = 1000;
+
 /// Events emitted during a tick — consumed by rendering/UI layer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SimEvent {
@@ -77,6 +80,11 @@ pub enum SimEvent {
         entity_id: EntityId,
         command: String,
     },
+    /// An entity's facing direction was changed (consumed by render layer).
+    EntityFlipped {
+        entity_id: EntityId,
+        facing_left: bool,
+    },
 }
 
 /// A snapshot of the world state for rendering/UI sync.
@@ -137,6 +145,8 @@ pub struct SimWorld {
     pub main_brain_entity: Option<EntityId>,
     /// External command handler (Lua runtime). Custom commands are dispatched here.
     pub command_handler: Option<Box<dyn crate::action::CommandHandler>>,
+    /// Width of the 1D world strip in logical units.
+    pub world_width: i64,
 }
 
 impl SimWorld {
@@ -165,6 +175,7 @@ impl SimWorld {
             main_brain: None,
             main_brain_entity: None,
             command_handler: None,
+            world_width: DEFAULT_WORLD_WIDTH,
         }
     }
 
@@ -485,58 +496,42 @@ impl SimWorld {
                     text: format!("[error recovery] Previous error: {err_msg} — script restarted"),
                 });
             } else if state.pc < state.program.instructions.len() {
-                match executor::execute_unit(eid, state, self) {
-                    Ok(Some(action)) => {
-                        // Handle instant actions in a loop.
-                        match self.try_handle_instant(eid, action, state) {
-                            None => {
-                                let mut instant_count = 0u32;
-                                loop {
-                                    instant_count += 1;
-                                    if instant_count > 1000 {
-                                        state.error = Some("main brain: too many instant actions".to_string());
-                                        self.events.push(Self::script_error_event(eid, "main brain: too many instant actions", state));
-                                        break;
-                                    }
-                                    match executor::execute_unit(eid, state, self) {
-                                        Ok(Some(action)) => {
-                                            match self.try_handle_instant(eid, action, state) {
-                                                None => {} // another instant, keep going
-                                                Some(UnitAction::Wait) => break,
-                                                Some(real_action) => {
-                                                    // Resolve tick-consuming action (custom commands, etc.)
-                                                    let action_events = resolve_action(self, eid, real_action);
-                                                    self.events.extend(action_events);
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        Ok(None) => {
-                                            if state.is_brain { state.reset_for_restart(eid); }
-                                            break;
-                                        }
-                                        Err(err) => {
-                                            state.error = Some(err.to_string());
-                                            self.events.push(Self::script_error_event(eid, &err.to_string(), state));
-                                            break;
-                                        }
-                                    }
+                let mut instant_count = 0u32;
+                let mut brain_restarted = false;
+                loop {
+                    instant_count += 1;
+                    if instant_count > 1000 {
+                        state.error = Some("main brain: too many instant actions".to_string());
+                        self.events.push(Self::script_error_event(eid, "main brain: too many instant actions", state));
+                        break;
+                    }
+                    match executor::execute_unit(eid, state, self) {
+                        Ok(Some(action)) => {
+                            match self.try_handle_instant(eid, action, state) {
+                                None => {} // instant action handled, continue
+                                Some(UnitAction::Wait) => break,
+                                Some(real_action) => {
+                                    let action_events = resolve_action(self, eid, real_action);
+                                    self.events.extend(action_events);
+                                    break;
                                 }
                             }
-                            Some(UnitAction::Wait) => {} // no-op
-                            Some(real_action) => {
-                                // Resolve tick-consuming action (custom commands, etc.)
-                                let action_events = resolve_action(self, eid, real_action);
-                                self.events.extend(action_events);
-                            }
                         }
-                    }
-                    Ok(None) => {
-                        if state.is_brain { state.reset_for_restart(eid); }
-                    }
-                    Err(err) => {
-                        state.error = Some(err.to_string());
-                        self.events.push(Self::script_error_event(eid, &err.to_string(), state));
+                        Ok(None) => {
+                            if state.is_brain {
+                                state.reset_for_restart(eid);
+                                if !brain_restarted {
+                                    brain_restarted = true;
+                                    continue;
+                                }
+                            }
+                            break;
+                        }
+                        Err(err) => {
+                            state.error = Some(err.to_string());
+                            self.events.push(Self::script_error_event(eid, &err.to_string(), state));
+                            break;
+                        }
                     }
                 }
                 if state.step_limit_hit {
@@ -601,48 +596,38 @@ impl SimWorld {
                             state.variables = vec![SimValue::None; num_vars];
                             state.variables[0] = SimValue::EntityRef(eid);
                         } else {
-                            match executor::execute_unit(eid, state, self) {
-                                Ok(Some(action)) => {
-                                    match self.try_handle_instant(eid, action, state) {
-                                        None => {
-                                            let mut instant_count = 0u32;
-                                            loop {
-                                                instant_count += 1;
-                                                if instant_count > 1000 { break; }
-                                                match executor::execute_unit(eid, state, self) {
-                                                    Ok(Some(action)) => {
-                                                        match self.try_handle_instant(eid, action, state) {
-                                                            None => {}
-                                                            Some(UnitAction::Wait) => break,
-                                                            Some(real_action) => {
-                                                                interrupted = true;
-                                                                actions.push((eid, real_action));
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-                                                    Ok(None) => {
-                                                        if state.is_brain { state.reset_for_restart(eid); }
-                                                        break;
-                                                    }
-                                                    Err(err) => {
-                                                        state.error = Some(err.to_string());
-                                                        break;
-                                                    }
-                                                }
+                            let mut instant_count = 0u32;
+                            let mut brain_restarted = false;
+                            loop {
+                                instant_count += 1;
+                                if instant_count > 1000 { break; }
+                                match executor::execute_unit(eid, state, self) {
+                                    Ok(Some(action)) => {
+                                        match self.try_handle_instant(eid, action, state) {
+                                            None => {} // instant, continue
+                                            Some(UnitAction::Wait) => break,
+                                            Some(real_action) => {
+                                                interrupted = true;
+                                                actions.push((eid, real_action));
+                                                break;
                                             }
                                         }
-                                        Some(UnitAction::Wait) => {}
-                                        Some(real_action) => {
-                                            interrupted = true;
-                                            actions.push((eid, real_action));
+                                    }
+                                    Ok(None) => {
+                                        if state.is_brain {
+                                            state.reset_for_restart(eid);
+                                            if !brain_restarted {
+                                                brain_restarted = true;
+                                                continue;
+                                            }
                                         }
+                                        break;
+                                    }
+                                    Err(err) => {
+                                        state.error = Some(err.to_string());
+                                        break;
                                     }
                                 }
-                                Ok(None) => {
-                                    if state.is_brain { state.reset_for_restart(eid); }
-                                }
-                                Err(err) => { state.error = Some(err.to_string()); }
                             }
                         }
                     }
@@ -742,55 +727,47 @@ impl SimWorld {
                 continue;
             }
 
-            // Execute until action or halt.
-            match executor::execute_unit(eid, &mut script_state, self) {
-                Ok(Some(action)) => {
-                    // Handle instant actions (Print, resource ops) — they don't
-                    // consume the tick, so we handle them and re-enter the executor.
-                    if let Some(real_action) = self.try_handle_instant(eid, action, &mut script_state) {
-                        actions.push((eid, real_action));
-                    } else {
-                        // Instant action handled. Continue executing for the rest of the tick.
-                        let mut instant_count = 0u32;
-                        loop {
-                            instant_count += 1;
-                            if instant_count > 1000 {
-                                script_state.error = Some("too many instant actions in one tick (infinite loop?)".to_string());
-                                self.events.push(Self::script_error_event(eid, "too many instant actions in one tick (infinite loop?)", &script_state));
-                                break;
-                            }
-                            match executor::execute_unit(eid, &mut script_state, self) {
-                                Ok(Some(action)) => {
-                                    if let Some(real_action) = self.try_handle_instant(eid, action, &mut script_state) {
-                                        actions.push((eid, real_action));
-                                        break;
-                                    }
-                                    // else: another instant action, keep looping
-                                }
-                                Ok(None) => {
-                                    if script_state.is_brain { script_state.reset_for_restart(eid); }
-                                    break;
-                                }
-                                Err(err) => {
-                                    script_state.error = Some(err.to_string());
-                                    self.events.push(Self::script_error_event(eid, &err.to_string(), &script_state));
-                                    break;
-                                }
+            // Execute until a tick-consuming action, error, or halt.
+            // Brain scripts get one restart per tick: if they halt without yielding
+            // a tick-consuming action, they reset and re-enter immediately so the
+            // halt instruction doesn't waste a tick.
+            let mut instant_count = 0u32;
+            let mut brain_restarted = false;
+            loop {
+                instant_count += 1;
+                if instant_count > 1000 {
+                    script_state.error = Some("too many instant actions in one tick (infinite loop?)".to_string());
+                    self.events.push(Self::script_error_event(eid, "too many instant actions in one tick (infinite loop?)", &script_state));
+                    break;
+                }
+                match executor::execute_unit(eid, &mut script_state, self) {
+                    Ok(Some(action)) => {
+                        if let Some(real_action) = self.try_handle_instant(eid, action, &mut script_state) {
+                            actions.push((eid, real_action));
+                            break;
+                        }
+                        // Instant action handled, continue executing.
+                    }
+                    Ok(None) => {
+                        if script_state.is_brain {
+                            script_state.reset_for_restart(eid);
+                            if !brain_restarted {
+                                brain_restarted = true;
+                                continue; // Re-enter executor once to avoid wasting the tick.
                             }
                         }
+                        break;
                     }
-                }
-                Ok(None) => {
-                    if script_state.is_brain { script_state.reset_for_restart(eid); }
-                }
-                Err(err) => {
-                    script_state.error = Some(err.to_string());
-                    self.events.push(Self::script_error_event(eid, &err.to_string(), &script_state));
-                    self.events.push(SimEvent::ScriptFinished {
-                        entity_id: eid,
-                        success: false,
-                        error: Some(err.to_string()),
-                    });
+                    Err(err) => {
+                        script_state.error = Some(err.to_string());
+                        self.events.push(Self::script_error_event(eid, &err.to_string(), &script_state));
+                        self.events.push(SimEvent::ScriptFinished {
+                            entity_id: eid,
+                            success: false,
+                            error: Some(err.to_string()),
+                        });
+                        break;
+                    }
                 }
             }
 
@@ -1153,6 +1130,34 @@ impl<'a> WorldAccess<'a> {
 
     pub fn position(&self, target_id: EntityId) -> i64 {
         self.world.get_entity(target_id).map_or(0, |e| e.position)
+    }
+
+    pub fn move_to(&mut self, entity_id: EntityId, position: i64) {
+        let clamped = position.clamp(0, self.world.world_width);
+        if let Some(entity) = self.world.get_entity_mut(entity_id) {
+            entity.position = clamped;
+        }
+        self.events.push(SimEvent::EntityMoved {
+            entity_id,
+            new_position: clamped,
+        });
+    }
+
+    pub fn move_by(&mut self, entity_id: EntityId, offset: i64) {
+        let new_pos = self.world.get_entity(entity_id)
+            .map_or(0, |e| e.position.saturating_add(offset));
+        self.move_to(entity_id, new_pos);
+    }
+
+    pub fn face_to(&mut self, entity_id: EntityId, target_id: EntityId) {
+        let my_pos = self.world.get_entity(entity_id).map_or(0, |e| e.position);
+        let target_pos = self.world.get_entity(target_id).map_or(0, |e| e.position);
+        if my_pos != target_pos {
+            self.events.push(SimEvent::EntityFlipped {
+                entity_id,
+                facing_left: target_pos < my_pos,
+            });
+        }
     }
 
     pub fn owner(&self, target_id: EntityId) -> Option<EntityId> {

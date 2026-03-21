@@ -16,7 +16,7 @@ use deadcode_desktop::renderer::Renderer;
 use deadcode_desktop::save;
 use deadcode_desktop::save::Settings;
 use deadcode_desktop::tray;
-use deadcode_desktop::unit::{UnitManager, WORLD_WIDTH};
+use deadcode_desktop::unit::UnitManager;
 use deadcode_desktop::window::{StripInfo, enumerate_monitors};
 
 use deadcode_editor::ipc::{CommandInfo, JsToRust, RustToJs, WindowControlEvent};
@@ -441,7 +441,7 @@ impl ApplicationHandler<UserEvent> for App {
                 let (canvas_w, canvas_h) = (info.phys_width, info.phys_height);
 
                 let mut renderer = Renderer::new(canvas_w, canvas_h);
-                renderer.pixel_scale = (info.monitor_width / WORLD_WIDTH).max(1);
+                renderer.pixel_scale = (info.monitor_width / deadcode_desktop::unit::DEFAULT_WORLD_WIDTH).max(1);
                 renderer.set_window(&window);
 
                 MonitorSlot { window, surface, renderer, info }
@@ -570,9 +570,21 @@ impl ApplicationHandler<UserEvent> for App {
             self.pivot_registry.remove(id);
         }
 
+        // Collect world_width from mods (first-defined wins).
+        let world_width = mods.iter()
+            .find_map(|m| m.manifest.meta.world_width)
+            .unwrap_or(deadcode_sim::DEFAULT_WORLD_WIDTH);
+
+        // Update pixel_scale for all monitor slots now that we know world_width.
+        for slot in &mut self.monitor_slots {
+            slot.renderer.pixel_scale = (slot.info.monitor_width / world_width as u32).max(1);
+        }
+
         // --- Unit system init ---
-        let um = UnitManager::new();
+        let mut um = UnitManager::new();
+        um.world_width = world_width as u32;
         let mut sim = SimWorld::new(42);
+        sim.world_width = world_width;
 
         self.entity_unit_map.clear();
 
@@ -1001,6 +1013,13 @@ impl App {
                 if let Some(um) = &mut self.unit_manager {
                     if let Some(&uid) = self.entity_unit_map.get(&entity_id.0) {
                         um.play_animation(uid, animation);
+                    }
+                }
+            }
+            deadcode_sim::SimEvent::EntityFlipped { entity_id, facing_left } => {
+                if let Some(um) = &mut self.unit_manager {
+                    if let Some(&uid) = self.entity_unit_map.get(&entity_id.0) {
+                        um.set_facing(uid, *facing_left);
                     }
                 }
             }

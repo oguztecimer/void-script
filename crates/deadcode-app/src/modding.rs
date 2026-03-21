@@ -109,6 +109,9 @@ pub struct ModMeta {
     #[serde(default)]
     #[allow(dead_code)]
     pub min_game_version: Option<String>,
+    /// World strip width in logical units. First mod to set this wins.
+    #[serde(default)]
+    pub world_width: Option<i64>,
 }
 
 /// A type definition: composable tag with optional stats, commands, and brain script.
@@ -898,6 +901,7 @@ mod tests {
                     depends_on: depends_on.into_iter().map(|s| s.to_string()).collect(),
                     conflicts_with: conflicts_with.into_iter().map(|s| s.to_string()).collect(),
                     min_game_version: None,
+                    world_width: None,
                 },
                 entities: vec![],
                 commands: None,

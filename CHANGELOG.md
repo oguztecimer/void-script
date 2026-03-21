@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Simulation Engine
+
+#### Added
+- **S-37: `move_to`, `move_by`, and `face_to` WorldAccess operations** — `WorldAccess::move_to(entity_id, position)` teleports an entity to an absolute 1D position (emits `EntityMoved` event). `WorldAccess::move_by(entity_id, offset)` moves by a relative offset (delegates to `move_to`). `WorldAccess::face_to(entity_id, target_id)` compares positions and emits `EntityFlipped` event to flip the entity's facing direction towards the target. No-ops if both entities are at the same position.
+- **S-38: `EntityFlipped` SimEvent** — New `SimEvent::EntityFlipped { entity_id, facing_left }` variant consumed by the render layer to flip entity sprites.
+
+#### Fixed
+- **S-39: Brain halt no longer wastes a tick** — When a brain script halts (reaches the end), it now resets and re-enters the executor once in the same tick, so the `Halt` instruction doesn't consume a tick doing nothing. Previously, hitting `Halt` would reset PC to 0 but break out of the execution loop, wasting a full tick — causing commands to appear to take 2 ticks instead of 1. Capped at one restart per tick to prevent infinite loops from instant-only scripts. Applies to entity brains, main brain, and interruptible channel scripts.
+
+### Desktop / Rendering
+
+#### Fixed
+- **D-05: Pivot-aware sprite flipping** — Sprite draw position now mirrors `pivot_x` to `frame_width - pivot_x` when facing left. Previously, off-center pivots caused the sprite to jump sideways when flipping direction, since the pivot offset wasn't adjusted for the mirrored frame.
+- **D-06: Position-driven walk/idle transitions** — Replaced the `MovementState`-based interpolation system with a simpler position-delta model. Units now track `prev_x`; on each frame, if position changed and animation is idle, walk starts; if position stopped changing and animation is walk, idle starts. `PlayOnce` animations (cast, death, spawn) are never interrupted. `move_to` now sets position directly (no interpolation). This eliminates animation resets caused by the old system re-creating movement state every sim tick during position sync.
+
+### Modding System
+
+#### Added
+- **M-12: `ctx:move_to`, `ctx:move_by`, and `ctx:face_to` Lua ctx methods** — Three new instant ctx methods for mod commands. `ctx:move_to(position)` teleports the caster to an absolute position. `ctx:move_by(offset)` moves the caster by a relative offset. `ctx:face_to(target)` turns the caster to face a target entity (accepts entity ID or `"self"`). All are instant (no tick consumed). Position sync via snapshots handles rendering for movement; `face_to` emits an `EntityFlipped` event consumed by the render layer.
+
 ### Modding System
 
 #### Added

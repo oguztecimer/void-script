@@ -50,6 +50,14 @@ mod.command("pact", { description = "Pledge your bones to my domain" }, function
   ctx:output("[pact] Power surges through you...")
 end)
 
+mod.command("walk_left", { description = "walk left" }, function(ctx)
+  ctx:move_by(-1)
+end)
+
+mod.command("walk_right", { description = "walk right" }, function(ctx)
+  ctx:move_by(1)
+end)
+
 -- Triggers
 
 mod.on("entity_died", { filter = { entity_type = "skeleton" } }, function(ctx, event)

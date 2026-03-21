@@ -657,6 +657,9 @@ impl ApplicationHandler<UserEvent> for App {
             }
         }
 
+        // Spawn the main brain entity (real entity, no sprite).
+        sim.spawn_main_brain_entity();
+
         // Auto-start simulation — it runs continuously from game open.
         sim.start();
 
@@ -688,12 +691,18 @@ impl ApplicationHandler<UserEvent> for App {
         let mut store = ScriptStore::new(scripts_dir);
 
         // Ensure type scripts exist in scripts/types/ directory.
-        let type_script_defs: Vec<(String, bool, String)> = self.type_defs.iter()
+        let mut type_script_defs: Vec<(String, bool, String)> = self.type_defs.iter()
             .map(|(name, tdef)| {
                 let default_src = self.type_scripts.get(name).cloned().unwrap_or_default();
                 (name.clone(), tdef.brain, default_src)
             })
             .collect();
+        // Always include main.gs (entity-less main brain).
+        if !type_script_defs.iter().any(|(n, _, _)| n == "main") {
+            let main_default = self.type_scripts.get("main").cloned()
+                .unwrap_or_else(|| "# Main brain — runs every tick before entities\n# No self, no position — use resource ops, queries, print\n".to_string());
+            type_script_defs.push(("main".to_string(), true, main_default));
+        }
         store.ensure_type_scripts(&type_script_defs);
 
         self.script_store = Some(store);
@@ -917,7 +926,8 @@ impl App {
     /// to the editor. This ensures custom commands, queries, and all builtins
     /// work in the console.
     fn handle_console_command_sim(&mut self, source: &str) {
-        let available = self.available_commands_for_compiler();
+        // Terminal uses the main brain entity's effective commands (type-gated).
+        let available = self.effective_commands_for_main_brain();
         let custom = self.custom_command_arg_counts();
 
         // Prepend library functions from mods.
@@ -927,28 +937,24 @@ impl App {
         match compiled {
             Ok(script) => {
                 if let Some(sim) = &mut self.sim_world {
-                    // Use main brain sentinel EntityId(0) for entity-less execution.
-                    // Fall back to first alive entity for backward compat with entity-targeting commands.
-                    let caster_id = sim.entities()
-                        .find(|e| e.entity_type == "summoner" && e.alive)
-                        .map(|e| e.id)
-                        .or_else(|| sim.entities().find(|e| e.alive).map(|e| e.id))
+                    // Terminal commands run as the main brain entity.
+                    let main_id = sim.main_brain_id()
                         .unwrap_or(deadcode_sim::entity::EntityId(0));
 
                     let num_vars = script.num_variables;
-                    let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
-                    // Set self = EntityRef for the caster (if a real entity exists).
-                    if !state.variables.is_empty() && caster_id.0 != 0 {
-                        state.variables[0] = deadcode_sim::SimValue::EntityRef(caster_id);
-                    }
+                    let state = deadcode_sim::entity::ScriptState::new(script, num_vars);
 
                     // Execute until halt or action, collecting events.
                     let mut all_events = Vec::new();
                     let mut error_msg = None;
+                    let mut state = state;
                     loop {
-                        match deadcode_sim::executor::execute_unit(caster_id, &mut state, sim) {
+                        match deadcode_sim::executor::execute_unit(main_id, &mut state, sim) {
                             Ok(Some(action)) => {
-                                let action_events = deadcode_sim::action::resolve_action(sim, caster_id, action);
+                                // For terminal: resolve phased commands immediately
+                                // (all on_start effects from all phases in sequence)
+                                // since there's no entity to store channel state on.
+                                let action_events = deadcode_sim::action::resolve_action(sim, main_id, action);
                                 all_events.extend(action_events);
                             }
                             Ok(None) => break, // Script finished.
@@ -1064,6 +1070,21 @@ impl App {
 
     fn available_commands_for_interpreter(&self) -> Option<HashSet<String>> {
         self.available_commands_for_compiler()
+    }
+
+    /// Get effective commands for the main brain entity (type-gated).
+    fn effective_commands_for_main_brain(&self) -> Option<HashSet<String>> {
+        if deadcode_desktop::is_dev_mode() {
+            return None;
+        }
+        let global_unlocks = self.build_global_unlocks();
+        // Get main brain entity's types.
+        let main_types = self.sim_world.as_ref()
+            .and_then(|sim| sim.main_brain_id())
+            .and_then(|eid| self.sim_world.as_ref().unwrap().get_entity(eid))
+            .map(|e| e.types.clone())
+            .unwrap_or_else(|| vec!["main".to_string()]);
+        Some(modding::compute_effective_commands(&main_types, &self.type_defs, &global_unlocks))
     }
 
     /// Prepend mod library source to player script source.
@@ -1343,21 +1364,18 @@ impl App {
                         self.initial_effects_pending = false;
                         let effects = self.initial_effects.clone();
                         if let Some(sim) = &mut self.sim_world {
-                            // Find the first entity to act as the "caster" for initial effects.
-                            let caster_id = sim.entities().next().map(|e| e.id);
-                            if let Some(eid) = caster_id {
-                                let mut events = Vec::new();
-                                deadcode_sim::action::resolve_custom_effects(
-                                    sim, eid, "initial", &effects, &[], &mut events,
-                                );
-                                for event in &events {
-                                    if let deadcode_sim::SimEvent::ScriptOutput { text, .. } = event {
-                                        self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
-                                            text: text.clone(),
-                                            level: "info".to_string(),
-                                        });
-                                    }
-                                }
+                            // Use the main brain entity as caster for initial effects.
+                            let caster_id = sim.main_brain_id()
+                                .or_else(|| sim.entities().next().map(|e| e.id))
+                                .unwrap_or(deadcode_sim::entity::EntityId(0));
+                            let mut events = Vec::new();
+                            deadcode_sim::action::resolve_custom_effects(
+                                sim, caster_id, "initial", &effects, &[], &mut events,
+                            );
+                            // Forward events and apply spawns/animations.
+                            for event in &events {
+                                self.forward_sim_event_to_editor(event);
+                                self.apply_sim_event_to_units(event);
                             }
                         }
                     }

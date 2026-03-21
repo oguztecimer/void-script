@@ -66,7 +66,7 @@ impl<'a> Compiler<'a> {
             if !set.contains(name) {
                 return Err(CompileError::new(
                     line,
-                    format!("'{name}' is not available yet"),
+                    format!("'{name}' is not available"),
                 ));
             }
         }

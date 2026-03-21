@@ -1324,12 +1324,7 @@ pub fn compute_effective_commands(
         }
     }
     // Intersection: only commands that are both in type capabilities AND globally unlocked.
-    if type_commands.is_empty() {
-        // If no types define commands, allow all globally unlocked (backward compat).
-        global_unlocks.clone()
-    } else {
-        type_commands.intersection(global_unlocks).cloned().collect()
-    }
+    type_commands.intersection(global_unlocks).cloned().collect()
 }
 
 /// Collect library source code from all loaded mods (in load order).

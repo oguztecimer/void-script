@@ -137,8 +137,10 @@ pub struct SimWorld {
     pub triggers: Vec<TriggerDef>,
     /// Buff name → buff definition registry.
     pub buff_registry: IndexMap<String, BuffDef>,
-    /// Main brain script state — entity-less, runs first each tick.
+    /// Main brain script state — runs first each tick, backed by a real entity.
     pub main_brain: Option<crate::entity::ScriptState>,
+    /// Entity ID for the main brain entity.
+    pub main_brain_entity: Option<EntityId>,
 }
 
 impl SimWorld {
@@ -168,6 +170,7 @@ impl SimWorld {
             triggers: Vec::new(),
             buff_registry: IndexMap::new(),
             main_brain: None,
+            main_brain_entity: None,
         }
     }
 
@@ -252,6 +255,29 @@ impl SimWorld {
     /// Get the seed for the current tick (for deterministic RNG in effect resolution).
     pub fn tick_seed(&self) -> u64 {
         self.seed ^ self.tick
+    }
+
+    /// Spawn the main brain entity and return its ID.
+    /// The main brain is a real entity (so it can hold channel state, buffs, etc.).
+    /// Stats and types come from the "main" entity config/types if defined in mods.
+    pub fn spawn_main_brain_entity(&mut self) -> EntityId {
+        let config = self.entity_configs.get("main").cloned();
+        let types = self.entity_types_registry.get("main").cloned()
+            .unwrap_or_else(|| vec!["main".to_string()]);
+        let eid = self.spawn_entity_with_types(
+            "main".into(),
+            types,
+            "main".into(),
+            0,
+            config.as_ref(),
+        );
+        self.main_brain_entity = Some(eid);
+        eid
+    }
+
+    /// Get the main brain entity ID (if spawned).
+    pub fn main_brain_id(&self) -> Option<EntityId> {
+        self.main_brain_entity
     }
 
     /// Start the simulation.
@@ -432,11 +458,17 @@ impl SimWorld {
             }
         }
 
-        // 2c. Execute main brain (entity-less, runs first before entity shuffle).
+        // 2c. Execute main brain (backed by a real entity, runs first before entity shuffle).
+        let brain_eid = self.main_brain_entity;
         let mut brain_state = self.main_brain.take();
-        if let Some(ref mut state) = brain_state {
-            // Error recovery: clear error, reset script, yield wait this tick.
-            if let Some(err_msg) = state.error.take() {
+        if let (Some(state), Some(eid)) = (&mut brain_state, brain_eid) {
+            // Process active channel on the main brain entity first.
+            let has_channel = self.get_entity(eid).map_or(false, |e| e.active_channel.is_some());
+            if has_channel {
+                // Let channel processing happen in the normal entity loop (step 4).
+                // Just skip main brain script execution this tick.
+            } else if let Some(err_msg) = state.error.take() {
+                // Error recovery: clear error, reset script, yield wait this tick.
                 state.pc = 0;
                 state.stack.clear();
                 state.call_stack.clear();
@@ -445,43 +477,51 @@ impl SimWorld {
                 let num_vars = state.variables.len();
                 state.variables = vec![SimValue::None; num_vars];
                 self.events.push(SimEvent::ScriptOutput {
-                    entity_id: EntityId(0),
+                    entity_id: eid,
                     text: format!("[error recovery] Previous error: {err_msg} — script restarted"),
                 });
             } else if state.pc < state.program.instructions.len() {
-                let brain_eid = EntityId(0); // sentinel — no entity
-                match executor::execute_unit(brain_eid, state, self) {
+                match executor::execute_unit(eid, state, self) {
                     Ok(Some(action)) => {
                         // Handle instant actions in a loop.
-                        match self.try_handle_instant(brain_eid, action, state) {
+                        match self.try_handle_instant(eid, action, state) {
                             None => {
                                 let mut instant_count = 0u32;
                                 loop {
                                     instant_count += 1;
                                     if instant_count > 1000 {
                                         state.error = Some("main brain: too many instant actions".to_string());
-                                        self.events.push(Self::script_error_event(brain_eid, "main brain: too many instant actions", state));
+                                        self.events.push(Self::script_error_event(eid, "main brain: too many instant actions", state));
                                         break;
                                     }
-                                    match executor::execute_unit(brain_eid, state, self) {
+                                    match executor::execute_unit(eid, state, self) {
                                         Ok(Some(action)) => {
-                                            match self.try_handle_instant(brain_eid, action, state) {
+                                            match self.try_handle_instant(eid, action, state) {
                                                 None => {} // another instant, keep going
                                                 Some(UnitAction::Wait) => break,
-                                                Some(_) => break, // main brain can't do entity actions
+                                                Some(real_action) => {
+                                                    // Resolve tick-consuming action (custom commands, etc.)
+                                                    let action_events = resolve_action(self, eid, real_action);
+                                                    self.events.extend(action_events);
+                                                    break;
+                                                }
                                             }
                                         }
                                         Ok(None) => break,
                                         Err(err) => {
                                             state.error = Some(err.to_string());
-                                            self.events.push(Self::script_error_event(brain_eid, &err.to_string(), state));
+                                            self.events.push(Self::script_error_event(eid, &err.to_string(), state));
                                             break;
                                         }
                                     }
                                 }
                             }
                             Some(UnitAction::Wait) => {} // no-op
-                            Some(_) => {} // main brain can't do entity actions
+                            Some(real_action) => {
+                                // Resolve tick-consuming action (custom commands, etc.)
+                                let action_events = resolve_action(self, eid, real_action);
+                                self.events.extend(action_events);
+                            }
                         }
                     }
                     Ok(None) => {
@@ -489,12 +529,12 @@ impl SimWorld {
                     }
                     Err(err) => {
                         state.error = Some(err.to_string());
-                        self.events.push(Self::script_error_event(brain_eid, &err.to_string(), state));
+                        self.events.push(Self::script_error_event(eid, &err.to_string(), state));
                     }
                 }
                 if state.step_limit_hit {
                     self.events.push(SimEvent::ScriptOutput {
-                        entity_id: brain_eid,
+                        entity_id: eid,
                         text: "[warning] Main brain exceeded step limit — auto-yielded".into(),
                     });
                 }
@@ -504,10 +544,22 @@ impl SimWorld {
 
         // 3. Collect scriptable entity IDs (including channeling entities), shuffle.
         //    Skip entities that are still spawning.
+        //    Exclude main brain entity from script execution (step 2c handles it),
+        //    but include it if it has an active channel (phased command in progress).
+        let main_eid = self.main_brain_entity;
         let mut scriptable_ids: Vec<EntityId> = self
             .entities
             .iter()
             .filter(|e| e.is_ready() && (e.script_state.is_some() || e.active_channel.is_some()))
+            .filter(|e| {
+                if let Some(mid) = main_eid {
+                    if e.id == mid {
+                        // Only include main brain entity if it has an active channel.
+                        return e.active_channel.is_some();
+                    }
+                }
+                true
+            })
             .map(|e| e.id)
             .collect();
         rng.shuffle(&mut scriptable_ids);

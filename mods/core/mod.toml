@@ -8,9 +8,13 @@ version = "0.1.0"
 # Entities reference types to inherit their stats and capabilities.
 
 [[types]]
-name = "summoner"
+name = "main"
 stats = { health = 100, speed = 1 }
 commands = ["help", "trance", "raise", "harvest", "pact"]
+
+[[types]]
+name = "summoner"
+stats = { health = 100, speed = 1 }
 
 [[types]]
 name = "undead"
@@ -46,7 +50,7 @@ bones = 0
 commands = ["help","trance","raise","harvest","pact"]
 resources = ["mana", "bones"]
 effects = [
-  { type = "spawn", entity_type = "summoner", offset=0},
+  #{ type = "spawn", entity_type = "summoner", offset=0},
   { type = "output", message = "The dead stir beneath your feet" },
   { type = "output", message = "Call for <hl>help()</hl> to hear them speak" },
 ]
@@ -87,7 +91,7 @@ phases = [
     { type = "use_global_resource", resource = "mana", amount = 20}
   ]},
   { ticks = 18, interruptible = false, on_start = [
-    { type = "spawn", entity_type = "skeleton", offset = "rand(-300,300)"}
+    { type = "spawn", entity_type = "skeleton", offset = "rand(200,800)"}
   ]},
 ]
 

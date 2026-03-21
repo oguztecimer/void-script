@@ -91,7 +91,7 @@ phases = [
     { type = "use_global_resource", resource = "mana", amount = 20}
   ]},
   { ticks = 18, interruptible = false, on_start = [
-    { type = "spawn", entity_type = "skeleton", offset = "rand(200,800)"}
+    { type = "spawn", entity_type = "skeleton", offset = "rand(-300,300)"}
   ]},
 ]
 

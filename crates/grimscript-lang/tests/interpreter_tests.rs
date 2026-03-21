@@ -9,11 +9,11 @@ fn run(source: &str) -> Vec<ScriptEvent> {
     event_rx.try_iter().collect()
 }
 
-/// Run with a specific set of available commands.
-fn run_with_commands(source: &str, available: std::collections::HashSet<String>) -> Vec<ScriptEvent> {
+/// Run with a specific set of available commands and custom command names.
+fn run_with_commands(source: &str, available: std::collections::HashSet<String>, custom: std::collections::HashSet<String>) -> Vec<ScriptEvent> {
     let (event_tx, event_rx) = unbounded();
     let (_cmd_tx, cmd_rx) = unbounded();
-    run_script(source, event_tx, cmd_rx, Some(available), None);
+    run_script(source, event_tx, cmd_rx, Some(available), Some(custom));
     event_rx.try_iter().collect()
 }
 
@@ -244,8 +244,10 @@ fn one_liner_variable_and_print() {
 
 #[test]
 fn unavailable_game_builtin_produces_error() {
+    // scan is a known custom command but not in the available set.
     let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let events = run_with_commands(r#"scan("fighter")"#, empty);
+    let custom: std::collections::HashSet<String> = ["scan"].iter().map(|s| s.to_string()).collect();
+    let events = run_with_commands(r#"scan("fighter")"#, empty, custom);
     assert!(failed(&events));
     // Check the error message mentions "not available"
     let has_not_available = events.iter().any(|e| match e {
@@ -258,7 +260,7 @@ fn unavailable_game_builtin_produces_error() {
 #[test]
 fn stdlib_works_with_empty_available_set() {
     let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let events = run_with_commands(r#"print("hello")"#, empty);
+    let events = run_with_commands(r#"print("hello")"#, empty, std::collections::HashSet::new());
     assert!(succeeded(&events));
     assert_eq!(outputs(&events), vec!["hello"]);
 }
@@ -267,9 +269,11 @@ fn stdlib_works_with_empty_available_set() {
 fn available_game_builtin_works_when_in_set() {
     let mut cmds = std::collections::HashSet::new();
     cmds.insert("wait".to_string());
-    let events = run_with_commands("wait()", cmds);
+    let custom = cmds.clone();
+    let events = run_with_commands("wait()", cmds, custom);
     assert!(succeeded(&events));
-    assert_eq!(outputs(&events), vec!["[wait] Waiting..."]);
+    // Game builtins are now treated as custom commands in the interpreter.
+    assert_eq!(outputs(&events), vec!["[wait] (custom command)"]);
 }
 
 // ── Bug fix tests ─────────────────────────────────────────────────────

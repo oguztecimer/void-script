@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use grimscript_lang::ast::*;
 
+use crate::action::CommandKind;
 use crate::ir::{CompiledScript, FunctionEntry, Instruction};
 use crate::value::SimValue;
 
-use super::builtins::{self, ActionBuiltin, BuiltinKind, InstantEffectBuiltin, QueryBuiltin, StdlibBuiltin};
+use super::builtins::{self, CommandMeta, StdlibBuiltin};
 use super::error::CompileError;
 use super::symbol_table::{SymbolTable, VarLocation};
 
@@ -35,10 +36,10 @@ pub struct Compiler<'a> {
     temp_counter: usize,
     /// Pending call patches: (instruction_index, function_name, source_line).
     pending_calls: Vec<(usize, String, u32)>,
-    /// If Some, only these game commands are available. Stdlib is always allowed.
+    /// If Some, only these commands are available. Stdlib is always allowed.
     available_commands: Option<HashSet<String>>,
-    /// Custom command name → arg count (from mod definitions).
-    custom_commands: HashMap<String, usize>,
+    /// Command name → metadata (from mod definitions — includes all game builtins and custom commands).
+    custom_commands: HashMap<String, CommandMeta>,
 }
 
 impl<'a> Compiler<'a> {
@@ -56,7 +57,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    pub fn with_custom_commands(mut self, custom_commands: HashMap<String, usize>) -> Self {
+    pub fn with_custom_commands(mut self, custom_commands: HashMap<String, CommandMeta>) -> Self {
         self.custom_commands = custom_commands;
         self
     }
@@ -578,57 +579,120 @@ impl<'a> Compiler<'a> {
                     return Ok(());
                 }
 
-                // Check builtins (including custom commands from mods).
-                match builtins::classify_with_custom(name, &self.custom_commands) {
-                    BuiltinKind::Query(q) => {
-                        self.check_command_available(name, line)?;
-                        self.compile_query_call(&q, args, line)?;
-                    }
-                    BuiltinKind::Action(a) => {
-                        self.check_command_available(name, line)?;
-                        self.compile_action_call(&a, args, line)?;
-                    }
-                    BuiltinKind::Stdlib(s) => {
-                        self.compile_stdlib_call(&s, args, line)?;
-                    }
-                    BuiltinKind::InstantEffect(ie) => {
-                        self.check_command_available(name, line)?;
-                        self.compile_instant_effect_call(&ie, args, line)?;
-                    }
-                    BuiltinKind::CustomAction { name: cmd_name, num_args } => {
-                        self.check_command_available(&cmd_name, line)?;
-                        if args.len() != num_args {
-                            return Err(CompileError::new(
-                                line,
-                                format!(
-                                    "{}() takes {} argument(s), got {}",
-                                    cmd_name, num_args, args.len()
-                                ),
-                            ));
-                        }
-                        for arg in args {
-                            self.compile_expr(arg)?;
-                        }
-                        self.emit(Instruction::ActionCustom(cmd_name));
-                    }
-                    BuiltinKind::NotBuiltin => {
-                        // User-defined function call.
-                        for arg in args {
-                            self.compile_expr(arg)?;
-                        }
-                        // Look up function PC. We may not know it yet (forward reference).
-                        // Use function name to find entry.
-                        let func_pc = self.find_func_pc(name);
-                        match func_pc {
-                            Some(pc) => {
-                                self.emit(Instruction::Call(pc, args.len()));
+                // 1. Check stdlib builtins (always available).
+                if let Some(s) = builtins::classify_stdlib(name) {
+                    self.compile_stdlib_call(&s, args, line)?;
+                    return Ok(());
+                }
+
+                // 2. Check mod-defined commands (game builtins + custom commands).
+                if let Some(meta) = self.custom_commands.get(name).cloned() {
+                    self.check_command_available(name, line)?;
+                    match meta.kind {
+                        CommandKind::Query => {
+                            if args.is_empty() && meta.implicit_self {
+                                self.emit_load(VarLocation::Global(0)); // self is slot 0
+                            } else if args.len() != meta.num_args {
+                                return Err(CompileError::new(
+                                    line,
+                                    format!(
+                                        "{}() takes {} argument(s), got {}",
+                                        name, meta.num_args, args.len()
+                                    ),
+                                ));
+                            } else {
+                                for arg in args {
+                                    self.compile_expr(arg)?;
+                                }
                             }
-                            None => {
-                                let idx = self.instructions.len();
-                                self.emit(Instruction::Call(usize::MAX, args.len()));
-                                self.pending_calls.push((idx, name.clone(), line));
+                            match builtins::builtin_instruction(name) {
+                                Some(instr) => self.emit(instr),
+                                None => {
+                                    return Err(CompileError::new(
+                                        line,
+                                        format!("no IR instruction for query '{name}'"),
+                                    ));
+                                }
                             }
                         }
+                        CommandKind::Action => {
+                            if args.len() != meta.num_args {
+                                return Err(CompileError::new(
+                                    line,
+                                    format!(
+                                        "{}() takes {} argument(s), got {}",
+                                        name, meta.num_args, args.len()
+                                    ),
+                                ));
+                            }
+                            for arg in args {
+                                self.compile_expr(arg)?;
+                            }
+                            match builtins::builtin_instruction(name) {
+                                Some(instr) => self.emit(instr),
+                                None => {
+                                    return Err(CompileError::new(
+                                        line,
+                                        format!("no IR instruction for action '{name}'"),
+                                    ));
+                                }
+                            }
+                        }
+                        CommandKind::Instant => {
+                            if args.len() != meta.num_args {
+                                return Err(CompileError::new(
+                                    line,
+                                    format!(
+                                        "{}() takes {} argument(s), got {}",
+                                        name, meta.num_args, args.len()
+                                    ),
+                                ));
+                            }
+                            for arg in args {
+                                self.compile_expr(arg)?;
+                            }
+                            match builtins::builtin_instruction(name) {
+                                Some(instr) => self.emit(instr),
+                                None => {
+                                    return Err(CompileError::new(
+                                        line,
+                                        format!("no IR instruction for instant effect '{name}'"),
+                                    ));
+                                }
+                            }
+                        }
+                        CommandKind::Custom => {
+                            if args.len() != meta.num_args {
+                                return Err(CompileError::new(
+                                    line,
+                                    format!(
+                                        "{}() takes {} argument(s), got {}",
+                                        name, meta.num_args, args.len()
+                                    ),
+                                ));
+                            }
+                            for arg in args {
+                                self.compile_expr(arg)?;
+                            }
+                            self.emit(Instruction::ActionCustom(name.to_string()));
+                        }
+                    }
+                    return Ok(());
+                }
+
+                // 3. User-defined function call.
+                for arg in args {
+                    self.compile_expr(arg)?;
+                }
+                let func_pc = self.find_func_pc(name);
+                match func_pc {
+                    Some(pc) => {
+                        self.emit(Instruction::Call(pc, args.len()));
+                    }
+                    None => {
+                        let idx = self.instructions.len();
+                        self.emit(Instruction::Call(usize::MAX, args.len()));
+                        self.pending_calls.push((idx, name.clone(), line));
                     }
                 }
             }
@@ -644,85 +708,6 @@ impl<'a> Compiler<'a> {
                 ));
             }
         }
-        Ok(())
-    }
-
-    fn compile_query_call(
-        &mut self,
-        q: &QueryBuiltin,
-        args: &[Expr],
-        line: u32,
-    ) -> Result<(), CompileError> {
-        let expected = builtins::query_expected_args(q);
-        if args.is_empty() && builtins::query_takes_implicit_self(q) {
-            // Auto-push self.
-            self.emit_load(VarLocation::Global(0)); // self is slot 0
-        } else if args.len() != expected {
-            return Err(CompileError::new(
-                line,
-                format!(
-                    "{}() takes {} argument(s), got {}",
-                    query_name(q),
-                    expected,
-                    args.len()
-                ),
-            ));
-        } else {
-            for arg in args {
-                self.compile_expr(arg)?;
-            }
-        }
-        self.emit(builtins::query_instruction(q));
-        Ok(())
-    }
-
-    fn compile_action_call(
-        &mut self,
-        a: &ActionBuiltin,
-        args: &[Expr],
-        line: u32,
-    ) -> Result<(), CompileError> {
-        let expected = builtins::action_expected_args(a);
-        if args.len() != expected {
-            return Err(CompileError::new(
-                line,
-                format!(
-                    "{}() takes {} argument(s), got {}",
-                    action_name(a),
-                    expected,
-                    args.len()
-                ),
-            ));
-        }
-        for arg in args {
-            self.compile_expr(arg)?;
-        }
-        self.emit(builtins::action_instruction(a));
-        Ok(())
-    }
-
-    fn compile_instant_effect_call(
-        &mut self,
-        ie: &InstantEffectBuiltin,
-        args: &[Expr],
-        line: u32,
-    ) -> Result<(), CompileError> {
-        let expected = builtins::instant_effect_expected_args(ie);
-        if args.len() != expected {
-            return Err(CompileError::new(
-                line,
-                format!(
-                    "{}() takes {} argument(s), got {}",
-                    instant_effect_name(ie),
-                    expected,
-                    args.len()
-                ),
-            ));
-        }
-        for arg in args {
-            self.compile_expr(arg)?;
-        }
-        self.emit(builtins::instant_effect_instruction(ie));
         Ok(())
     }
 
@@ -869,29 +854,34 @@ impl<'a> Compiler<'a> {
                 self.emit(Instruction::DictGet);
             }
             _ => {
-                // Try as a game builtin with the object as first arg.
+                // Try as a mod-defined command with the object as first arg.
                 // e.g., entity.get_health() → get_health(entity)
-                self.check_command_available(method, line)?;
-                match builtins::classify(method) {
-                    BuiltinKind::Query(q) => {
-                        self.compile_expr(object)?;
-                        for arg in args {
-                            self.compile_expr(arg)?;
-                        }
-                        self.emit(builtins::query_instruction(&q));
-                    }
-                    BuiltinKind::Action(a) => {
-                        for arg in args {
-                            self.compile_expr(arg)?;
-                        }
-                        self.emit(builtins::action_instruction(&a));
-                    }
-                    _ => {
+                if let Some(meta) = self.custom_commands.get(method).cloned() {
+                    if meta.kind != CommandKind::Query {
                         return Err(CompileError::new(
                             line,
-                            format!("unknown method '{method}'"),
+                            format!("method call syntax is only supported for queries, not '{method}'"),
                         ));
                     }
+                    self.check_command_available(method, line)?;
+                    self.compile_expr(object)?;
+                    for arg in args {
+                        self.compile_expr(arg)?;
+                    }
+                    match builtins::builtin_instruction(method) {
+                        Some(instr) => self.emit(instr),
+                        None => {
+                            return Err(CompileError::new(
+                                line,
+                                format!("no IR instruction for query '{method}'"),
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(CompileError::new(
+                        line,
+                        format!("unknown method '{method}'"),
+                    ));
                 }
             }
         }
@@ -1053,12 +1043,15 @@ impl<'a> Compiler<'a> {
         match &expr.kind {
             ExprKind::Call { func, .. } => {
                 if let ExprKind::Name(name) = &func.kind {
-                    matches!(
-                        builtins::classify_with_custom(name, &self.custom_commands),
-                        BuiltinKind::Action(_)
-                            | BuiltinKind::CustomAction { .. }
-                            | BuiltinKind::Stdlib(StdlibBuiltin::Print)
-                    )
+                    // print() is void
+                    if builtins::classify_stdlib(name).is_some() {
+                        return matches!(builtins::classify_stdlib(name), Some(StdlibBuiltin::Print));
+                    }
+                    // Actions and Custom commands are void (consume tick)
+                    if let Some(meta) = self.custom_commands.get(name.as_str()) {
+                        return matches!(meta.kind, CommandKind::Action | CommandKind::Custom);
+                    }
+                    false
                 } else {
                     false
                 }
@@ -1091,39 +1084,3 @@ impl<'a> Compiler<'a> {
     }
 }
 
-fn query_name(q: &QueryBuiltin) -> &'static str {
-    match q {
-        QueryBuiltin::Scan => "scan",
-        QueryBuiltin::Nearest => "nearest",
-        QueryBuiltin::Distance => "distance",
-        QueryBuiltin::GetPos => "get_pos",
-        QueryBuiltin::GetHealth => "get_health",
-        QueryBuiltin::GetShield => "get_shield",
-        QueryBuiltin::GetTarget => "get_target",
-        QueryBuiltin::HasTarget => "has_target",
-        QueryBuiltin::GetType => "get_type",
-        QueryBuiltin::GetName => "get_name",
-        QueryBuiltin::GetOwner => "get_owner",
-        QueryBuiltin::GetResource => "get_resource",
-        QueryBuiltin::GetStat => "get_stat",
-        QueryBuiltin::GetTypes => "get_types",
-        QueryBuiltin::HasType => "has_type",
-    }
-}
-
-fn instant_effect_name(ie: &InstantEffectBuiltin) -> &'static str {
-    match ie {
-        InstantEffectBuiltin::GainResource => "gain_resource",
-        InstantEffectBuiltin::TrySpendResource => "try_spend_resource",
-    }
-}
-
-fn action_name(a: &ActionBuiltin) -> &'static str {
-    match a {
-        ActionBuiltin::Move => "move",
-        ActionBuiltin::Attack => "attack",
-        ActionBuiltin::Flee => "flee",
-        ActionBuiltin::Wait => "wait",
-        ActionBuiltin::SetTarget => "set_target",
-    }
-}

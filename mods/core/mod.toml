@@ -10,16 +10,18 @@ version = "0.1.0"
 [[types]]
 name = "main"
 stats = { health = 100, speed = 1 }
-commands = ["help", "trance", "raise", "harvest", "pact"]
+commands = ["help", "trance", "raise", "harvest", "pact", "scan", "nearest", "distance", "get_pos", "get_health", "get_shield", "get_target", "has_target", "get_type", "get_name", "get_owner", "get_resource", "get_stat", "get_custom_stat", "get_types", "has_type", "wait", "gain_resource", "try_spend_resource"]
 
 [[types]]
 name = "unit"
 stats = { health = 1, speed = 1 }
+commands = ["move", "attack", "flee", "wait", "set_target", "scan", "nearest", "distance", "get_pos", "get_health", "get_shield", "get_target", "has_target", "get_type", "get_name", "get_owner", "get_resource", "get_stat", "get_custom_stat", "get_types", "has_type", "gain_resource", "try_spend_resource"]
 
 [[types]]
 name = "summoner"
 brain = true
 stats = { health = 100}
+commands = ["help", "trance", "raise", "harvest", "pact"]
 
 [[types]]
 name = "skeleton"
@@ -49,7 +51,6 @@ bones = 0
 # --- Initial State ---
 
 [initial]
-commands = ["help","trance","raise","harvest","pact"]
 resources = ["mana", "bones"]
 effects = [
   { type = "spawn", entity_id = "summoner", offset=0},
@@ -57,7 +58,132 @@ effects = [
   { type = "output", message = "Call for <hl>help()</hl> to hear them speak" },
 ]
 
-# --- Commands ---
+# --- Game Builtins (queries, actions, instant effects) ---
+
+# Queries
+[[commands.definitions]]
+name = "scan"
+kind = "query"
+args = ["filter"]
+
+[[commands.definitions]]
+name = "nearest"
+kind = "query"
+args = ["filter"]
+
+[[commands.definitions]]
+name = "distance"
+kind = "query"
+args = ["e1", "e2"]
+
+[[commands.definitions]]
+name = "get_pos"
+kind = "query"
+args = ["entity"]
+implicit_self = true
+
+[[commands.definitions]]
+name = "get_health"
+kind = "query"
+args = ["entity"]
+implicit_self = true
+
+[[commands.definitions]]
+name = "get_shield"
+kind = "query"
+args = ["entity"]
+implicit_self = true
+
+[[commands.definitions]]
+name = "get_target"
+kind = "query"
+args = ["entity"]
+implicit_self = true
+
+[[commands.definitions]]
+name = "has_target"
+kind = "query"
+args = ["entity"]
+implicit_self = true
+
+[[commands.definitions]]
+name = "get_type"
+kind = "query"
+args = ["entity"]
+
+[[commands.definitions]]
+name = "get_name"
+kind = "query"
+args = ["entity"]
+
+[[commands.definitions]]
+name = "get_owner"
+kind = "query"
+args = ["entity"]
+
+[[commands.definitions]]
+name = "get_resource"
+kind = "query"
+args = ["name"]
+
+[[commands.definitions]]
+name = "get_stat"
+kind = "query"
+args = ["entity", "stat_name"]
+
+[[commands.definitions]]
+name = "get_custom_stat"
+kind = "query"
+args = ["entity", "stat_name"]
+
+[[commands.definitions]]
+name = "get_types"
+kind = "query"
+args = ["entity"]
+
+[[commands.definitions]]
+name = "has_type"
+kind = "query"
+args = ["entity", "name"]
+
+# Actions
+[[commands.definitions]]
+name = "move"
+kind = "action"
+args = ["position"]
+
+[[commands.definitions]]
+name = "attack"
+kind = "action"
+args = ["target"]
+
+[[commands.definitions]]
+name = "flee"
+kind = "action"
+args = ["threat"]
+
+[[commands.definitions]]
+name = "wait"
+kind = "action"
+args = []
+
+[[commands.definitions]]
+name = "set_target"
+kind = "action"
+args = ["target"]
+
+# Instant effects
+[[commands.definitions]]
+name = "gain_resource"
+kind = "instant"
+args = ["name", "amount"]
+
+[[commands.definitions]]
+name = "try_spend_resource"
+kind = "instant"
+args = ["name", "amount"]
+
+# --- Custom Commands ---
 
 [[commands.definitions]]
 name = "help"

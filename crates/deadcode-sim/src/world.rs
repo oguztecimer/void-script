@@ -222,11 +222,17 @@ impl SimWorld {
     /// Register a custom command with its effects, arg count, costs, and description.
     /// If the command has phases, they are stored separately for the phased execution path.
     pub fn register_custom_command(&mut self, def: &CommandDef) {
-        self.custom_command_arg_counts.insert(def.name.clone(), def.args.len());
-        self.custom_commands.insert(def.name.clone(), def.effects.clone());
-        if !def.phases.is_empty() {
-            self.custom_command_phases.insert(def.name.clone(), def.phases.clone());
+        // Only data-driven custom commands need runtime registration.
+        // Query/action/instant commands use their own IR instructions and
+        // don't go through the custom command execution path.
+        if matches!(def.kind, crate::action::CommandKind::Custom) {
+            self.custom_command_arg_counts.insert(def.name.clone(), def.args.len());
+            self.custom_commands.insert(def.name.clone(), def.effects.clone());
+            if !def.phases.is_empty() {
+                self.custom_command_phases.insert(def.name.clone(), def.phases.clone());
+            }
         }
+        // Description and unlisted apply to all command kinds (for list_commands).
         if !def.description.is_empty() {
             self.custom_command_descriptions.insert(def.name.clone(), def.description.clone());
         }
@@ -1387,6 +1393,7 @@ mod tests {
                     on_start: vec![],
                 },
             ],
+            ..Default::default()
         };
         world.register_custom_command(&def);
 
@@ -1459,6 +1466,7 @@ mod tests {
                     on_start: vec![],
                 },
             ],
+            ..Default::default()
         };
         world.register_custom_command(&def);
 
@@ -1525,6 +1533,7 @@ mod tests {
                     on_start: vec![CommandEffect::Output { message: "should not reach".into() }],
                 },
             ],
+            ..Default::default()
         };
         world.register_custom_command(&def);
 
@@ -1585,6 +1594,7 @@ mod tests {
                     on_start: vec![CommandEffect::Output { message: "locked".into() }],
                 },
             ],
+            ..Default::default()
         };
         world.register_custom_command(&def);
 
@@ -1648,6 +1658,7 @@ mod tests {
                     on_start: vec![],
                 },
             ],
+            ..Default::default()
         };
         world.register_custom_command(&def);
 
@@ -1964,6 +1975,7 @@ mod tests {
             }],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         };
         world.register_custom_command(&cmd);
 
@@ -2005,6 +2017,7 @@ mod tests {
             }],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         };
         world.register_custom_command(&cmd);
 
@@ -2047,6 +2060,7 @@ mod tests {
             }],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         };
         world.register_custom_command(&cmd);
 
@@ -2087,6 +2101,7 @@ mod tests {
             }],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         };
         world.register_custom_command(&cmd);
 
@@ -2133,6 +2148,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         };
         world.register_custom_command(&cmd);
 
@@ -2177,6 +2193,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         };
         world.register_custom_command(&cmd);
 
@@ -2252,6 +2269,7 @@ mod tests {
             }],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         };
         world.register_custom_command(&cmd);
 
@@ -2314,6 +2332,7 @@ mod tests {
             }],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         };
         world.register_custom_command(&cmd);
 
@@ -2523,6 +2542,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         });
 
         // Trigger: when gold changes, output a message.
@@ -2619,6 +2639,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         });
 
         // Trigger: when "meditate" is used, output a bonus message.
@@ -2739,6 +2760,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         });
         world.custom_command_arg_counts.insert("cast_haste".into(), 0);
 
@@ -2808,6 +2830,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         });
         world.custom_command_arg_counts.insert("rage_up".into(), 0);
 
@@ -2861,6 +2884,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         });
         world.custom_command_arg_counts.insert("shield_cast".into(), 0);
 
@@ -2916,6 +2940,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         });
         world.register_custom_command(&CommandDef {
             name: "armor_off".into(),
@@ -2926,6 +2951,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         });
         world.custom_command_arg_counts.insert("armor_on".into(), 0);
         world.custom_command_arg_counts.insert("armor_off".into(), 0);
@@ -3073,6 +3099,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         });
         world.custom_command_arg_counts.insert("train".into(), 0);
 
@@ -3131,6 +3158,7 @@ mod tests {
             ],
             phases: vec![],
             unlisted: false,
+            ..Default::default()
         });
         world.custom_command_arg_counts.insert("power_move".into(), 0);
 
@@ -3520,6 +3548,7 @@ mod tests {
             }],
             unlisted: false,
             phases: vec![],
+            ..Default::default()
         };
         world.register_custom_command(&spawn_cmd);
 
@@ -3620,6 +3649,7 @@ mod tests {
             }],
             unlisted: false,
             phases: vec![],
+            ..Default::default()
         };
         world.register_custom_command(&spawn_cmd);
 
@@ -3816,6 +3846,7 @@ mod tests {
             }],
             unlisted: false,
             phases: vec![],
+            ..Default::default()
         };
         world.register_custom_command(&cmd);
 

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Simulation Engine / Compiler
+
+#### Changed
+- **S-35: Move all game builtins to mod definitions** — The sim compiler no longer has a hardcoded concept of "game builtins." All non-stdlib commands (queries like `scan`/`get_health`, actions like `move`/`attack`, instant effects like `gain_resource`) are now defined in `mods/core/mod.toml` via `[[commands.definitions]]` with `kind` and `implicit_self` fields, alongside custom commands. The compiler receives command metadata via `HashMap<String, CommandMeta>` and dispatches to `builtin_instruction()` for known IR mappings or falls back to `ActionCustom` for data-driven commands. `CommandDef` gained two new fields: `kind` (query/action/instant/custom, default: custom) and `implicit_self` (bool, default: false). The `[initial].commands` global unlock system was removed — command gating is now purely type-based via `commands` on `[[types]]`. `compute_effective_commands()` returns `None` (all allowed) when no types define commands. In dev mode, all commands remain available (gate bypassed).
+
 ### Simulation Engine
 
 #### Added

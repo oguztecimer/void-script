@@ -1,0 +1,2 @@
+def walk():
+    print("asd")

@@ -11,6 +11,7 @@ use crate::entity::EntityId;
 use crate::ir::CompiledScript;
 use crate::value::SimValue;
 
+pub use builtins::CommandMeta;
 pub use error::CompileError;
 
 /// Compile a GrimScript AST into simulation IR.
@@ -25,7 +26,7 @@ pub fn compile(
 pub fn compile_with_custom(
     program: &Program,
     available_commands: Option<HashSet<String>>,
-    custom_commands: HashMap<String, usize>,
+    custom_commands: HashMap<String, CommandMeta>,
 ) -> Result<CompiledScript, CompileError> {
     let compiler = emit::Compiler::new(available_commands)
         .with_custom_commands(custom_commands);
@@ -58,7 +59,7 @@ pub fn compile_source_with(
 pub fn compile_source_full(
     source: &str,
     available_commands: Option<HashSet<String>>,
-    custom_commands: HashMap<String, usize>,
+    custom_commands: HashMap<String, CommandMeta>,
 ) -> Result<CompiledScript, String> {
     let tokens = grimscript_lang::lexer::Lexer::new(source).tokenize()
         .map_err(|e| format!("syntax error (line {}): {}", e.line, e.message))?;
@@ -72,15 +73,47 @@ pub fn compile_source_full(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::UnitAction;
+    use crate::action::{CommandKind, UnitAction};
     use crate::entity::ScriptState;
     use crate::executor;
     use crate::ir::Instruction;
     use crate::world::SimWorld;
 
-    /// Helper: compile source, execute on a fresh world, return final state + action.
+    /// Build the standard set of game builtin command metadata for tests.
+    fn test_command_metadata() -> HashMap<String, CommandMeta> {
+        let mut m = HashMap::new();
+        // Queries
+        m.insert("scan".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
+        m.insert("nearest".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
+        m.insert("distance".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
+        m.insert("get_pos".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
+        m.insert("get_health".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
+        m.insert("get_shield".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
+        m.insert("get_target".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
+        m.insert("has_target".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
+        m.insert("get_type".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
+        m.insert("get_name".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
+        m.insert("get_owner".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
+        m.insert("get_resource".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
+        m.insert("get_stat".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
+        m.insert("get_custom_stat".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
+        m.insert("get_types".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
+        m.insert("has_type".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
+        // Actions
+        m.insert("move".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
+        m.insert("attack".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
+        m.insert("flee".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
+        m.insert("wait".into(), CommandMeta { num_args: 0, kind: CommandKind::Action, implicit_self: false });
+        m.insert("set_target".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
+        // Instant effects
+        m.insert("gain_resource".into(), CommandMeta { num_args: 2, kind: CommandKind::Instant, implicit_self: false });
+        m.insert("try_spend_resource".into(), CommandMeta { num_args: 2, kind: CommandKind::Instant, implicit_self: false });
+        m
+    }
+
+    /// Helper: compile source with game builtins, execute on a fresh world, return final state + action.
     fn compile_and_run(source: &str) -> (ScriptState, Option<UnitAction>) {
-        let script = compile_source(source).expect("compilation failed");
+        let script = compile_source_full(source, None, test_command_metadata()).expect("compilation failed");
         let mut world = SimWorld::new(42);
         let eid = world.spawn_entity("skeleton".into(), "test".into(), 100);
         let num_vars = script.num_variables;
@@ -109,8 +142,6 @@ mod tests {
     #[test]
     fn arithmetic_expression() {
         let vars = run_to_completion("x = 10 + 5 * 3");
-        // 10 + (5*3) = 25 — but our compiler emits left-to-right with operator precedence
-        // handled by the parser. The parser produces correct AST: BinOp(10, +, BinOp(5, *, 3))
         assert_eq!(vars.get(1), Some(&SimValue::Int(25)));
     }
 
@@ -154,7 +185,6 @@ mod tests {
     #[test]
     fn for_loop_range() {
         let vars = run_to_completion("total = 0\nfor i in range(5):\n    total = total + i");
-        // 0 + 1 + 2 + 3 + 4 = 10
         assert_eq!(vars.get(1), Some(&SimValue::Int(10)));
     }
 
@@ -173,7 +203,6 @@ mod tests {
     #[test]
     fn function_with_main() {
         let vars = run_to_completion("def main():\n    pass");
-        // Should not crash — main is auto-called.
         assert!(!vars.is_empty());
     }
 
@@ -262,8 +291,7 @@ mod tests {
 
     #[test]
     fn query_scan() {
-        let script = compile_source("targets = scan(\"fighter\")").unwrap();
-        // Verify QueryScan is in the instruction stream.
+        let script = compile_source_full("targets = scan(\"fighter\")", None, test_command_metadata()).unwrap();
         assert!(script.instructions.iter().any(|i| matches!(i, Instruction::QueryScan)));
     }
 
@@ -365,16 +393,13 @@ mod tests {
 
     #[test]
     fn self_is_entity_ref() {
-        // `self` should resolve to EntityRef at slot 0.
-        let script = compile_source("x = self").unwrap();
+        let script = compile_source_full("x = self", None, test_command_metadata()).unwrap();
         assert!(script.instructions.iter().any(|i| matches!(i, Instruction::LoadVar(0))));
     }
 
     #[test]
     fn implicit_self_query() {
-        // 0-arg query auto-pushes self.
-        let script = compile_source("h = get_health()").unwrap();
-        // Should have LoadVar(0) [self] followed by QueryGetHealth.
+        let script = compile_source_full("h = get_health()", None, test_command_metadata()).unwrap();
         let instrs: Vec<_> = script.instructions.iter().collect();
         let has_self_load = instrs.windows(2).any(|w| {
             matches!(w[0], Instruction::LoadVar(0)) && matches!(w[1], Instruction::QueryGetHealth)
@@ -393,8 +418,6 @@ mod tests {
 
     #[test]
     fn while_true_move_oscillate() {
-        // The classic test from the plan: while True: move(100); move(0)
-        // Should yield on first move(100).
         let src = "while True:\n    move(100)\n    move(0)";
         let (state, action) = compile_and_run(src);
         assert!(state.yielded);
@@ -434,40 +457,38 @@ mod tests {
 
     #[test]
     fn short_circuit_and() {
-        // and should return first falsy value
         let vars = run_to_completion("x = 0 and 42");
         assert_eq!(vars.get(1), Some(&SimValue::Int(0)));
     }
 
     #[test]
     fn short_circuit_or() {
-        // or should return first truthy value
         let vars = run_to_completion("x = 0 or 42");
         assert_eq!(vars.get(1), Some(&SimValue::Int(42)));
     }
 
     #[test]
     fn get_resource_emits_query_instruction() {
-        let script = compile_source("x = get_resource(\"souls\")").unwrap();
+        let script = compile_source_full("x = get_resource(\"souls\")", None, test_command_metadata()).unwrap();
         assert!(script.instructions.iter().any(|i| matches!(i, Instruction::QueryGetResource)));
     }
 
     #[test]
     fn gain_resource_emits_instant_instruction() {
-        let script = compile_source("x = gain_resource(\"souls\", 5)").unwrap();
+        let script = compile_source_full("x = gain_resource(\"souls\", 5)", None, test_command_metadata()).unwrap();
         assert!(script.instructions.iter().any(|i| matches!(i, Instruction::InstantGainResource)));
     }
 
     #[test]
     fn try_spend_resource_emits_instant_instruction() {
-        let script = compile_source("x = try_spend_resource(\"souls\", 3)").unwrap();
+        let script = compile_source_full("x = try_spend_resource(\"souls\", 3)", None, test_command_metadata()).unwrap();
         assert!(script.instructions.iter().any(|i| matches!(i, Instruction::InstantTrySpendResource)));
     }
 
     #[test]
     fn resource_builtins_gated_by_available_commands() {
         let available: HashSet<String> = ["move"].iter().map(|s| s.to_string()).collect();
-        let result = compile_source_with("get_resource(\"souls\")", Some(available));
+        let result = compile_source_full("get_resource(\"souls\")", Some(available), test_command_metadata());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not available"));
     }
@@ -476,27 +497,22 @@ mod tests {
 
     #[test]
     fn for_loop_continue() {
-        // continue in for-loop should skip to increment, not jump to PC=0.
         let vars = run_to_completion(
             "total = 0\nfor i in range(5):\n    if i == 2:\n        continue\n    total = total + i",
         );
-        // 0 + 1 + 3 + 4 = 8 (skip i==2)
         assert_eq!(vars.get(1), Some(&SimValue::Int(8)));
     }
 
     #[test]
     fn for_loop_nested_continue() {
-        // continue in nested for-loop should only skip inner.
         let vars = run_to_completion(
             "total = 0\nfor i in range(3):\n    for j in range(3):\n        if j == 1:\n            continue\n        total = total + 1",
         );
-        // 3 outer * 2 inner (j=0,2) = 6
         assert_eq!(vars.get(1), Some(&SimValue::Int(6)));
     }
 
     #[test]
     fn aug_assign_complex_index() {
-        // Augmented assignment to list index with complex expression.
         let vars = run_to_completion("x = [10, 20, 30]\ny = 1\nx[y] += 5");
         assert_eq!(
             vars.get(1),
@@ -520,49 +536,42 @@ mod tests {
 
     #[test]
     fn floor_division_negative() {
-        // Python: -7 // 2 = -4
         let vars = run_to_completion("x = -7 // 2");
         assert_eq!(vars.get(1), Some(&SimValue::Int(-4)));
     }
 
     #[test]
     fn floor_division_both_negative() {
-        // Python: -7 // -2 = 3
         let vars = run_to_completion("x = -7 // -2");
         assert_eq!(vars.get(1), Some(&SimValue::Int(3)));
     }
 
     #[test]
     fn floor_mod_negative() {
-        // Python: -7 % 2 = 1
         let vars = run_to_completion("x = -7 % 2");
         assert_eq!(vars.get(1), Some(&SimValue::Int(1)));
     }
 
     #[test]
     fn floor_mod_both_negative() {
-        // Python: -7 % -2 = -1
         let vars = run_to_completion("x = -7 % -2");
         assert_eq!(vars.get(1), Some(&SimValue::Int(-1)));
     }
 
     #[test]
     fn floor_division_positive() {
-        // Python: 7 // 2 = 3
         let vars = run_to_completion("x = 7 // 2");
         assert_eq!(vars.get(1), Some(&SimValue::Int(3)));
     }
 
     #[test]
     fn floor_mod_positive() {
-        // Python: 7 % 2 = 1
         let vars = run_to_completion("x = 7 % 2");
         assert_eq!(vars.get(1), Some(&SimValue::Int(1)));
     }
 
     #[test]
     fn integer_overflow_error() {
-        // Very large integer literal should produce an error, not silently become 0.
         let result = compile_source("x = 99999999999999999999");
         assert!(result.is_err());
         let err = result.unwrap_err();

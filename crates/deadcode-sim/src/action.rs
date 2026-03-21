@@ -5,6 +5,26 @@ use crate::rng::SimRng;
 use crate::value::SimValue;
 use crate::world::{SimEvent, SimWorld};
 
+/// The kind of a command: how it compiles and executes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandKind {
+    /// Instant query — returns a value, does not consume tick. Supports method call syntax and implicit self.
+    Query,
+    /// Built-in action — consumes tick, executor yields.
+    Action,
+    /// Instant effect — returns a value, does not consume tick, but mutates world state via tick loop.
+    Instant,
+    /// Data-driven custom command (effects/phases) — consumes tick.
+    Custom,
+}
+
+impl Default for CommandKind {
+    fn default() -> Self {
+        CommandKind::Custom
+    }
+}
+
 /// An integer value that is either fixed, randomized, or computed from game state.
 ///
 /// In mod.toml, write a plain integer for fixed values, `"rand(min,max)"` for
@@ -392,12 +412,17 @@ fn default_update_interval() -> i64 {
     1
 }
 
-/// Definition of a custom command (parsed from mod.toml).
+/// Definition of a command (parsed from mod.toml).
 ///
-/// Commands use either `effects` (instant, single-tick) or `phases` (multi-tick
-/// with channeling). They are mutually exclusive — validated at load time.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// For `kind = "custom"` (the default), commands use either `effects` (instant,
+/// single-tick) or `phases` (multi-tick with channeling). They are mutually
+/// exclusive — validated at load time.
+///
+/// For `kind = "query"`, `"action"`, or `"instant"`, the command maps to a
+/// built-in IR instruction. `effects` and `phases` must be empty.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CommandDef {
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub description: String,
@@ -410,6 +435,12 @@ pub struct CommandDef {
     /// If true, the command is hidden from `list_commands` output.
     #[serde(default)]
     pub unlisted: bool,
+    /// The kind of command: query, action, instant, or custom (default).
+    #[serde(default)]
+    pub kind: CommandKind,
+    /// If true, 0-arg calls auto-push `self` as first argument (queries only).
+    #[serde(default)]
+    pub implicit_self: bool,
 }
 
 /// A trigger definition: fires effects when a game event matches.

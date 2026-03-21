@@ -89,11 +89,13 @@ impl<'de> Deserialize<'de> for ResourceDef {
     }
 }
 
-/// The `[initial]` section: commands, resources, and effects available at game start.
+/// The `[initial]` section: resources and effects available at game start.
 #[derive(Debug, Deserialize, Default)]
 pub struct InitialDef {
-    /// Initially available command names.
+    /// Legacy field — ignored. Commands are now defined entirely by mod command definitions
+    /// and type-level gating.
     #[serde(default)]
+    #[allow(dead_code)]
     pub commands: Vec<String>,
     /// Initially available resource names. If empty, all defined resources are available.
     #[serde(default)]
@@ -898,24 +900,21 @@ fn validate_target(target: &str, args: &[String], cmd_name: &str, mod_id: &str) 
     );
 }
 
-/// Collect initial commands from all loaded mods, preserving insertion order.
-pub fn collect_initial_commands(mods: &[LoadedMod]) -> Vec<String> {
-    let mut commands = Vec::new();
+/// Collect all command names from loaded mods (in definition order).
+/// Used to set command display order for `list_commands`.
+pub fn collect_command_names(mods: &[LoadedMod]) -> Vec<String> {
+    let mut names = Vec::new();
     let mut seen = HashSet::new();
     for m in mods {
-        if let Some(initial) = &m.manifest.initial {
-            for cmd in &initial.commands {
-                if seen.insert(cmd.clone()) {
-                    commands.push(cmd.clone());
+        if let Some(cmds) = &m.manifest.commands {
+            for def in &cmds.definitions {
+                if seen.insert(def.name.clone()) {
+                    names.push(def.name.clone());
                 }
             }
         }
     }
-    if commands.is_empty() {
-        // Default fallback
-        commands.extend(["consult", "raise", "harvest", "pact"].iter().map(|s| s.to_string()));
-    }
-    commands
+    names
 }
 
 /// Collected resource definitions: values and optional caps.
@@ -1218,22 +1217,24 @@ pub fn collect_type_scripts(mods: &[LoadedMod]) -> HashMap<String, String> {
     scripts
 }
 
-/// Compute effective commands for an entity: union of its types' commands ∩ globally unlocked.
+/// Compute effective commands for an entity based on its types' command lists.
+/// Returns `None` (all allowed) when no types define commands (backward compat).
+/// Returns `Some(set)` when at least one type has a non-empty commands list.
 pub fn compute_effective_commands(
     entity_types: &[String],
     all_type_defs: &HashMap<String, TypeDef>,
-    global_unlocks: &HashSet<String>,
-) -> HashSet<String> {
+) -> Option<HashSet<String>> {
     let mut type_commands: HashSet<String> = HashSet::new();
+    let mut any_has_commands = false;
     for t in entity_types {
         if let Some(tdef) = all_type_defs.get(t) {
-            for cmd in &tdef.commands {
-                type_commands.insert(cmd.clone());
+            if !tdef.commands.is_empty() {
+                any_has_commands = true;
+                type_commands.extend(tdef.commands.iter().cloned());
             }
         }
     }
-    // Intersection: only commands that are both in type capabilities AND globally unlocked.
-    type_commands.intersection(global_unlocks).cloned().collect()
+    if any_has_commands { Some(type_commands) } else { None }
 }
 
 /// Collect library source code from all loaded mods (in load order).

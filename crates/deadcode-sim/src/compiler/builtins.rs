@@ -1,54 +1,15 @@
-use std::collections::HashMap;
-
+use crate::action::CommandKind;
 use crate::ir::Instruction;
 
-/// Classification of a builtin function call.
-pub enum BuiltinKind {
-    /// Game query — instant, does not consume tick.
-    Query(QueryBuiltin),
-    /// Game action — consumes tick, executor yields.
-    Action(ActionBuiltin),
-    /// Standard library function.
-    Stdlib(StdlibBuiltin),
-    /// Instant effect — does not consume tick, but mutates world state via tick loop.
-    InstantEffect(InstantEffectBuiltin),
-    /// Custom mod-defined action.
-    CustomAction { name: String, num_args: usize },
-    /// Not a builtin.
-    NotBuiltin,
+/// Metadata about a command for the compiler.
+#[derive(Clone, Debug)]
+pub struct CommandMeta {
+    pub num_args: usize,
+    pub kind: CommandKind,
+    pub implicit_self: bool,
 }
 
-pub enum QueryBuiltin {
-    Scan,
-    Nearest,
-    Distance,
-    GetPos,
-    GetHealth,
-    GetShield,
-    GetTarget,
-    HasTarget,
-    GetType,
-    GetName,
-    GetOwner,
-    GetResource,
-    GetStat,
-    GetTypes,
-    HasType,
-}
-
-pub enum InstantEffectBuiltin {
-    GainResource,
-    TrySpendResource,
-}
-
-pub enum ActionBuiltin {
-    Move,
-    Attack,
-    Flee,
-    Wait,
-    SetTarget,
-}
-
+/// Standard library builtins (always available, not gated).
 pub enum StdlibBuiltin {
     Print,
     Len,
@@ -64,149 +25,54 @@ pub enum StdlibBuiltin {
     Scale,
 }
 
-/// Classify a function name as a builtin, checking custom commands if provided.
-pub fn classify_with_custom(name: &str, custom_commands: &HashMap<String, usize>) -> BuiltinKind {
-    let result = classify(name);
-    if matches!(result, BuiltinKind::NotBuiltin) {
-        if let Some(&num_args) = custom_commands.get(name) {
-            return BuiltinKind::CustomAction { name: name.to_string(), num_args };
-        }
+/// Classify a function name as a stdlib builtin.
+pub fn classify_stdlib(name: &str) -> Option<StdlibBuiltin> {
+    match name {
+        "print" => Some(StdlibBuiltin::Print),
+        "len" => Some(StdlibBuiltin::Len),
+        "range" => Some(StdlibBuiltin::Range),
+        "abs" => Some(StdlibBuiltin::Abs),
+        "min" => Some(StdlibBuiltin::Min),
+        "max" => Some(StdlibBuiltin::Max),
+        "int" => Some(StdlibBuiltin::Int),
+        "str" => Some(StdlibBuiltin::Str),
+        "type" => Some(StdlibBuiltin::Type),
+        "float" => Some(StdlibBuiltin::Float),
+        "percent" => Some(StdlibBuiltin::Percent),
+        "scale" => Some(StdlibBuiltin::Scale),
+        _ => None,
     }
-    result
 }
 
-/// Classify a function name as a builtin.
-pub fn classify(name: &str) -> BuiltinKind {
+/// Map a builtin command name to its IR instruction.
+/// Returns None for custom (data-driven) commands and unknown names.
+pub fn builtin_instruction(name: &str) -> Option<Instruction> {
     match name {
         // Queries
-        "scan" => BuiltinKind::Query(QueryBuiltin::Scan),
-        "nearest" => BuiltinKind::Query(QueryBuiltin::Nearest),
-        "distance" => BuiltinKind::Query(QueryBuiltin::Distance),
-        "get_pos" => BuiltinKind::Query(QueryBuiltin::GetPos),
-        "get_health" => BuiltinKind::Query(QueryBuiltin::GetHealth),
-        "get_shield" => BuiltinKind::Query(QueryBuiltin::GetShield),
-        "get_target" => BuiltinKind::Query(QueryBuiltin::GetTarget),
-        "has_target" => BuiltinKind::Query(QueryBuiltin::HasTarget),
-        "get_type" => BuiltinKind::Query(QueryBuiltin::GetType),
-        "get_name" => BuiltinKind::Query(QueryBuiltin::GetName),
-        "get_owner" => BuiltinKind::Query(QueryBuiltin::GetOwner),
-        "get_resource" => BuiltinKind::Query(QueryBuiltin::GetResource),
-        "get_stat" | "get_custom_stat" => BuiltinKind::Query(QueryBuiltin::GetStat),
-        "get_types" => BuiltinKind::Query(QueryBuiltin::GetTypes),
-        "has_type" => BuiltinKind::Query(QueryBuiltin::HasType),
-        // Instant effects
-        "gain_resource" => BuiltinKind::InstantEffect(InstantEffectBuiltin::GainResource),
-        "try_spend_resource" => BuiltinKind::InstantEffect(InstantEffectBuiltin::TrySpendResource),
+        "scan" => Some(Instruction::QueryScan),
+        "nearest" => Some(Instruction::QueryNearest),
+        "distance" => Some(Instruction::QueryDistance),
+        "get_pos" => Some(Instruction::QueryGetPos),
+        "get_health" => Some(Instruction::QueryGetHealth),
+        "get_shield" => Some(Instruction::QueryGetShield),
+        "get_target" => Some(Instruction::QueryGetTarget),
+        "has_target" => Some(Instruction::QueryHasTarget),
+        "get_type" => Some(Instruction::QueryGetType),
+        "get_name" => Some(Instruction::QueryGetName),
+        "get_owner" => Some(Instruction::QueryGetOwner),
+        "get_resource" => Some(Instruction::QueryGetResource),
+        "get_stat" | "get_custom_stat" => Some(Instruction::QueryGetStat),
+        "get_types" => Some(Instruction::QueryGetTypes),
+        "has_type" => Some(Instruction::QueryHasType),
         // Actions
-        "move" => BuiltinKind::Action(ActionBuiltin::Move),
-        "attack" => BuiltinKind::Action(ActionBuiltin::Attack),
-        "flee" => BuiltinKind::Action(ActionBuiltin::Flee),
-        "wait" => BuiltinKind::Action(ActionBuiltin::Wait),
-        "set_target" => BuiltinKind::Action(ActionBuiltin::SetTarget),
-        // Stdlib
-        "print" => BuiltinKind::Stdlib(StdlibBuiltin::Print),
-        "len" => BuiltinKind::Stdlib(StdlibBuiltin::Len),
-        "range" => BuiltinKind::Stdlib(StdlibBuiltin::Range),
-        "abs" => BuiltinKind::Stdlib(StdlibBuiltin::Abs),
-        "min" => BuiltinKind::Stdlib(StdlibBuiltin::Min),
-        "max" => BuiltinKind::Stdlib(StdlibBuiltin::Max),
-        "int" => BuiltinKind::Stdlib(StdlibBuiltin::Int),
-        "str" => BuiltinKind::Stdlib(StdlibBuiltin::Str),
-        "type" => BuiltinKind::Stdlib(StdlibBuiltin::Type),
-        "float" => BuiltinKind::Stdlib(StdlibBuiltin::Float),
-        "percent" => BuiltinKind::Stdlib(StdlibBuiltin::Percent),
-        "scale" => BuiltinKind::Stdlib(StdlibBuiltin::Scale),
-        _ => BuiltinKind::NotBuiltin,
-    }
-}
-
-/// Get the IR instruction for a query builtin.
-pub fn query_instruction(q: &QueryBuiltin) -> Instruction {
-    match q {
-        QueryBuiltin::Scan => Instruction::QueryScan,
-        QueryBuiltin::Nearest => Instruction::QueryNearest,
-        QueryBuiltin::Distance => Instruction::QueryDistance,
-        QueryBuiltin::GetPos => Instruction::QueryGetPos,
-        QueryBuiltin::GetHealth => Instruction::QueryGetHealth,
-        QueryBuiltin::GetShield => Instruction::QueryGetShield,
-        QueryBuiltin::GetTarget => Instruction::QueryGetTarget,
-        QueryBuiltin::HasTarget => Instruction::QueryHasTarget,
-        QueryBuiltin::GetType => Instruction::QueryGetType,
-        QueryBuiltin::GetName => Instruction::QueryGetName,
-        QueryBuiltin::GetOwner => Instruction::QueryGetOwner,
-        QueryBuiltin::GetResource => Instruction::QueryGetResource,
-        QueryBuiltin::GetStat => Instruction::QueryGetStat,
-        QueryBuiltin::GetTypes => Instruction::QueryGetTypes,
-        QueryBuiltin::HasType => Instruction::QueryHasType,
-    }
-}
-
-/// Get the IR instruction for an action builtin.
-pub fn action_instruction(a: &ActionBuiltin) -> Instruction {
-    match a {
-        ActionBuiltin::Move => Instruction::ActionMove,
-        ActionBuiltin::Attack => Instruction::ActionAttack,
-        ActionBuiltin::Flee => Instruction::ActionFlee,
-        ActionBuiltin::Wait => Instruction::ActionWait,
-        ActionBuiltin::SetTarget => Instruction::ActionSetTarget,
-    }
-}
-
-/// Whether a query takes an implicit `self` argument when called with 0 args.
-pub fn query_takes_implicit_self(q: &QueryBuiltin) -> bool {
-    matches!(
-        q,
-        QueryBuiltin::GetPos
-            | QueryBuiltin::GetHealth
-            | QueryBuiltin::GetShield
-            | QueryBuiltin::GetTarget
-            | QueryBuiltin::HasTarget
-    )
-}
-
-/// Expected number of explicit arguments for a query.
-pub fn query_expected_args(q: &QueryBuiltin) -> usize {
-    match q {
-        QueryBuiltin::Scan | QueryBuiltin::Nearest => 1,
-        QueryBuiltin::Distance => 2,
-        QueryBuiltin::GetPos
-        | QueryBuiltin::GetHealth
-        | QueryBuiltin::GetShield
-        | QueryBuiltin::GetTarget
-        | QueryBuiltin::HasTarget
-        | QueryBuiltin::GetType
-        | QueryBuiltin::GetName
-        | QueryBuiltin::GetOwner
-        | QueryBuiltin::GetResource => 1,
-        QueryBuiltin::GetStat => 2,
-        QueryBuiltin::GetTypes => 1,
-        QueryBuiltin::HasType => 2,
-    }
-}
-
-/// Expected number of arguments for an action.
-pub fn action_expected_args(a: &ActionBuiltin) -> usize {
-    match a {
-        ActionBuiltin::Move => 1,
-        ActionBuiltin::Attack => 1,
-        ActionBuiltin::Flee => 1,
-        ActionBuiltin::Wait => 0,
-        ActionBuiltin::SetTarget => 1,
-    }
-}
-
-/// Get the IR instruction for an instant effect builtin.
-pub fn instant_effect_instruction(ie: &InstantEffectBuiltin) -> Instruction {
-    match ie {
-        InstantEffectBuiltin::GainResource => Instruction::InstantGainResource,
-        InstantEffectBuiltin::TrySpendResource => Instruction::InstantTrySpendResource,
-    }
-}
-
-/// Expected number of arguments for an instant effect.
-pub fn instant_effect_expected_args(ie: &InstantEffectBuiltin) -> usize {
-    match ie {
-        InstantEffectBuiltin::GainResource => 2,
-        InstantEffectBuiltin::TrySpendResource => 2,
+        "move" => Some(Instruction::ActionMove),
+        "attack" => Some(Instruction::ActionAttack),
+        "flee" => Some(Instruction::ActionFlee),
+        "wait" => Some(Instruction::ActionWait),
+        "set_target" => Some(Instruction::ActionSetTarget),
+        // Instant effects
+        "gain_resource" => Some(Instruction::InstantGainResource),
+        "try_spend_resource" => Some(Instruction::InstantTrySpendResource),
+        _ => None,
     }
 }

@@ -89,9 +89,10 @@ pub struct App {
     execution_manager: ScriptExecutionManager,
     maximized_state: MaximizedState,
     settings: Settings,
-    available_commands: Vec<String>,
     /// Available resource names (gated like commands).
     available_resources: Vec<String>,
+    /// Command display order (for list_commands).
+    command_order: Vec<String>,
     /// Custom command definitions from mods.
     command_defs: HashMap<String, CommandDef>,
     /// GrimScript library source (prepended to player scripts before compilation).
@@ -156,8 +157,8 @@ impl App {
             execution_manager: ScriptExecutionManager::default(),
             maximized_state: MaximizedState::default(),
             settings: Settings::default(),
-            available_commands: Vec::new(),
             available_resources: Vec::new(),
+            command_order: Vec::new(),
             command_defs: HashMap::new(),
             library_source: String::new(),
             type_defs: HashMap::new(),
@@ -234,11 +235,10 @@ impl App {
             }
             // Assign brain scripts to newly spawned entities (outside sim borrow).
             if !spawned_entities.is_empty() {
-                let global_unlocks = self.build_global_unlocks();
-                let custom_arg_counts = self.custom_command_arg_counts();
+                let cmd_meta = self.command_metadata();
                 for (eid, etype) in &spawned_entities {
                     if let Some(types) = self.entity_types.get(etype).cloned() {
-                        self.compile_and_assign_entity_brain(*eid, &types, &global_unlocks, &custom_arg_counts);
+                        self.compile_and_assign_entity_brain(*eid, &types, &cmd_meta);
                     }
                 }
             }
@@ -529,7 +529,7 @@ impl ApplicationHandler<UserEvent> for App {
         // --- Mod loading (with dependency resolution) ---
         let mods = modding::load_mods(&modding::mods_dir());
         modding::validate_dependencies(&mods);
-        self.available_commands = modding::collect_initial_commands(&mods);
+        self.command_order = modding::collect_command_names(&mods);
         self.available_resources = modding::collect_available_resources(&mods);
         self.command_defs = modding::collect_command_defs(&mods);
         self.library_source = modding::collect_library_source(&mods);
@@ -602,8 +602,8 @@ impl ApplicationHandler<UserEvent> for App {
             sim.register_buff(buff);
         }
 
-        // Set command display order to match available_commands insertion order.
-        sim.command_order = self.available_commands.clone();
+        // Set command display order from mod command definitions.
+        sim.command_order = self.command_order.clone();
 
         // Initialize global resources from mod definitions.
         let collected = modding::collect_initial_resources(&mods);
@@ -845,24 +845,8 @@ impl ApplicationHandler<UserEvent> for App {
 
 impl App {
     fn send_available_commands(&self) {
-        let commands: Vec<String> = if deadcode_desktop::is_dev_mode() {
-            // In dev mode, send all game builtins as available
-            let mut cmds: Vec<String> = vec![
-                "move", "get_pos", "scan", "nearest", "distance", "attack",
-                "flee", "wait", "set_target", "get_target", "has_target",
-                "get_health", "get_shield", "get_type",
-                "get_name", "get_owner",
-                "get_resource", "gain_resource", "try_spend_resource",
-            ]
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
-            // Add all custom command names too.
-            cmds.extend(self.command_defs.keys().cloned());
-            cmds
-        } else {
-            self.available_commands.clone()
-        };
+        // All commands come from mod definitions now.
+        let commands: Vec<String> = self.command_defs.keys().cloned().collect();
 
         let resources: Vec<String> = if deadcode_desktop::is_dev_mode() {
             // In dev mode, all defined resources are available.
@@ -873,7 +857,7 @@ impl App {
             self.available_resources.clone()
         };
 
-        // Build command info for custom commands (for editor autocomplete).
+        // Build command info for all commands (for editor autocomplete).
         let command_info: Vec<CommandInfo> = self.command_defs.values().map(|def| {
             CommandInfo {
                 name: def.name.clone(),
@@ -891,10 +875,14 @@ impl App {
         self.webview_manager.send_to_all(&msg);
     }
 
-    /// Build custom command arg counts map for the compiler.
-    fn custom_command_arg_counts(&self) -> std::collections::HashMap<String, usize> {
+    /// Build command metadata map for the compiler (all commands from mod definitions).
+    fn command_metadata(&self) -> std::collections::HashMap<String, deadcode_sim::compiler::CommandMeta> {
         self.command_defs.iter().map(|(name, def)| {
-            (name.clone(), def.args.len())
+            (name.clone(), deadcode_sim::compiler::CommandMeta {
+                num_args: def.args.len(),
+                kind: def.kind.clone(),
+                implicit_self: def.implicit_self,
+            })
         }).collect()
     }
 
@@ -908,7 +896,7 @@ impl App {
     fn handle_console_command_sim(&mut self, source: &str) {
         // Terminal uses the main brain entity's effective commands (type-gated).
         let available = self.effective_commands_for_main_brain();
-        let custom = self.custom_command_arg_counts();
+        let custom = self.command_metadata();
 
         // Prepend library functions from mods.
         let full_source = self.prepend_library_source(source);
@@ -1039,32 +1027,18 @@ impl App {
     }
 
 
-    /// Get available commands for the compiler (None = all allowed in dev mode).
-    fn available_commands_for_compiler(&self) -> Option<HashSet<String>> {
-        if deadcode_desktop::is_dev_mode() {
-            None // all commands available
-        } else {
-            Some(self.available_commands.iter().cloned().collect())
-        }
-    }
-
-    fn available_commands_for_interpreter(&self) -> Option<HashSet<String>> {
-        self.available_commands_for_compiler()
-    }
-
     /// Get effective commands for the main brain entity (type-gated).
     fn effective_commands_for_main_brain(&self) -> Option<HashSet<String>> {
         if deadcode_desktop::is_dev_mode() {
             return None;
         }
-        let global_unlocks = self.build_global_unlocks();
         // Get main brain entity's types.
         let main_types = self.sim_world.as_ref()
             .and_then(|sim| sim.main_brain_id())
             .and_then(|eid| self.sim_world.as_ref().unwrap().get_entity(eid))
             .map(|e| e.types.clone())
             .unwrap_or_else(|| vec!["main".to_string()]);
-        Some(modding::compute_effective_commands(&main_types, &self.type_defs, &global_unlocks))
+        modding::compute_effective_commands(&main_types, &self.type_defs)
     }
 
     /// Prepend mod library source to player script source.
@@ -1081,19 +1055,14 @@ impl App {
     /// Compile and assign brain scripts to all entities and the main brain.
     /// Called at startup and during auto-reload.
     fn compile_and_assign_all_brains(&mut self) {
-        let global_unlocks = self.build_global_unlocks();
-        let custom_arg_counts = self.custom_command_arg_counts();
+        let cmd_meta = self.command_metadata();
 
         // Compile and assign main brain.
         let main_source = self.get_type_script_source("main");
         if !main_source.is_empty() {
-            let available = if deadcode_desktop::is_dev_mode() {
-                None
-            } else {
-                Some(global_unlocks.clone())
-            };
+            let available = self.effective_commands_for_main_brain();
             let full_source = self.prepend_library_source(&main_source);
-            match deadcode_sim::compiler::compile_source_full(&full_source, available, custom_arg_counts.clone()) {
+            match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta.clone()) {
                 Ok(script) => {
                     if let Some(sim) = &mut self.sim_world {
                         let num_vars = script.num_variables;
@@ -1120,23 +1089,7 @@ impl App {
             };
 
         for (eid, types) in entity_info {
-            self.compile_and_assign_entity_brain(eid, &types, &global_unlocks, &custom_arg_counts);
-        }
-    }
-
-    /// Build the set of globally unlocked commands.
-    fn build_global_unlocks(&self) -> HashSet<String> {
-        if deadcode_desktop::is_dev_mode() {
-            let mut all = HashSet::new();
-            for name in self.available_commands.iter() {
-                all.insert(name.clone());
-            }
-            for name in self.command_defs.keys() {
-                all.insert(name.clone());
-            }
-            all
-        } else {
-            self.available_commands.iter().cloned().collect()
+            self.compile_and_assign_entity_brain(eid, &types, &cmd_meta);
         }
     }
 
@@ -1145,8 +1098,7 @@ impl App {
         &mut self,
         eid: deadcode_sim::entity::EntityId,
         types: &[String],
-        global_unlocks: &HashSet<String>,
-        custom_arg_counts: &HashMap<String, usize>,
+        cmd_meta: &HashMap<String, deadcode_sim::compiler::CommandMeta>,
     ) {
         // Find the brain type for this entity.
         let brain_type = types.iter()
@@ -1197,15 +1149,14 @@ impl App {
         }
         full_source.push_str(&brain_source);
 
-        // Compute effective commands for this entity.
-        let effective = modding::compute_effective_commands(types, &self.type_defs, global_unlocks);
+        // Compute effective commands for this entity (type-gated).
         let available = if deadcode_desktop::is_dev_mode() {
             None
         } else {
-            Some(effective)
+            modding::compute_effective_commands(types, &self.type_defs)
         };
 
-        match deadcode_sim::compiler::compile_source_full(&full_source, available, custom_arg_counts.clone()) {
+        match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta.clone()) {
             Ok(script) => {
                 if let Some(sim) = &mut self.sim_world {
                     let num_vars = script.num_variables;
@@ -1243,19 +1194,7 @@ impl App {
     /// Handle auto-reload when a type script is saved.
     /// Recompiles and hot-swaps all affected entities.
     fn handle_type_script_reload(&mut self, type_name: &str) {
-        let global_unlocks: HashSet<String> = if deadcode_desktop::is_dev_mode() {
-            let mut all = HashSet::new();
-            for name in self.available_commands.iter() {
-                all.insert(name.clone());
-            }
-            for name in self.command_defs.keys() {
-                all.insert(name.clone());
-            }
-            all
-        } else {
-            self.available_commands.iter().cloned().collect()
-        };
-        let custom_arg_counts = self.custom_command_arg_counts();
+        let cmd_meta = self.command_metadata();
 
         if type_name == "main" {
             // Recompile main brain.
@@ -1268,13 +1207,9 @@ impl App {
                 return;
             }
             {
-                let available = if deadcode_desktop::is_dev_mode() {
-                    None
-                } else {
-                    Some(global_unlocks.clone())
-                };
+                let available = self.effective_commands_for_main_brain();
                 let full_source = self.prepend_library_source(&main_source);
-                match deadcode_sim::compiler::compile_source_full(&full_source, available, custom_arg_counts) {
+                match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta) {
                     Ok(script) => {
                         if let Some(sim) = &mut self.sim_world {
                             let num_vars = script.num_variables;
@@ -1314,17 +1249,18 @@ impl App {
             return;
         }
 
+        let cmd_meta = self.command_metadata();
         let count = affected.len();
         for (eid, types) in affected {
             if is_brain {
                 // Brain type changed — recompile this entity's brain.
-                self.compile_and_assign_entity_brain(eid, &types, &global_unlocks, &custom_arg_counts);
+                self.compile_and_assign_entity_brain(eid, &types, &cmd_meta);
             } else {
                 // Non-brain type changed — library changed, find the brain and recompile.
                 let has_brain = types.iter()
                     .any(|t| self.type_defs.get(t).map_or(false, |td| td.brain));
                 if has_brain {
-                    self.compile_and_assign_entity_brain(eid, &types, &global_unlocks, &custom_arg_counts);
+                    self.compile_and_assign_entity_brain(eid, &types, &cmd_meta);
                 }
             }
         }
@@ -1348,9 +1284,9 @@ impl App {
                         let msg = RustToJs::ScriptList { scripts: infos };
                         self.webview_manager.send_to_all(&msg);
                     }
-                    self.execution_manager.set_available_commands(
-                        self.available_commands_for_interpreter(),
-                    );
+                    // For the tree-walking interpreter, all mod commands are "custom commands"
+                    // and availability is not gated (gating happens at the compiler level).
+                    self.execution_manager.set_available_commands(None);
                     self.execution_manager.set_custom_commands(
                         Some(self.command_defs.keys().cloned().collect()),
                     );

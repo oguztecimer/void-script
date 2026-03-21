@@ -114,7 +114,6 @@ gold = 100                          # Capless resource
 
 # --- Initial State ---
 [initial]
-commands = ["raise", "harvest"]     # Commands available at game start
 resources = ["souls", "mana"]       # Resources available at game start (omit = all available)
 effects = [                         # Effects that run on first game open
   { type = "output", message = "Welcome to the void..." },
@@ -225,7 +224,7 @@ entity_types = entity.types        # attribute access to type list
 
 ## Entity Definitions
 
-Entity definitions register entities that can be spawned — either at startup via `[[spawn]]` or at runtime by effects (e.g., the `raise` command spawns skeletons).
+Entity definitions register entities that can be spawned — either at startup via `[initial].effects` or at runtime by effects (e.g., the `raise` command spawns skeletons).
 
 ```toml
 [[entities]]
@@ -317,67 +316,58 @@ gain_resource("souls", 1)
 
 ## Available Commands
 
-The `[initial].commands` list controls which GrimScript game commands are unlocked at game start.
-
-```toml
-[initial]
-commands = ["help", "raise", "harvest", "pact"]
-```
+All non-stdlib commands are defined by mods via `[[commands.definitions]]` in `mod.toml`. This includes game builtins (queries like `scan`, actions like `move`, instant effects like `gain_resource`) and custom data-driven commands.
 
 ### Always Available (Stdlib)
 
-These are always available regardless of `[initial].commands`:
+These are always available and not defined by mods:
 
 `print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`
 
-### Gatable Game Commands
+### Mod-Defined Game Commands
 
-| Command | Type | Args | Description |
+The core mod defines the standard game commands. Each has a `kind` that determines how the compiler treats it:
+
+| Command | Kind | Args | Description |
 |---------|------|------|-------------|
-| `move(pos)` | Action | 1 | Move toward a position |
-| `attack(entity)` | Action | 1 | Attack a target entity |
-| `flee(entity)` | Action | 1 | Move away from a threat |
-| `wait()` | Action | 0 | Skip the current tick |
-| `set_target(entity)` | Action | 1 | Set combat target |
-| `scan("type")` | Query | 1 | Find all entities of a type (returns list) |
-| `nearest("type")` | Query | 1 | Find nearest entity of a type |
-| `distance(a, b)` | Query | 2 | Get distance between two entities |
-| `get_pos(entity)` | Query | 1 | Get entity position |
-| `get_health(entity)` | Query | 1 | Get entity health |
-| `get_shield(entity)` | Query | 1 | Get entity shield |
-| `get_type(entity)` | Query | 1 | Get entity type string |
-| `get_name(entity)` | Query | 1 | Get entity name |
-| `get_owner(entity)` | Query | 1 | Get entity owner (EntityRef or None) |
-| `get_target(entity)` | Query | 1 | Get current target (EntityRef or None) |
-| `has_target(entity)` | Query | 1 | Check if target is set (Bool) |
-| `get_resource("name")` | Query | 1 | Get a global resource value |
-| `get_stat(entity, "name")` | Query | 2 | Get any stat from an entity (0 if undefined) |
-| `get_types(entity)` | Query | 1 | Get all type tags as a list of strings |
-| `has_type(entity, "name")` | Query | 2 | Check if entity has a type tag (Bool) |
-| `gain_resource("name", amount)` | Instant | 2 | Add to a global resource (returns new total) |
-| `try_spend_resource("name", amount)` | Instant | 2 | Spend a global resource if sufficient (returns Bool) |
+| `move(pos)` | action | 1 | Move toward a position |
+| `attack(entity)` | action | 1 | Attack a target entity |
+| `flee(entity)` | action | 1 | Move away from a threat |
+| `wait()` | action | 0 | Skip the current tick |
+| `set_target(entity)` | action | 1 | Set combat target |
+| `scan("type")` | query | 1 | Find all entities of a type (returns list) |
+| `nearest("type")` | query | 1 | Find nearest entity of a type |
+| `distance(a, b)` | query | 2 | Get distance between two entities |
+| `get_pos(entity)` | query | 1 | Get entity position (implicit_self) |
+| `get_health(entity)` | query | 1 | Get entity health (implicit_self) |
+| `get_shield(entity)` | query | 1 | Get entity shield (implicit_self) |
+| `get_type(entity)` | query | 1 | Get entity type string |
+| `get_name(entity)` | query | 1 | Get entity name |
+| `get_owner(entity)` | query | 1 | Get entity owner (EntityRef or None) |
+| `get_target(entity)` | query | 1 | Get current target (implicit_self) |
+| `has_target(entity)` | query | 1 | Check if target is set (implicit_self) |
+| `get_resource("name")` | query | 1 | Get a global resource value |
+| `get_stat(entity, "name")` | query | 2 | Get any stat from an entity (0 if undefined) |
+| `get_types(entity)` | query | 1 | Get all type tags as a list of strings |
+| `has_type(entity, "name")` | query | 2 | Check if entity has a type tag (Bool) |
+| `gain_resource("name", amount)` | instant | 2 | Add to a global resource (returns new total) |
+| `try_spend_resource("name", amount)` | instant | 2 | Spend a global resource if sufficient (returns Bool) |
 
-**Type legend:**
-- **Action** — consumes the tick (the entity yields after calling it)
-- **Query** — instant, does not consume the tick (returns a value)
-- **Instant** — mutates world state without consuming the tick
+**Kind legend:**
+- **action** — consumes the tick (the entity yields after calling it)
+- **query** — instant, does not consume the tick (returns a value)
+- **instant** — mutates world state without consuming the tick
+- **custom** — data-driven effects/phases, consumes the tick (default for `[[commands.definitions]]`)
 
-Some queries accept implicit `self` when called with 0 args: `get_pos()`, `get_health()`, `get_shield()`, `get_target()`, `has_target()`.
-
-Custom commands defined via `[[commands.definitions]]` are also gated by `[initial].commands`. In dev mode (`--features dev-mode`), all commands are available.
+Commands with `implicit_self = true` accept 0-arg calls that auto-push `self` as the first argument: `get_pos()`, `get_health()`, `get_shield()`, `get_target()`, `has_target()`.
 
 ### Command Capability Gating
 
-Commands are gated on **two levels**:
+Commands are gated by **type capability** (`commands` on `[[types]]`). An entity's effective commands = union of all its types' `commands` lists.
 
-1. **Global Unlock** (`[initial].commands`) — Progression gate. A command must be in the global unlock list to be usable by any entity.
-2. **Type Capability** (`commands` on `[[types]]`) — Per-entity gate. If a type defines `commands`, its entities can only use those commands.
+If no types define `commands`, all commands are available (backward compatibility — `compute_effective_commands()` returns `None`).
 
-An entity's effective commands = union of all its types' `commands` lists ∩ globally unlocked commands.
-
-If no types define `commands`, all globally unlocked commands are available (backward compatibility).
-
-In dev mode (`--features dev-mode`), both gates are bypassed — all commands are available to all entities.
+In dev mode (`--features dev-mode`), the gate is bypassed — all commands are available to all entities.
 
 ---
 
@@ -387,7 +377,6 @@ The `[initial]` section consolidates all game-start configuration. Effects from 
 
 ```toml
 [initial]
-commands = ["raise", "harvest"]
 resources = ["souls"]
 effects = [
   { type = "output", message = "Welcome to the void..." },
@@ -401,9 +390,10 @@ Any effect type can be used. A `use_resource` or `use_global_resource` failure a
 
 ## Custom Command Definitions
 
-Mods define new commands with data-driven effects using `[[commands.definitions]]`. Custom commands are always **actions** — they consume a tick when executed.
+Mods define all commands via `[[commands.definitions]]`, including game builtins (queries, actions, instant effects) and custom data-driven commands.
 
 ```toml
+# Data-driven custom command (default kind = "custom")
 [[commands.definitions]]
 name = "drain"
 description = "Drain life from target"
@@ -414,6 +404,13 @@ effects = [
   { type = "heal", target = "self", amount = 10 },
   { type = "output", message = "[drain] Life drained!" },
 ]
+
+# Game builtin defined as a mod command
+[[commands.definitions]]
+name = "get_health"
+kind = "query"                  # query/action/instant/custom (default: custom)
+implicit_self = true            # 0-arg calls auto-push self (default: false)
+args = ["entity"]
 ```
 
 | Field | Required | Default | Description |
@@ -424,8 +421,16 @@ effects = [
 | `args` | No | `[]` | Positional argument names |
 | `effects` | No | `[]` | Instant effects (mutually exclusive with `phases`) |
 | `phases` | No | `[]` | Multi-tick phases (mutually exclusive with `effects`) |
+| `kind` | No | `"custom"` | Command kind: `query`, `action`, `instant`, or `custom` |
+| `implicit_self` | No | `false` | If true, 0-arg calls auto-push `self` as first argument (queries only) |
 
-Commands use either `effects` (instant, single-tick) or `phases` (multi-tick channeling). They are mutually exclusive — validated at load time.
+**Command kinds:**
+- **`custom`** (default) — data-driven effects/phases, consumes the tick. Compiles to `ActionCustom(name)`.
+- **`query`** — instant, returns a value, does not consume the tick. If a `builtin_instruction()` mapping exists, compiles to a dedicated IR instruction; otherwise compiles to `ActionCustom`.
+- **`action`** — consumes the tick. Compiles to a dedicated IR instruction if mapped, otherwise `ActionCustom`.
+- **`instant`** — mutates world state without consuming the tick. Compiles to a dedicated IR instruction if mapped, otherwise `ActionCustom`.
+
+Commands use either `effects` (instant, single-tick) or `phases` (multi-tick channeling). They are mutually exclusive — validated at load time. Commands with `kind` other than `custom` typically have no `effects` or `phases` (their behavior is implemented in the executor).
 
 ### Resource Costs
 
@@ -444,7 +449,7 @@ effects = [
 
 ### Base Game Commands
 
-The base game commands (`help`, `trance`, `raise`, `harvest`, `pact`) are defined in `mods/core/mod.toml` using the same `[[commands.definitions]]` system as any custom mod command.
+All game commands — both builtins (`move`, `attack`, `scan`, `get_health`, etc.) and custom commands (`help`, `trance`, `raise`, `harvest`, `pact`) — are defined in `mods/core/mod.toml` using `[[commands.definitions]]`. Builtins use `kind` and `implicit_self` fields to tell the compiler how to handle them.
 
 ---
 
@@ -1259,8 +1264,7 @@ Multiple mods can be active simultaneously. Content from all mods is merged:
 - **Resources**: Merged. First-defined-wins with warning on duplicates.
 - **Buffs**: Merged. First-defined-wins with warning on duplicates.
 - **Triggers**: All triggers from all mods are collected in load order.
-- **Spawns**: All `[[spawn]]` entries from all mods execute.
-- **Initial commands/resources**: Merged from all mods' `[initial]` sections.
+- **Initial resources**: Merged from all mods' `[initial]` sections.
 - **Initial effects**: Merged in load order.
 - **Library files**: Concatenated in load order.
 
@@ -1273,7 +1277,7 @@ Load order is determined by the dependency graph (topological sort, alphabetical
 After all mods are loaded, the engine validates:
 
 ### Entity/Spawn Validation
-- `[[spawn]]` entity types must match registered entity types
+- `spawn` effect entity types must match registered entity types
 - `spawn` effect entity types are checked against known types (recursively through `if` branches and `start_channel` phases)
 - Entities with multiple brain types are **rejected** and removed from all registries (configs, types, sprites, pivots) — they will not load or spawn
 
@@ -1355,10 +1359,9 @@ Its `mod.toml` defines:
 - The `skeleton` entity type (5 HP, inherits speed from `unit` type)
 - The summoner spawn at position 500
 - Global resources: `mana` (50/100 capped), `bones` (0, capless)
-- Initial commands: `help`, `trance`, `raise`, `harvest`, `pact`
 - Initial resources: `mana`, `bones`
 - Startup messages via initial effects
-- Five custom commands: `help` (list commands), `trance` (mana regen channel), `raise` (spawn skeleton), `harvest` (phased channel), `pact` (self-damage)
+- All game commands: builtins (`move`, `attack`, `scan`, `get_health`, etc. with `kind`/`implicit_self`) and custom commands (`help`, `trance`, `raise`, `harvest`, `pact`)
 
 ---
 
@@ -1386,7 +1389,7 @@ Its `mod.toml` defines:
 
 5. (Optional) Add resources, commands, triggers, buffs.
 
-6. (Optional) Add `[initial]` to control which commands and resources are unlocked.
+6. (Optional) Add `[initial]` to control which resources are unlocked at game start.
 
 7. Run the game — your mod is loaded automatically.
 
@@ -1576,13 +1579,13 @@ my_hp = self.health
 
 ### Adding a New Builtin
 
-5 files:
+4 files + mod.toml:
 
 1. `crates/deadcode-sim/src/ir.rs` — add `Instruction` variant
 2. `crates/deadcode-sim/src/executor.rs` — execute the instruction
 3. `crates/deadcode-sim/src/action.rs` — add `UnitAction` variant if it's an action
-4. `crates/deadcode-sim/src/compiler/builtins.rs` — map function name to IR
-5. `crates/grimscript-lang/src/builtins.rs` — register the name, set `is_game_builtin()` to `true`
+4. `crates/deadcode-sim/src/compiler/builtins.rs` — add mapping in `builtin_instruction()` so the compiler emits the dedicated IR instruction
+5. `mods/core/mod.toml` — add `[[commands.definitions]]` entry with `kind` (query/action/instant) and `implicit_self` if applicable
 
 ---
 
@@ -1595,12 +1598,11 @@ my_hp = self.health
 | `ModManifest` | `deadcode-app/modding.rs` | Deserialized `mod.toml` |
 | `ModMeta` | `deadcode-app/modding.rs` | Mod metadata (id, name, version, depends_on, conflicts_with) |
 | `EntityDef` | `deadcode-app/modding.rs` | Entity type definition (type, sprite, pivot, stats) |
-| `SpawnDef` | `deadcode-app/modding.rs` | Initial spawn (type, name, position) |
-| `InitialDef` | `deadcode-app/modding.rs` | Initial commands, resources, startup effects |
+| `InitialDef` | `deadcode-app/modding.rs` | Initial resources, startup effects |
 | `ResourceDef` | `deadcode-app/modding.rs` | Resource definition (value, optional max) |
 | `CommandsDef` | `deadcode-app/modding.rs` | Command definitions + library paths |
 | `LoadedMod` | `deadcode-app/modding.rs` | Fully resolved mod (sprites, configs, commands, library source) |
-| `CommandDef` | `deadcode-sim/action.rs` | Custom command (name, description, args, effects/phases, unlisted) |
+| `CommandDef` | `deadcode-sim/action.rs` | Command definition (name, description, args, effects/phases, unlisted, kind, implicit_self) |
 | `PhaseDef` | `deadcode-sim/action.rs` | Phase in a multi-tick command |
 | `CommandEffect` | `deadcode-sim/action.rs` | Effect type enum (16 variants) |
 | `Condition` | `deadcode-sim/action.rs` | Condition enum (9 variants) |
@@ -1630,15 +1632,15 @@ my_hp = self.health
 10. `collect_triggers()` and `collect_buffs()` gather all triggers/buffs from all mods
 11. `collect_library_source()` concatenates library source in load order
 12. `[initial].effects` spawn entries create sim entities and render units
-13. `[initial].commands` populate available commands; `[initial].effects` run against the summoner
+13. `[initial].effects` run against the summoner
 14. Commands, triggers, buffs, resources are registered with `SimWorld`
 
 ### Custom Command Flow
 
-1. `CommandDef` is parsed from TOML and collected
+1. `CommandDef` is parsed from TOML and collected (includes `kind` and `implicit_self` fields)
 2. At sim init, registered via `SimWorld::register_custom_command()` (effects, arg counts, phases)
-3. Compiler receives custom command arg counts, emits `ActionCustom(name)` IR
-4. Executor pops args and yields `UnitAction::Custom { name, args }`
+3. Compiler receives `HashMap<String, CommandMeta>` (kind, num_args, implicit_self). For commands with a `builtin_instruction()` mapping (queries, actions, instant effects), dedicated IR instructions are emitted. For all others, `ActionCustom(name)` is emitted.
+4. Executor pops args and yields the appropriate `UnitAction` variant
 5. `resolve_action()` checks phases → if yes, creates `ChannelState`; if no, resolves instant effects
 6. Phased: tick loop processes channels before script execution — runs effects, handles interruption
 7. Command metadata sent to frontend via `AvailableCommands` IPC for autocomplete/highlighting

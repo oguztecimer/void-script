@@ -19,60 +19,13 @@ pub fn is_stdlib(name: &str) -> bool {
     )
 }
 
-pub fn is_game_builtin(name: &str) -> bool {
-    is_builtin(name) && !is_stdlib(name)
-}
-
 pub fn is_builtin(name: &str) -> bool {
-    is_builtin_static(name)
-}
-
-/// Check against the statically known builtins.
-pub fn is_builtin_static(name: &str) -> bool {
-    matches!(
-        name,
-        "print"
-            | "len"
-            | "range"
-            | "abs"
-            | "min"
-            | "max"
-            | "int"
-            | "float"
-            | "str"
-            | "type"
-            | "percent"
-            | "scale"
-            | "append"
-            | "move"
-            | "get_pos"
-            | "scan"
-            | "nearest"
-            | "distance"
-            | "attack"
-            | "flee"
-            | "get_health"
-            | "get_shield"
-            | "wait"
-            | "set_target"
-            | "get_target"
-            | "has_target"
-            | "get_type"
-            | "get_name"
-            | "get_owner"
-            | "get_resource"
-            | "gain_resource"
-            | "try_spend_resource"
-            | "get_stat"
-            | "get_custom_stat"
-            | "get_types"
-            | "has_type"
-    )
+    is_stdlib(name) || name == "append"
 }
 
 /// Check if a name is a builtin, considering dynamic custom commands.
 pub fn is_builtin_with_custom(name: &str, custom_commands: &std::collections::HashSet<String>) -> bool {
-    is_builtin_static(name) || custom_commands.contains(name)
+    is_stdlib(name) || name == "append" || custom_commands.contains(name)
 }
 
 pub fn call_builtin(
@@ -448,7 +401,7 @@ pub fn call_builtin_with_custom(
     output_tx: &Sender<ScriptEvent>,
     custom_commands: &std::collections::HashSet<String>,
 ) -> Result<Value, GrimScriptError> {
-    if is_builtin_static(name) {
+    if is_builtin(name) {
         call_builtin(name, args, output_tx)
     } else if custom_commands.contains(name) {
         send_output(output_tx, &format!("[{name}] (custom command)"));

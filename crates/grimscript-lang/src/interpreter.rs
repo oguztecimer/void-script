@@ -80,10 +80,11 @@ impl Interpreter {
     }
 
     fn check_command_available(&self, name: &str, line: u32) -> Result<(), GrimScriptError> {
-        if builtins::is_stdlib(name) {
+        if builtins::is_stdlib(name) || name == "append" {
             return Ok(());
         }
-        if builtins::is_game_builtin(name) || self.custom_commands.contains(name) {
+        // All non-stdlib commands are checked against available_commands if set.
+        if self.custom_commands.contains(name) {
             if let Some(ref set) = self.available_commands {
                 if !set.contains(name) {
                     return Err(GrimScriptError::runtime(

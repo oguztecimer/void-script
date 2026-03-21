@@ -14,13 +14,6 @@ const stdlibFunctions = new Set([
   'print', 'len', 'range', 'abs', 'min', 'max', 'int', 'str', 'type',
 ]);
 
-const allGameFunctions = new Set([
-  'move', 'get_pos', 'scan', 'nearest', 'distance', 'attack',
-  'flee', 'wait', 'set_target', 'get_target', 'has_target',
-  'get_type', 'get_name', 'get_owner',
-  'consult', 'raise', 'harvest', 'pact',
-]);
-
 // Indentation-based folding for Python-like syntax
 export const grimScriptFolding = foldService.of((state, lineStart, lineEnd) => {
   const line = state.doc.lineAt(lineStart);
@@ -98,15 +91,9 @@ export const grimScriptLanguage = StreamLanguage.define({
       if (booleans.has(word)) return 'bool';
       if (constants.has(word)) return 'variableName.constant';
       if (stdlibFunctions.has(word)) return 'variableName.function';
-      if (allGameFunctions.has(word)) {
-        const available = useStore.getState().availableCommands;
-        if (available.includes(word)) return 'variableName.function';
-      }
-      // Check custom commands from mods.
+      // All game commands come from availableCommands (no hardcoded set).
       const available = useStore.getState().availableCommands;
-      if (available.includes(word) && !allGameFunctions.has(word) && !stdlibFunctions.has(word)) {
-        return 'variableName.function';
-      }
+      if (available.includes(word)) return 'variableName.function';
       return 'variableName';
     }
 

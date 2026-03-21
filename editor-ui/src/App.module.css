@@ -59,6 +59,10 @@
   to   { transform: rotate(360deg); }
 }
 
+.sigilPaused::before {
+  animation-play-state: paused;
+}
+
 .terminal {
   display: flex;
   flex-direction: column;

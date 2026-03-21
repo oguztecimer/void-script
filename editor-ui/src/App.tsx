@@ -63,6 +63,7 @@ export function App() {
   const bottomPanelOpen = useStore((s) => s.bottomPanelOpen);
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
   const isDebugging = useStore((s) => s.isDebugging);
+  const isSimPaused = useStore((s) => s.isSimPaused);
   const _toggleLeftPanel = useStore((s) => s.toggleLeftPanel);
   const toggleRightPanel = useStore((s) => s.toggleRightPanel);
   const toggleBottomPanel = useStore((s) => s.toggleBottomPanel);
@@ -303,7 +304,7 @@ export function App() {
                 className={styles.centerGroup}
               >
                 <Panel id="editor-panel" minSize="50%" maxSize="90%">
-                  <div className={styles.editorArea}>
+                  <div className={`${styles.editorArea}${isSimPaused ? ` ${styles.sigilPaused}` : ''}`}>
                     <Editor />
                   </div>
                 </Panel>

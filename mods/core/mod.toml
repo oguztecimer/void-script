@@ -17,25 +17,25 @@ stats = { health = 1, speed = 1 }
 [[types]]
 name = "summoner"
 brain = true
-stats = { health = 100}
+stats = { health = 100 }
 commands = ["help", "trance", "raise", "harvest", "pact"]
 
 [[types]]
 name = "skeleton"
 brain = true
-stats = { health = 5}
+stats = { health = 5 }
 
 # --- Entity Definitions ---
 
 [[entities]]
 id = "summoner"
-types = ["unit","summoner"]
+types = ["unit", "summoner"]
 sprite = "sprites/summoner_atlas"
 pivot = [49.0, 2.0]
 
 [[entities]]
 id = "skeleton"
-types = ["unit","skeleton"]
+types = ["unit", "skeleton"]
 sprite = "sprites/skeleton_atlas"
 pivot = [24.0, 0.0]
 
@@ -49,73 +49,3 @@ bones = 0
 
 [initial]
 resources = ["mana", "bones"]
-effects = [
-  { type = "spawn", entity_id = "summoner", offset=0},
-  { type = "output", message = "The dead stir beneath your feet" },
-  { type = "output", message = "Call for <hl>help()</hl> to hear them speak" },
-]
-
-# --- Commands ---
-
-[[commands.definitions]]
-name = "help"
-description = "Hidden wisdom will be found"
-unlisted = true
-args = []
-effects = [
-  { type = "output", message = " " },
-  { type = "list_commands" },
-]
-
-[[commands.definitions]]
-name = "trance"
-description = "Deep in trance, what's lost is found"
-args = []
-phases = [
-  { ticks = 1000, interruptible = true, update_interval = 5, per_update = [
-    { type = "modify_resource", resource = "mana", amount = 1 },
-  ], on_start =[
-    { type = "output", message = "[trance] You feel the mana flowing in." }
-  ]}
-]
-
-[[commands.definitions]]
-name = "raise"
-description = "From the ground, the dead are bound"
-args = []
-phases = [
-  { ticks = 12, interruptible = true, on_start = [
-    { type = "animate", target = "self", animation = "cast" }
-  ]},
-  { ticks = 1, interruptible = false, on_start = [
-    #{ type = "if", condition = {type = "resource", resource="mana",compare = "gte",amount = 20}, then = [{type = "output", message = "test"}] },
-    { type = "use_global_resource", resource = "mana", amount = 20}
-  ]},
-  { ticks = 18, interruptible = false, on_start = [
-    { type = "spawn", entity_id = "skeleton", offset = "rand(-300,300)"}
-  ]},
-]
-
-[[commands.definitions]]
-name = "harvest"
-description = "The children slain, bones remain"
-args = []
-phases = [
-  { ticks = 12, interruptible = true, on_start = [
-    { type = "animate", target = "self", animation = "cast" }
-  ]},
-  { ticks = 1, interruptible = false, on_start = [
-    { type = "use_global_resource", resource = "mana", amount = 50}
-  ]},
-  { ticks = 1, interruptible = false, on_start = []},
-  { ticks = 18, interruptible = false, on_start = []},
-]
-
-[[commands.definitions]]
-name = "pact"
-description = "Pledge your bones to my domain"
-args = []
-effects = [
-  { type = "modify_stat", target = "self", stat = "health", amount = -10 },
-  { type = "output", message = "[pact] Power surges through you..." },
-]

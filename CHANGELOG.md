@@ -6,12 +6,17 @@
 
 #### Added
 - **M-01: Lua scripting for mod logic** — New `deadcode-lua` crate provides a Lua 5.4 runtime for mod logic (commands, triggers, buff callbacks, init effects). Mods can now include a `mod.lua` file alongside `mod.toml`. TOML remains for data declarations (types, entities, resources, buffs), while Lua handles behavior. Lua handlers take priority over TOML effects when both exist. The system uses Lua coroutines for multi-tick commands (`ctx:yield_ticks(N, { interruptible = true })`), replacing the verbose TOML `phases` system.
-- **M-02: `CommandHandler` trait** — New trait in `deadcode-sim/src/action.rs` enables external runtimes (Lua) to handle custom commands, triggers, buff callbacks, and init effects. `SimWorld` stores an optional `Box<dyn CommandHandler>`. `resolve_action()` checks the handler before falling back to TOML effects.
-- **M-03: `WorldAccess` API** — New struct in `deadcode-sim/src/world.rs` provides controlled mutable access to `SimWorld` for external handlers. Exposes entity operations (damage, heal, spawn, modify_stat), resource operations (use, modify, get), queries (entity_count, is_alive, distance), buff operations, and output — matching the full TOML effect API surface.
-- **M-04: `ActiveChannel` enum** — Entity's `active_channel` field now supports both TOML-based `ChannelState` and Lua-based `LuaCoroutineState` via `ActiveChannel::Toml(ChannelState) | ActiveChannel::Lua(LuaCoroutineState)`. The tick loop handles both variants.
+- **M-02: `CommandHandler` trait** — New trait in `deadcode-sim/src/action.rs` enables external runtimes (Lua) to handle custom commands, triggers, buff callbacks, and init effects. `SimWorld` stores an optional `Box<dyn CommandHandler>`. `resolve_action()` dispatches to the handler.
+- **M-03: `WorldAccess` API** — New struct in `deadcode-sim/src/world.rs` provides controlled mutable access to `SimWorld` for external handlers. Exposes entity operations (damage, heal, spawn, modify_stat), resource operations (use, modify, get), queries (entity_count, is_alive, distance), buff operations, and output.
+- **M-04: Lua coroutine channels** — Entity's `active_channel: Option<LuaCoroutineState>` tracks yielded Lua coroutines. The tick loop decrements `remaining_ticks`, handles interruptibility, and resumes via `CommandHandler::resume_coroutine()`.
 - **M-05: Core mod Lua migration** — `mods/core/mod.lua` provides Lua implementations of all core commands (help, trance, raise, harvest, pact), the init handler, and entity_died trigger. The `raise` command is now 8 lines of Lua instead of 30 lines of nested TOML.
 - **M-06: Lua sandbox** — `os`, `io`, `debug`, `dofile`, `loadfile`, `package` stripped from Lua globals. Deterministic RNG via `SimRng`. `require("void")` returns the mod API table.
 - **M-07: Hot-reload support** — `CommandHandler::reload_mod()` cancels active coroutines, unregisters handlers, and re-executes `mod.lua` for live iteration.
+
+#### Removed
+- **M-08: TOML effect system removed** — Removed `CommandEffect`, `Condition`, `DynInt`, `CompareOp`, `EffectContext`, `EffectOutcome`, `PhaseDef`, `TriggerDef`, `TriggerFilter` enums/structs and all associated resolution functions (`resolve_custom_effects`, `resolve_effects_inner`, `evaluate_condition`, `resolve_target_from_args`). All command logic, triggers, buff callbacks, and init effects are now Lua-only. ~800 lines removed from `action.rs`, ~1500 lines from `world.rs`.
+- **M-09: TOML backwards compatibility removed** — Removed all serde aliases (`entity_type`→`entity_id`, `custom_stat`→`stat`, `modify_custom_stat`→`modify_stat`, `use_custom_stat`→`use_resource`, `custom_stats`→`stats`). Removed legacy `[initial].commands` field. Removed `EntityDef.entity_type` fallback (entity `id` is now required). Removed `ActiveChannel::Toml` / `ChannelState`. `mod.toml` is now data-only (types, entities, resources, buff stats).
+- **M-10: Unused `create_strip_window` utility removed** from `deadcode-desktop/src/window.rs`.
 
 ### Simulation Engine / Compiler
 

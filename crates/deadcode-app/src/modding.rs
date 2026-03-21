@@ -1,15 +1,16 @@
 //! Mod loading system.
 //!
 //! Loads `mod.toml` manifests from the `mods/` directory. Each mod defines
-//! entity types (with sprites and stats), initial effects, and available
-//! commands. The base game ("core") is itself a mod.
+//! entity types (with sprites and stats) and available resources. The base
+//! game ("core") is itself a mod. Commands, triggers, and effects are defined
+//! in Lua only.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use deadcode_sim::action::{BuffDef, CommandDef, CommandEffect, TriggerDef};
+use deadcode_sim::action::BuffDef;
 use deadcode_sim::entity::EntityConfig;
 
 // ---------------------------------------------------------------------------
@@ -29,9 +30,6 @@ pub struct ModManifest {
     /// Global resources: name → definition (plain int for capless, or {value, max} for capped).
     #[serde(default)]
     pub resources: HashMap<String, ResourceDef>,
-    /// Event-driven triggers that fire effects when game events match.
-    #[serde(default)]
-    pub triggers: Vec<TriggerDef>,
     /// Buff definitions (temporary stat modifiers with automatic expiry).
     #[serde(default)]
     pub buffs: Vec<BuffDef>,
@@ -89,20 +87,12 @@ impl<'de> Deserialize<'de> for ResourceDef {
     }
 }
 
-/// The `[initial]` section: resources and effects available at game start.
+/// The `[initial]` section: initially available resources.
 #[derive(Debug, Deserialize, Default)]
 pub struct InitialDef {
-    /// Legacy field — ignored. Commands are now defined entirely by mod command definitions
-    /// and type-level gating.
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub commands: Vec<String>,
     /// Initially available resource names. If empty, all defined resources are available.
     #[serde(default)]
     pub resources: Vec<String>,
-    /// Effects to run on first game open.
-    #[serde(default)]
-    pub effects: Vec<CommandEffect>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,12 +132,8 @@ pub struct TypeDef {
 
 #[derive(Debug, Deserialize)]
 pub struct EntityDef {
-    /// Unique entity definition ID. Falls back to `type` if absent.
-    #[serde(default)]
-    pub id: Option<String>,
-    /// Legacy field — used as `id` if `id` is absent.
-    #[serde(default, rename = "type")]
-    pub entity_type: Option<String>,
+    /// Unique entity definition ID (required).
+    pub id: String,
     /// Composable type tags. If absent, defaults to `[id]`.
     #[serde(default)]
     pub types: Vec<String>,
@@ -158,21 +144,20 @@ pub struct EntityDef {
     pub pivot: Option<[f32; 2]>,
     /// All stats for this entity (e.g., health = 50, speed = 2, armor = 5).
     /// These override type-level stats.
-    #[serde(default, alias = "custom_stats")]
+    #[serde(default)]
     pub stats: indexmap::IndexMap<String, i64>,
 }
 
 impl EntityDef {
-    /// Resolve the entity definition ID (prefers `id`, falls back to `entity_type`).
-    /// Returns `None` if neither `id` nor `type` is set.
-    pub fn resolved_id(&self) -> Option<String> {
-        self.id.clone().or_else(|| self.entity_type.clone())
+    /// Return the entity definition ID.
+    pub fn resolved_id(&self) -> String {
+        self.id.clone()
     }
 
-    /// Resolve the types list (defaults to `[resolved_id()]` if empty).
+    /// Resolve the types list (defaults to `[id]` if empty).
     pub fn resolved_types(&self) -> Vec<String> {
         if self.types.is_empty() {
-            self.resolved_id().into_iter().collect()
+            vec![self.id.clone()]
         } else {
             self.types.clone()
         }
@@ -187,8 +172,6 @@ impl EntityDef {
 
 #[derive(Debug, Deserialize)]
 pub struct CommandsDef {
-    #[serde(default)]
-    pub definitions: Vec<CommandDef>,
     /// Paths to .grim library files (relative to mod dir). Functions defined
     /// in these files are prepended to player scripts before compilation.
     #[serde(default)]
@@ -221,8 +204,6 @@ pub struct LoadedMod {
     pub entity_configs: HashMap<String, EntityConfig>,
     /// Entity def ID → resolved type tags.
     pub entity_types: HashMap<String, Vec<String>>,
-    /// Command name → command definition.
-    pub command_defs: HashMap<String, CommandDef>,
     /// GrimScript library source code (concatenated from all library files).
     pub library_source: String,
     /// Type name → type definition (from [[types]] in mod.toml).
@@ -251,16 +232,8 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
     let mut pivots = HashMap::new();
     let mut entity_configs = HashMap::new();
     let mut entity_types_map = HashMap::new();
-    let mut command_defs = HashMap::new();
     let mut type_defs = HashMap::new();
     let mut type_scripts = HashMap::new();
-
-    // Parse command definitions.
-    if let Some(cmds) = &manifest.commands {
-        for def in &cmds.definitions {
-            command_defs.insert(def.name.clone(), def.clone());
-        }
-    }
 
     // Load type definitions.
     for tdef in &manifest.types {
@@ -310,16 +283,14 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
     }
 
     for entity_def in &manifest.entities {
-        let def_id = match entity_def.resolved_id() {
-            Some(id) => id,
-            None => {
-                eprintln!(
-                    "[mod:{}] warning: entity has neither 'id' nor 'type' — skipping",
-                    manifest.meta.id
-                );
-                continue;
-            }
-        };
+        let def_id = entity_def.resolved_id();
+        if def_id.is_empty() {
+            eprintln!(
+                "[mod:{}] warning: entity has empty 'id' — skipping",
+                manifest.meta.id
+            );
+            continue;
+        }
         let resolved_types = entity_def.resolved_types();
 
         // Build merged config: type stats (in order) then entity-level overrides.
@@ -424,7 +395,6 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
         pivots,
         entity_configs,
         entity_types: entity_types_map,
-        command_defs,
         library_source,
         type_defs,
         type_scripts,
@@ -672,314 +642,6 @@ pub fn mods_dir() -> PathBuf {
         .join("mods")
 }
 
-/// Collect all command definitions from loaded mods.
-pub fn collect_command_defs(mods: &[LoadedMod]) -> HashMap<String, CommandDef> {
-    let mut defs = HashMap::new();
-    for m in mods {
-        for (name, def) in &m.command_defs {
-            if defs.contains_key(name) {
-                eprintln!(
-                    "[mod] warning: command '{}' already defined, skipping duplicate from '{}'",
-                    name, m.manifest.meta.id
-                );
-            } else {
-                defs.insert(name.clone(), def.clone());
-            }
-        }
-    }
-    defs
-}
-
-/// Recursively collect all effects from a list, including those nested inside
-/// `If` branches and `StartChannel` phases.
-fn collect_all_effects_recursive<'a>(effects: &'a [CommandEffect], out: &mut Vec<&'a CommandEffect>) {
-    for effect in effects {
-        out.push(effect);
-        match effect {
-            CommandEffect::If { then_effects, otherwise, .. } => {
-                collect_all_effects_recursive(then_effects, out);
-                collect_all_effects_recursive(otherwise, out);
-            }
-            CommandEffect::StartChannel { phases } => {
-                for phase in phases {
-                    collect_all_effects_recursive(&phase.on_start, out);
-                    collect_all_effects_recursive(&phase.per_update, out);
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-/// Validate that spawn effects in commands reference known entity types.
-pub fn validate_spawn_effects(mods: &[LoadedMod], known_types: &HashSet<String>) {
-    for m in mods {
-        // Validate spawn effects in custom command definitions (effects + phases),
-        // recursively including If branches and StartChannel phases.
-        if let Some(cmds) = &m.manifest.commands {
-            for def in &cmds.definitions {
-                let mut all_effects = Vec::new();
-                collect_all_effects_recursive(&def.effects, &mut all_effects);
-                for phase in &def.phases {
-                    collect_all_effects_recursive(&phase.on_start, &mut all_effects);
-                    collect_all_effects_recursive(&phase.per_update, &mut all_effects);
-                }
-                for effect in all_effects {
-                    let referenced_type = match effect {
-                        CommandEffect::Spawn { entity_id, .. } => Some(entity_id.as_str()),
-                        _ => None,
-                    };
-                    if let Some(entity_type) = referenced_type {
-                        if !known_types.contains(entity_type) {
-                            eprintln!(
-                                "[mod:{}] warning: command '{}' references unknown entity type '{}'",
-                                m.manifest.meta.id, def.name, entity_type
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        // Also validate spawn effects in initial effects.
-        if let Some(initial) = &m.manifest.initial {
-            let mut all_effects = Vec::new();
-            collect_all_effects_recursive(&initial.effects, &mut all_effects);
-            for effect in all_effects {
-                let referenced_type = match effect {
-                    CommandEffect::Spawn { entity_id, .. } => Some(entity_id.as_str()),
-                    _ => None,
-                };
-                if let Some(entity_type) = referenced_type {
-                    if !known_types.contains(entity_type) {
-                        eprintln!(
-                            "[mod:{}] warning: initial effect references unknown entity type '{}'",
-                            m.manifest.meta.id, entity_type
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Validate a list of effects against target references and arg names.
-/// Recurses into `If` branches and `StartChannel` phases.
-fn validate_effects(
-    effects: &[CommandEffect],
-    args: &[String],
-    cmd_name: &str,
-    mod_id: &str,
-) {
-    for effect in effects {
-        // Validate UseResource amounts (only check fixed values).
-        if let CommandEffect::UseResource { stat, amount } = effect {
-            if let deadcode_sim::action::DynInt::Fixed(v) = amount {
-                if *v <= 0 {
-                    eprintln!(
-                        "[mod:{mod_id}] warning: command '{cmd_name}' has non-positive use_resource amount {v} for {stat}",
-                    );
-                }
-            }
-        }
-        // Validate target strings in effects that have them.
-        let target_str = match effect {
-            CommandEffect::Damage { target, .. }
-            | CommandEffect::Heal { target, .. }
-            | CommandEffect::ModifyStat { target, .. }
-            | CommandEffect::ApplyBuff { target, .. }
-            | CommandEffect::RemoveBuff { target, .. } => Some(target.as_str()),
-            _ => None,
-        };
-        if let Some(target) = target_str {
-            validate_target(target, args, cmd_name, mod_id);
-        }
-        // Validate condition in If effects, then recurse into both branches.
-        if let CommandEffect::If { condition, then_effects, otherwise } = effect {
-            validate_condition(condition, cmd_name, mod_id);
-            validate_effects(then_effects, args, cmd_name, mod_id);
-            validate_effects(otherwise, args, cmd_name, mod_id);
-        }
-        // Validate StartChannel phases.
-        if let CommandEffect::StartChannel { phases } = effect {
-            for (i, phase) in phases.iter().enumerate() {
-                if phase.ticks <= 0 {
-                    eprintln!(
-                        "[mod:{mod_id}] warning: command '{cmd_name}' start_channel phase {i} has non-positive ticks ({})",
-                        phase.ticks
-                    );
-                }
-                if phase.update_interval <= 0 {
-                    eprintln!(
-                        "[mod:{mod_id}] warning: command '{cmd_name}' start_channel phase {i} has non-positive update_interval ({})",
-                        phase.update_interval
-                    );
-                }
-                validate_effects(&phase.on_start, args, cmd_name, mod_id);
-                validate_effects(&phase.per_update, args, cmd_name, mod_id);
-            }
-        }
-    }
-}
-
-/// Validate a condition's fields.
-fn validate_condition(
-    condition: &deadcode_sim::action::Condition,
-    cmd_name: &str,
-    mod_id: &str,
-) {
-    match condition {
-        deadcode_sim::action::Condition::Resource { resource, .. } => {
-            if resource.is_empty() {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition with empty resource name",
-                );
-            }
-        }
-        deadcode_sim::action::Condition::EntityCount { entity_type, .. } => {
-            if entity_type.is_empty() {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition with empty entity_type",
-                );
-            }
-        }
-        deadcode_sim::action::Condition::Stat { stat, .. } => {
-            if stat.is_empty() {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition with empty stat name",
-                );
-            }
-        }
-        deadcode_sim::action::Condition::HasBuff { buff } => {
-            if buff.is_empty() {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' has if-condition with empty buff name",
-                );
-            }
-        }
-        deadcode_sim::action::Condition::RandomChance { percent } => {
-            if *percent <= 0 || *percent > 100 {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' has random_chance with percent={percent} (expected 1-100)",
-                );
-            }
-        }
-        deadcode_sim::action::Condition::And { conditions }
-        | deadcode_sim::action::Condition::Or { conditions } => {
-            for sub in conditions {
-                validate_condition(sub, cmd_name, mod_id);
-            }
-        }
-        deadcode_sim::action::Condition::IsAlive { target } => {
-            if target.is_empty() {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' has is_alive condition with empty target",
-                );
-            }
-        }
-        deadcode_sim::action::Condition::Distance { target, .. } => {
-            if target.is_empty() {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{cmd_name}' has distance condition with empty target",
-                );
-            }
-        }
-    }
-}
-
-/// Validate custom command definitions at load time.
-///
-/// Checks stat names in `ModifyStat`/`UseResource` effects, `arg:` target references.
-/// For phased commands: validates mutual exclusivity with `effects`, phase ticks > 0,
-/// and effects within `on_start`/`per_update` lists.
-pub fn validate_command_defs(mods: &[LoadedMod]) {
-    for m in mods {
-        let Some(cmds) = &m.manifest.commands else { continue };
-        let mod_id = &m.manifest.meta.id;
-        for def in &cmds.definitions {
-            // Mutual exclusivity: warn if both effects and phases are non-empty.
-            if !def.effects.is_empty() && !def.phases.is_empty() {
-                eprintln!(
-                    "[mod:{mod_id}] warning: command '{}' has both 'effects' and 'phases' — \
-                     'phases' takes precedence",
-                    def.name
-                );
-            }
-
-            // Validate phases.
-            for (i, phase) in def.phases.iter().enumerate() {
-                if phase.ticks <= 0 {
-                    eprintln!(
-                        "[mod:{mod_id}] warning: command '{}' phase {i} has non-positive ticks ({})",
-                        def.name, phase.ticks
-                    );
-                }
-                if phase.update_interval <= 0 {
-                    eprintln!(
-                        "[mod:{mod_id}] warning: command '{}' phase {i} has non-positive update_interval ({})",
-                        def.name, phase.update_interval
-                    );
-                }
-                validate_effects(&phase.on_start, &def.args, &def.name, mod_id);
-                validate_effects(&phase.per_update, &def.args, &def.name, mod_id);
-            }
-
-            // Validate instant effects (reuses validate_effects which handles If/StartChannel recursion).
-            validate_effects(&def.effects, &def.args, &def.name, mod_id);
-        }
-    }
-}
-
-fn validate_target(target: &str, args: &[String], cmd_name: &str, mod_id: &str) {
-    if target == "self" {
-        return;
-    }
-    // Scoped targets (valid in trigger contexts).
-    if matches!(target, "source" | "owner" | "attacker" | "killer") {
-        return;
-    }
-    if let Some(arg_ref) = target.strip_prefix("arg:") {
-        // Numeric index.
-        if let Ok(idx) = arg_ref.parse::<usize>() {
-            if idx >= args.len() {
-                eprintln!(
-                    "[mod:{}] warning: command '{}' effect references arg index {} but only {} args defined",
-                    mod_id, cmd_name, idx, args.len()
-                );
-            }
-            return;
-        }
-        // Named arg.
-        if !args.contains(&arg_ref.to_string()) {
-            eprintln!(
-                "[mod:{}] warning: command '{}' effect references unknown arg '{}' (available: {:?})",
-                mod_id, cmd_name, arg_ref, args
-            );
-        }
-        return;
-    }
-    eprintln!(
-        "[mod:{}] warning: command '{}' effect has invalid target '{}' (expected 'self', 'arg:<name>', 'source', 'owner', 'attacker', or 'killer')",
-        mod_id, cmd_name, target
-    );
-}
-
-/// Collect all command names from loaded mods (in definition order).
-/// Used to set command display order for `list_commands`.
-pub fn collect_command_names(mods: &[LoadedMod]) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut seen = HashSet::new();
-    for m in mods {
-        if let Some(cmds) = &m.manifest.commands {
-            for def in &cmds.definitions {
-                if seen.insert(def.name.clone()) {
-                    names.push(def.name.clone());
-                }
-            }
-        }
-    }
-    names
-}
-
 /// Collected resource definitions: values and optional caps.
 pub struct CollectedResources {
     pub values: deadcode_sim::IndexMap<String, i64>,
@@ -1045,26 +707,6 @@ pub fn collect_available_resources(mods: &[LoadedMod]) -> Vec<String> {
     available
 }
 
-/// Collect initial effects from all loaded mods (in load order).
-pub fn collect_initial_effects(mods: &[LoadedMod]) -> Vec<CommandEffect> {
-    let mut effects = Vec::new();
-    for m in mods {
-        if let Some(initial) = &m.manifest.initial {
-            effects.extend(initial.effects.iter().cloned());
-        }
-    }
-    effects
-}
-
-/// Collect triggers from all loaded mods (in load order).
-pub fn collect_triggers(mods: &[LoadedMod]) -> Vec<TriggerDef> {
-    let mut triggers = Vec::new();
-    for m in mods {
-        triggers.extend(m.manifest.triggers.iter().cloned());
-    }
-    triggers
-}
-
 /// Collect buff definitions from all loaded mods.
 pub fn collect_buffs(mods: &[LoadedMod]) -> Vec<BuffDef> {
     let mut buffs = Vec::new();
@@ -1083,96 +725,6 @@ pub fn collect_buffs(mods: &[LoadedMod]) -> Vec<BuffDef> {
         }
     }
     buffs
-}
-
-/// Validate buff definitions at load time.
-pub fn validate_buffs(mods: &[LoadedMod], known_stats: &HashSet<String>) {
-    for m in mods {
-        let mod_id = &m.manifest.meta.id;
-        for buff in &m.manifest.buffs {
-            if buff.name.is_empty() {
-                eprintln!("[mod:{mod_id}] warning: buff has empty name");
-            }
-            if buff.duration <= 0 {
-                eprintln!(
-                    "[mod:{mod_id}] warning: buff '{}' has non-positive duration ({})",
-                    buff.name, buff.duration
-                );
-            }
-            // Validate modifier stat names.
-            for stat_name in buff.modifiers.keys() {
-                if !known_stats.contains(stat_name) {
-                    eprintln!(
-                        "[mod:{mod_id}] warning: buff '{}' modifies unknown stat '{stat_name}'",
-                        buff.name
-                    );
-                }
-            }
-            // Validate effect lists.
-            let effect_ctx = format!("buff '{}'", buff.name);
-            validate_effects(&buff.per_tick, &[], &effect_ctx, mod_id);
-            validate_effects(&buff.on_apply, &[], &effect_ctx, mod_id);
-            validate_effects(&buff.on_expire, &[], &effect_ctx, mod_id);
-        }
-    }
-}
-
-/// Validate trigger definitions at load time.
-///
-/// Checks event names, filter fields, conditions, and effects within triggers.
-pub fn validate_triggers(mods: &[LoadedMod]) {
-    let valid_events: HashSet<&str> = [
-        "entity_died", "entity_spawned", "entity_damaged",
-        "resource_changed", "command_used", "tick_interval",
-        "channel_completed", "channel_interrupted",
-    ].into_iter().collect();
-
-    for m in mods {
-        let mod_id = &m.manifest.meta.id;
-        for (i, trigger) in m.manifest.triggers.iter().enumerate() {
-            // Validate event name.
-            if !valid_events.contains(trigger.event.as_str()) {
-                eprintln!(
-                    "[mod:{mod_id}] warning: trigger {i} references unknown event '{}'",
-                    trigger.event
-                );
-            }
-
-            // tick_interval requires a positive interval filter.
-            if trigger.event == "tick_interval" {
-                match trigger.filter.interval {
-                    None | Some(0) => {
-                        eprintln!(
-                            "[mod:{mod_id}] warning: trigger {i} (tick_interval) missing or zero interval filter"
-                        );
-                    }
-                    Some(v) if v < 0 => {
-                        eprintln!(
-                            "[mod:{mod_id}] warning: trigger {i} (tick_interval) has negative interval ({v})"
-                        );
-                    }
-                    _ => {}
-                }
-            }
-
-            // Validate conditions.
-            for condition in &trigger.conditions {
-                validate_condition(
-                    condition,
-                    &format!("trigger {i}"),
-                    mod_id,
-                );
-            }
-
-            // Validate effects (reuses existing recursive validation).
-            validate_effects(
-                &trigger.effects,
-                &[], // triggers have no args
-                &format!("trigger {i}"),
-                mod_id,
-            );
-        }
-    }
 }
 
 /// Validate type definitions across all loaded mods.
@@ -1205,13 +757,11 @@ pub fn validate_entity_defs(mods: &[LoadedMod], all_type_defs: &HashMap<String, 
     for m in mods {
         let mod_id = &m.manifest.meta.id;
         for edef in &m.manifest.entities {
-            let def_id = match edef.resolved_id() {
-                Some(id) if !id.is_empty() => id,
-                _ => {
-                    eprintln!("[mod:{mod_id}] warning: entity has no id — skipping");
-                    continue;
-                }
-            };
+            let def_id = edef.resolved_id();
+            if def_id.is_empty() {
+                eprintln!("[mod:{mod_id}] warning: entity has empty id — skipping");
+                continue;
+            }
             if seen_ids.contains(&def_id) {
                 eprintln!(
                     "[mod:{mod_id}] warning: entity id '{}' already defined — skipping",
@@ -1283,7 +833,7 @@ pub fn collect_type_scripts(mods: &[LoadedMod]) -> HashMap<String, String> {
 }
 
 /// Compute effective commands for an entity based on its types' command lists.
-/// Returns `None` (all allowed) when no types define commands (backward compat).
+/// Returns `None` (all allowed) when no types define commands.
 /// Returns `Some(set)` when at least one type has a non-empty commands list.
 pub fn compute_effective_commands(
     entity_types: &[String],
@@ -1350,11 +900,9 @@ mod tests {
                     min_game_version: None,
                 },
                 entities: vec![],
-
                 commands: None,
                 initial: None,
                 resources: HashMap::new(),
-                triggers: vec![],
                 buffs: vec![],
                 types: vec![],
             },
@@ -1363,7 +911,6 @@ mod tests {
             pivots: HashMap::new(),
             entity_configs: HashMap::new(),
             entity_types: HashMap::new(),
-            command_defs: HashMap::new(),
             library_source: String::new(),
             type_defs: HashMap::new(),
             type_scripts: HashMap::new(),

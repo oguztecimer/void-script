@@ -103,9 +103,7 @@ pub struct App {
     type_scripts: HashMap<String, String>,
     /// Mapping from sim EntityId to render UnitId for position sync.
     entity_unit_map: HashMap<u64, u64>,
-    /// Effects to run when the game opens (from [initial] sections in mods).
-    initial_effects: Vec<deadcode_sim::action::CommandEffect>,
-    /// Whether initial effects still need to be sent to the editor.
+    /// Whether initial effects (from Lua on_init) still need to be sent to the editor.
     initial_effects_pending: bool,
 
     /// Whether the background tick thread has been spawned (Windows only).
@@ -164,7 +162,6 @@ impl App {
             type_defs: HashMap::new(),
             type_scripts: HashMap::new(),
             entity_unit_map: HashMap::new(),
-            initial_effects: Vec::new(),
             initial_effects_pending: true,
 
             #[cfg(target_os = "windows")]
@@ -529,13 +526,10 @@ impl ApplicationHandler<UserEvent> for App {
         // --- Mod loading (with dependency resolution) ---
         let mods = modding::load_mods(&modding::mods_dir());
         modding::validate_dependencies(&mods);
-        self.command_order = modding::collect_command_names(&mods);
         self.available_resources = modding::collect_available_resources(&mods);
-        self.command_defs = modding::collect_command_defs(&mods);
         self.library_source = modding::collect_library_source(&mods);
         self.type_defs = modding::collect_type_defs(&mods);
         self.type_scripts = modding::collect_type_scripts(&mods);
-        self.initial_effects = modding::collect_initial_effects(&mods);
 
         // Merge sprite/pivot/config registries from all loaded mods.
         for loaded_mod in &mods {
@@ -563,14 +557,7 @@ impl ApplicationHandler<UserEvent> for App {
             }
         }
 
-        // Validate spawn entity type references, commands, triggers, behaviors, and buffs.
-        let known_types: HashSet<String> = self.entity_configs.keys().cloned().collect();
-        let known_stats: HashSet<String> = self.entity_configs.values()
-            .flat_map(|c| c.stats.keys().cloned())
-            .collect();
-        modding::validate_spawn_effects(&mods, &known_types);
-        modding::validate_command_defs(&mods);
-        modding::validate_triggers(&mods);
+        // Validate type and entity definitions.
         modding::validate_type_defs(&mods);
         let rejected_entities = modding::validate_entity_defs(&mods, &self.type_defs);
         for id in &rejected_entities {
@@ -579,7 +566,6 @@ impl ApplicationHandler<UserEvent> for App {
             self.sprite_registry.remove(id);
             self.pivot_registry.remove(id);
         }
-        modding::validate_buffs(&mods, &known_stats);
 
         // --- Unit system init ---
         let um = UnitManager::new();
@@ -587,23 +573,10 @@ impl ApplicationHandler<UserEvent> for App {
 
         self.entity_unit_map.clear();
 
-        // Register custom command definitions with the sim.
-        for def in self.command_defs.values() {
-            sim.register_custom_command(def);
-        }
-
-        // Register triggers from all loaded mods.
-        for trigger in modding::collect_triggers(&mods) {
-            sim.register_trigger(trigger);
-        }
-
         // Register buff definitions from all loaded mods.
         for buff in modding::collect_buffs(&mods) {
             sim.register_buff(buff);
         }
-
-        // Set command display order from mod command definitions.
-        sim.command_order = self.command_order.clone();
 
         // Initialize global resources from mod definitions.
         let collected = modding::collect_initial_resources(&mods);
@@ -653,9 +626,10 @@ impl ApplicationHandler<UserEvent> for App {
                     ..Default::default()
                 };
                 sim.register_custom_command(&cmd_def);
-                // Also register in app's command_defs for the compiler.
+                self.command_order.push(name.clone());
                 self.command_defs.entry(name.clone()).or_insert(cmd_def);
             }
+            sim.command_order = self.command_order.clone();
 
             // Run init handlers (replaces [initial].effects for Lua mods).
             {
@@ -1330,33 +1304,19 @@ impl App {
                     );
                     self.send_available_commands();
 
-                    // Run [initial] effects on first editor connection (fresh game, no save loaded).
-                    if self.initial_effects_pending && !self.initial_effects.is_empty() {
+                    // Flush pending spawns from Lua init and assign brain scripts.
+                    if self.initial_effects_pending {
                         self.initial_effects_pending = false;
-                        let effects = self.initial_effects.clone();
                         let events = if let Some(sim) = &mut self.sim_world {
-                            // Use the main brain entity as caster for initial effects.
-                            let caster_id = sim.main_brain_id()
-                                .or_else(|| sim.entities().next().map(|e| e.id))
-                                .unwrap_or(deadcode_sim::entity::EntityId(0));
-                            let mut events = Vec::new();
-                            deadcode_sim::action::resolve_custom_effects(
-                                sim, caster_id, "initial", &effects, &[], &mut events,
-                            );
-                            // Flush pending spawns so entities exist before brain assignment.
                             sim.flush_pending();
-                            // Collect spawn events emitted by flush_pending.
-                            events.extend(sim.take_events());
-                            events
+                            sim.take_events()
                         } else {
                             Vec::new()
                         };
-                        // Forward events and apply spawns/animations.
                         for event in &events {
                             self.forward_sim_event_to_editor(event);
                             self.apply_sim_event_to_units(event);
                         }
-                        // Compile and assign brain scripts to newly spawned entities.
                         self.compile_and_assign_all_brains();
                     }
                 }

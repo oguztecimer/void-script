@@ -1,8 +1,4 @@
-use std::sync::Arc;
-
-use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event_loop::ActiveEventLoop;
-use winit::window::{Window, WindowLevel};
 
 /// Information about the strip window position and dimensions.
 #[derive(Debug, Clone, Copy)]
@@ -31,74 +27,6 @@ pub struct StripInfo {
     pub phys_height: u32,
     pub phys_x: i32,
     pub phys_y: i32,
-}
-
-/// Create the transparent, frameless, always-on-top strip window.
-///
-/// The strip is positioned at the bottom of the work area (above the taskbar)
-/// with the full monitor width and a height of 96 logical pixels.
-///
-/// Returns the Arc<Window> and strip position info.
-///
-/// Note: `App::resumed()` uses `enumerate_monitors()` for multi-monitor setups, so this
-/// function is kept as a utility/fallback but not called directly from App.
-#[allow(dead_code)]
-pub fn create_strip_window(event_loop: &ActiveEventLoop) -> (Arc<Window>, StripInfo) {
-    let strip_height: u32 = 316;
-
-    // Get primary monitor info.
-    let monitor = event_loop
-        .primary_monitor()
-        .or_else(|| event_loop.available_monitors().next())
-        .expect("No monitors found");
-
-    let monitor_size = monitor.size(); // physical pixels
-    let scale_factor = monitor.scale_factor();
-
-    // Physical to logical pixels.
-    let monitor_width_phys = monitor_size.width;
-    let monitor_height_phys = monitor_size.height;
-    let monitor_width = (monitor_width_phys as f64 / scale_factor) as u32;
-    let monitor_height = (monitor_height_phys as f64 / scale_factor) as u32;
-    let monitor_pos = monitor.position(); // physical position of monitor
-    let monitor_x = (monitor_pos.x as f64 / scale_factor) as i32;
-
-    let dock_height = get_dock_height(monitor_height, scale_factor);
-    let strip_y = monitor_height as i32 - strip_height as i32;
-
-    let attrs = Window::default_attributes()
-        .with_title("good-boi")
-        .with_transparent(true)
-        .with_decorations(false)
-        .with_window_level(WindowLevel::AlwaysOnTop)
-        .with_resizable(false)
-        .with_visible(false) // Shown after first paint to avoid white flash
-        .with_inner_size(LogicalSize::new(monitor_width as f64, strip_height as f64))
-        .with_position(LogicalPosition::new(monitor_x as f64, strip_y as f64));
-
-    let window = Arc::new(
-        event_loop
-            .create_window(attrs)
-            .expect("Failed to create strip window"),
-    );
-
-    let info = StripInfo {
-        strip_height,
-        monitor_width,
-        strip_y,
-        monitor_height,
-        monitor_x,
-        monitor_index: 0,
-        dock_height,
-        scale_factor,
-        phys_dock_height: (dock_height as f64 * scale_factor) as u32,
-        phys_width: monitor_width_phys,
-        phys_height: (strip_height as f64 * scale_factor) as u32,
-        phys_x: monitor_pos.x,
-        phys_y: monitor_size.height as i32 - (strip_height as f64 * scale_factor) as i32 + monitor_pos.y,
-    };
-
-    (window, info)
 }
 
 /// Enumerate all connected monitors and return a `Vec<StripInfo>` sorted by `monitor_x`

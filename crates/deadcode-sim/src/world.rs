@@ -268,7 +268,7 @@ impl SimWorld {
             "main".into(),
             types,
             "main".into(),
-            0,
+            500,
             config.as_ref(),
         );
         self.main_brain_entity = Some(eid);

@@ -91,10 +91,12 @@ src/
 **Execution model:**
 - GrimScript source → lexer → parser → AST → compiler → `CompiledScript` (flat instruction vec + function table)
 - Each entity has a `ScriptState` (program counter, value stack, variable slots, call stack)
+- Each entity has a `ScriptState` with `is_brain: bool` flag — brain scripts implicitly loop (restart from top on halt), non-brain scripts (terminal commands) halt normally
 - Per tick: seeded shuffle entity order, execute each until an action yields
 - Queries (scan, get_health, get_resource, etc.) are instant; actions (move, attack, wait, custom mod commands) consume the tick
 - Instant effects (gain_resource, try_spend_resource) return to the executor without consuming the tick — the tick loop handles mutation and pushes the return value onto the script's stack
 - `self` is pre-allocated at variable slot 0 as `EntityRef` for the executing entity
+- Brain scripts use `ScriptState::reset_for_restart(entity_id)` to reset PC/stack/vars when they halt, so they re-execute from the beginning next tick — no explicit `while True:` needed
 
 **Mod dependencies:** `depends_on` and `conflicts_with` fields in `[mod]` are enforced at load time. Mods are topologically sorted by dependency graph (Kahn's algorithm, alphabetical tie-breaking). Missing deps → mod skipped with warning (cascading). Conflicts → second-loaded mod skipped. Cycles → fallback to alphabetical with error log.
 
@@ -124,9 +126,9 @@ src/
 
 **Scoped targets (trigger effects):** Trigger effect resolution passes an `EffectContext` struct through `resolve_effects_inner()` that carries event-participant IDs. Four scoped target strings are available in trigger effect `target` fields: `"source"` (event subject), `"owner"` (source entity's owner, resolved via `SimEntity.owner: Option<EntityId>` with fallback to entity field), `"attacker"` (damage dealer, available in `entity_damaged` triggers), `"killer"` (killing-blow dealer, available in `entity_died` triggers). `resolve_target_from_args()` checks context first; unresolvable scoped targets silently no-op the effect. `SimEvent` variants enriched: `EntityDamaged` carries `attacker_id`, `EntityDied` carries `killer_id`/`owner_id`, `EntitySpawned` carries `spawner_id`. `get_owner()` returns `EntityRef` or `None` (previously `Int(0)`). Scoped targets are accepted by `validate_target()` in trigger contexts.
 
-**Unified execution:** The sim runs continuously from game open. Entities with brain types get compiled scripts assigned at startup via `compile_and_assign_all_brains()`. Saving a type `.gs` file triggers auto-reload: recompiles and hot-swaps all affected entities' `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). The main brain (`main.gs`) runs entity-less before the entity shuffle each tick. Terminal commands execute against the main brain / first alive entity. The `handle_run_script_sim` path still exists for legacy `SummonerBrain` scripts.
+**Unified execution:** The sim runs continuously from game open. Brain scripts are compiled and assigned via `compile_and_assign_all_brains()` at startup (after script store init and initial effects flush) and per-entity via `compile_and_assign_entity_brain()` when entities spawn during gameplay. Saving a type `.gs` file triggers auto-reload: recompiles and hot-swaps all affected entities' `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). Saving an empty brain script clears the entity's `script_state` so it stops executing. The main brain (`main.gs`) runs with a special "main" entity before the entity shuffle each tick. Terminal commands execute against the main brain. The "main" type is always treated as a brain regardless of the `brain` flag in `mod.toml`.
 
-**Main brain:** Entity-less script stored as `SimWorld.main_brain: Option<ScriptState>`. Runs first every tick (step 2c, before entity shuffle) using sentinel `EntityId(0)`. Can call resource ops, queries, print, custom commands. Cannot perform entity actions (move, attack, flee — silently ignored). Terminal commands execute against the main brain.
+**Main brain:** Script stored as `SimWorld.main_brain: Option<ScriptState>`, backed by a real "main" entity spawned via `spawn_main_brain_entity()`. Runs first every tick (step 2c, before entity shuffle). Can call resource ops, queries, print, custom commands. Cannot perform entity actions (move, attack, flee — silently ignored). Terminal commands execute against the main brain.
 
 **Error recovery:** When a script hits a runtime error, it stores the error on `ScriptState.error`. On the next tick, error recovery kicks in: the error is cleared, script state is fully reset (PC=0, stack/call stack cleared, variables re-initialized with slot 0 = self EntityRef), the entity yields `wait()` for that tick, and a `[error recovery]` message is emitted. The script re-executes from the beginning on the following tick. This prevents permanent script death from transient errors. Applies to entity scripts, main brain, and channel interruptible scripts.
 
@@ -134,7 +136,7 @@ src/
 
 **Auto-reload on save:** Saving a type `.gs` file in the editor triggers `handle_type_script_reload()`: brain type changed → recompile all entities with that brain; non-brain type changed → recompile all entities including that type (library changed); `main.gs` changed → recompile main brain. Script composition per entity: non-brain type `.gs` (library) + mod libraries + brain `.gs` (execution logic).
 
-**Spawn state:** Dynamically spawned entities (from effects) have `spawn_ticks_remaining > 0` — they play their spawn animation and can't act or be targeted by queries until the timer reaches 0. Duration is computed from the entity type's atlas JSON spawn animation. Initial mod spawns start ready (`spawn_ticks_remaining = 0`).
+**Spawn state:** Dynamically spawned entities (from effects) have `spawn_ticks_remaining > 0` — they play their spawn animation and can't act or be targeted by queries until the timer reaches 0. Duration is computed from the entity type's atlas JSON spawn animation. Initial mod spawns start ready (`spawn_ticks_remaining = 0`). Brain scripts are assigned to spawned entities immediately (via `EntitySpawned` event handling in `do_tick()`), but execution is gated by `is_ready()` — the brain loop doesn't start until spawning completes.
 
 **Death lifecycle:** When an entity dies (`alive = false`), a `SimEvent::EntityDied { entity_id, name, killer_id, owner_id }` is emitted. The sim removes the entity at end-of-tick via `flush_pending()`. The game loop handles the event by calling `UnitManager::kill(uid)`, which plays the "death" animation (if the atlas has one) and marks the unit `pending_destroy`. Units with `pending_destroy` are reaped by `reap_dead()` after their death animation finishes. If no death animation exists, the unit is destroyed immediately.
 
@@ -143,9 +145,9 @@ src/
 **Tick loop** (`SimWorld::tick()`):
 1. Derive per-tick RNG: `SimRng::new(seed ^ tick)`. Snapshot entity types and resource values for trigger processing.
 2. Decrement spawn timers on spawning entities
-2c. Execute main brain (entity-less, sentinel EntityId(0), instant actions only)
+2c. Execute main brain (backed by real "main" entity, instant actions only)
 3. Shuffle ready entity IDs (excludes spawning entities, includes entities with active channels)
-4. For each: check error recovery (if script errored last tick, reset and yield wait), then process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print, resource ops — re-enter executor), collect tick-consuming action, put state back
+4. For each: check error recovery (if script errored last tick, reset and yield wait), then process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print, resource ops — re-enter executor), collect tick-consuming action, put state back. Brain scripts that halt are reset via `reset_for_restart()` to re-execute from PC=0 next tick.
 5. Resolve all actions against world state
 6. Tick passive systems (cooldowns, behavior cooldowns)
 6b. Tick buffs: run per_tick effects, decrement durations, handle expiry (reverse modifiers, fire on_expire)
@@ -169,7 +171,7 @@ Message categories:
 
 `App::do_tick()` in `deadcode-app/src/app.rs`:
 1. Unit movement tick (render-driven, uses wall-clock delta)
-2. Simulation tick (fixed 30 TPS via accumulator) → animations tick → reap dead units → snapshot → sync positions to UnitManager → forward events (spawn, death, output, animation) to editor
+2. Simulation tick (fixed 30 TPS via accumulator) → animations tick → reap dead units → forward events (spawn, death, output, animation) to editor → assign brain scripts to newly spawned entities → snapshot → sync positions to UnitManager
 3. Auto-save timer
 4. Fullscreen detection
 5. Per-pixel hit testing

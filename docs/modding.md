@@ -1275,6 +1275,7 @@ After all mods are loaded, the engine validates:
 ### Entity/Spawn Validation
 - `[[spawn]]` entity types must match registered entity types
 - `spawn` effect entity types are checked against known types (recursively through `if` branches and `start_channel` phases)
+- Entities with multiple brain types are **rejected** and removed from all registries (configs, types, sprites, pivots) — they will not load or spawn
 
 ### Command Validation
 - `effects` and `phases` are mutually exclusive (warning; `phases` takes precedence)

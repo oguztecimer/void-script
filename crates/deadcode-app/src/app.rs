@@ -208,6 +208,7 @@ impl App {
             self.sim_accumulator -= SIM_TICK_INTERVAL;
             ticks_this_frame += 1;
 
+            let mut spawned_entities: Vec<(deadcode_sim::entity::EntityId, String)> = Vec::new();
             if let Some(sim) = &mut self.sim_world {
                 if sim.is_running() {
                     sim.tick();
@@ -221,9 +222,23 @@ impl App {
 
                     // Forward events to editor console and apply to render units.
                     let events = sim.take_events();
+                    // Collect newly spawned entities (id + entity_type) for brain assignment.
                     for event in &events {
+                        if let deadcode_sim::SimEvent::EntitySpawned { entity_id, entity_type, .. } = event {
+                            spawned_entities.push((*entity_id, entity_type.clone()));
+                        }
                         self.forward_sim_event_to_editor(event);
                         self.apply_sim_event_to_units(event);
+                    }
+                }
+            }
+            // Assign brain scripts to newly spawned entities (outside sim borrow).
+            if !spawned_entities.is_empty() {
+                let global_unlocks = self.build_global_unlocks();
+                let custom_arg_counts = self.custom_command_arg_counts();
+                for (eid, etype) in &spawned_entities {
+                    if let Some(types) = self.entity_types.get(etype).cloned() {
+                        self.compile_and_assign_entity_brain(*eid, &types, &global_unlocks, &custom_arg_counts);
                     }
                 }
             }

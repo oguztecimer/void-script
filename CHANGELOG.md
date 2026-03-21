@@ -4,8 +4,18 @@
 
 ### Simulation Engine
 
+#### Added
+- **S-32: Implicit brain loop** — Brain scripts (`ScriptState.is_brain = true`) now implicitly restart from the top when they halt, removing the need for explicit `while True:` loops. `ScriptState::reset_for_restart(entity_id)` resets PC/stack/vars. Non-brain scripts (terminal commands) halt normally. Brain flag is set by `compile_and_assign_entity_brain()` and main brain compilation.
+- **S-33: Auto brain assignment on spawn** — When entities are spawned during gameplay (via spawn effects), their brain scripts are automatically compiled and assigned via `EntitySpawned` event handling in `do_tick()`. Brain execution is gated by `is_ready()` so it doesn't start until spawn animation completes.
+- **S-34: `SimWorld::flush_pending()` public method** — Extracted inline flush logic into a reusable public method for flushing pending spawns/despawns.
+
 #### Changed
 - **S-31: Spawn effect `entity_type` → `entity_id`** — The `CommandEffect::Spawn` field `entity_type` has been renamed to `entity_id` to match entity definition terminology. Serde alias `entity_type` preserved for backward compatibility with existing mod.toml files.
+
+#### Fixed
+- **BUG-R6: Scripts not running on startup** — `compile_and_assign_all_brains()` was running before the script store was initialized, so user scripts in `scripts/types/` were not found. Moved to run after script store init and after initial effects flush.
+- **BUG-R7: Empty brain script doesn't stop execution** — Saving an empty brain script now clears the entity's `script_state` (and main brain), stopping execution immediately.
+- **BUG-R8: Script type classification** — `ensure_type_scripts()` now corrects already-loaded scripts to match the actual `brain` flag from `mod.toml`, fixing non-brain types showing as brains in the editor.
 
 #### Removed
 - **S-30: `sacrifice` effect removed** — The `CommandEffect::Sacrifice` variant has been removed from the effect system. The `harvest` command in `core` mod no longer uses it (phase left as empty on_start). Validation in `validate_spawn_effects()` no longer checks for sacrifice entity types.

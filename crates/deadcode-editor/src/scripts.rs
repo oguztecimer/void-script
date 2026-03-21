@@ -147,11 +147,13 @@ impl ScriptStore {
             if !path.exists() {
                 let _ = std::fs::write(&path, default_source);
             }
-            // Check if we already loaded this script.
-            let already_loaded = self.scripts.values().any(|s| {
+            // Check if we already loaded this script; if so, fix its type.
+            let already_loaded = self.scripts.values_mut().find(|s| {
                 s.name == *name && matches!(s.script_type, ScriptType::TypeBrain | ScriptType::TypeLibrary)
             });
-            if !already_loaded {
+            if let Some(existing) = already_loaded {
+                existing.script_type = if *is_brain { ScriptType::TypeBrain } else { ScriptType::TypeLibrary };
+            } else {
                 let content = std::fs::read_to_string(&path).unwrap_or_default();
                 let id = uuid::Uuid::new_v4().to_string();
                 let script_type = if *is_brain { ScriptType::TypeBrain } else { ScriptType::TypeLibrary };

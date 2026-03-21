@@ -18,10 +18,12 @@ stats = { health = 1, speed = 1 }
 
 [[types]]
 name = "summoner"
+brain = true
 stats = { health = 100}
 
 [[types]]
 name = "skeleton"
+brain = true
 stats = { health = 5}
 
 # --- Entity Definitions ---

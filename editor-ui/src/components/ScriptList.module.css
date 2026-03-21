@@ -42,7 +42,7 @@
 }
 
 .scriptItem {
-  padding: 4px 12px 4px 24px;
+  padding: 4px 12px 4px 16px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text-primary);
@@ -52,6 +52,11 @@
   align-items: center;
   gap: 6px;
   transition: background-color var(--transition-hover);
+}
+
+.brainIcon {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
 }
 
 .scriptItem:hover {

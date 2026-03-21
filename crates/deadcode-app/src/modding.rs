@@ -1136,7 +1136,9 @@ pub fn validate_type_defs(mods: &[LoadedMod]) {
 }
 
 /// Validate entity definitions across all loaded mods.
-pub fn validate_entity_defs(mods: &[LoadedMod], all_type_defs: &HashMap<String, TypeDef>) {
+/// Returns a set of entity IDs that failed validation and should be skipped.
+pub fn validate_entity_defs(mods: &[LoadedMod], all_type_defs: &HashMap<String, TypeDef>) -> HashSet<String> {
+    let mut rejected = HashSet::new();
     let mut seen_ids: HashSet<String> = HashSet::new();
     for m in mods {
         let mod_id = &m.manifest.meta.id;
@@ -1178,18 +1180,20 @@ pub fn validate_entity_defs(mods: &[LoadedMod], all_type_defs: &HashMap<String, 
                 }
             }
 
-            // Check brain count.
+            // Check brain count — entities with multiple brain types are rejected.
             let brain_count = types.iter()
                 .filter(|t| all_type_defs.get(*t).map_or(false, |td| td.brain))
                 .count();
             if brain_count > 1 {
                 eprintln!(
-                    "[mod:{mod_id}] warning: entity '{}' has {} brain types (expected 0 or 1)",
+                    "[mod:{mod_id}] error: entity '{}' has {} brain types (expected 0 or 1) — entity will not be loaded",
                     def_id, brain_count
                 );
+                rejected.insert(def_id);
             }
         }
     }
+    rejected
 }
 
 /// Collect all type definitions from loaded mods (first-defined wins).

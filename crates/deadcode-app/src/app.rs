@@ -557,7 +557,13 @@ impl ApplicationHandler<UserEvent> for App {
         modding::validate_command_defs(&mods);
         modding::validate_triggers(&mods);
         modding::validate_type_defs(&mods);
-        modding::validate_entity_defs(&mods, &self.type_defs);
+        let rejected_entities = modding::validate_entity_defs(&mods, &self.type_defs);
+        for id in &rejected_entities {
+            self.entity_configs.remove(id);
+            self.entity_types.remove(id);
+            self.sprite_registry.remove(id);
+            self.pivot_registry.remove(id);
+        }
         modding::validate_buffs(&mods, &known_stats);
 
         // --- Unit system init ---
@@ -636,9 +642,6 @@ impl ApplicationHandler<UserEvent> for App {
         self.hittest_disabled = true;
         self.last_tick = Instant::now();
 
-        // --- Compile brain scripts and assign to entities ---
-        self.compile_and_assign_all_brains();
-
         // --- Editor system init ---
         let scripts_dir = std::env::current_dir()
             .unwrap_or_default()
@@ -649,7 +652,9 @@ impl ApplicationHandler<UserEvent> for App {
         let mut type_script_defs: Vec<(String, bool, String)> = self.type_defs.iter()
             .map(|(name, tdef)| {
                 let default_src = self.type_scripts.get(name).cloned().unwrap_or_default();
-                (name.clone(), tdef.brain, default_src)
+                // "main" is always a brain regardless of mod.toml brain flag.
+                let is_brain = tdef.brain || name == "main";
+                (name.clone(), is_brain, default_src)
             })
             .collect();
         // Always include main.gs (entity-less main brain).
@@ -661,6 +666,11 @@ impl ApplicationHandler<UserEvent> for App {
         store.ensure_type_scripts(&type_script_defs);
 
         self.script_store = Some(store);
+
+        // --- Compile brain scripts and assign to entities ---
+        // Must run after script store is initialized so get_type_script_source
+        // can read user scripts from scripts/types/.
+        self.compile_and_assign_all_brains();
 
         open_editor(&mut self.webview_manager, &self.ipc_sender, self.settings.editor_window.as_ref().map(|g| (g.x, g.y, g.width, g.height)));
 
@@ -1072,7 +1082,8 @@ impl App {
                 Ok(script) => {
                     if let Some(sim) = &mut self.sim_world {
                         let num_vars = script.num_variables;
-                        let state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                        let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                        state.is_brain = true;
                         sim.main_brain = Some(state);
                     }
                 }
@@ -1134,6 +1145,13 @@ impl App {
         // Get brain script source.
         let brain_source = self.get_type_script_source(&brain_type);
         if brain_source.is_empty() {
+            // Empty script — clear the entity's script state so it stops executing.
+            if let Some(sim) = &mut self.sim_world {
+                if let Some(entity) = sim.get_entity_mut(eid) {
+                    entity.script_state = None;
+                    entity.active_channel = None;
+                }
+            }
             return;
         }
 
@@ -1177,6 +1195,7 @@ impl App {
                 if let Some(sim) = &mut self.sim_world {
                     let num_vars = script.num_variables;
                     let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                    state.is_brain = true;
                     // Set self = EntityRef.
                     if !state.variables.is_empty() {
                         state.variables[0] = deadcode_sim::SimValue::EntityRef(eid);
@@ -1226,7 +1245,14 @@ impl App {
         if type_name == "main" {
             // Recompile main brain.
             let main_source = self.get_type_script_source("main");
-            if !main_source.is_empty() {
+            if main_source.is_empty() {
+                // Empty script — clear the main brain so it stops executing.
+                if let Some(sim) = &mut self.sim_world {
+                    sim.main_brain = None;
+                }
+                return;
+            }
+            {
                 let available = if deadcode_desktop::is_dev_mode() {
                     None
                 } else {
@@ -1237,7 +1263,8 @@ impl App {
                     Ok(script) => {
                         if let Some(sim) = &mut self.sim_world {
                             let num_vars = script.num_variables;
-                            let state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                            let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                            state.is_brain = true;
                             sim.main_brain = Some(state);
                         }
                         self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
@@ -1318,7 +1345,7 @@ impl App {
                     if self.initial_effects_pending && !self.initial_effects.is_empty() {
                         self.initial_effects_pending = false;
                         let effects = self.initial_effects.clone();
-                        if let Some(sim) = &mut self.sim_world {
+                        let events = if let Some(sim) = &mut self.sim_world {
                             // Use the main brain entity as caster for initial effects.
                             let caster_id = sim.main_brain_id()
                                 .or_else(|| sim.entities().next().map(|e| e.id))
@@ -1327,12 +1354,21 @@ impl App {
                             deadcode_sim::action::resolve_custom_effects(
                                 sim, caster_id, "initial", &effects, &[], &mut events,
                             );
-                            // Forward events and apply spawns/animations.
-                            for event in &events {
-                                self.forward_sim_event_to_editor(event);
-                                self.apply_sim_event_to_units(event);
-                            }
+                            // Flush pending spawns so entities exist before brain assignment.
+                            sim.flush_pending();
+                            // Collect spawn events emitted by flush_pending.
+                            events.extend(sim.take_events());
+                            events
+                        } else {
+                            Vec::new()
+                        };
+                        // Forward events and apply spawns/animations.
+                        for event in &events {
+                            self.forward_sim_event_to_editor(event);
+                            self.apply_sim_event_to_units(event);
                         }
+                        // Compile and assign brain scripts to newly spawned entities.
+                        self.compile_and_assign_all_brains();
                     }
                 }
                 JsToRust::ScriptSave { script_id, content } => {

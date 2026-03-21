@@ -38,6 +38,8 @@ pub struct ScriptState {
     pub step_limit_hit: bool,
     /// Set on unrecoverable error — unit stops executing.
     pub error: Option<String>,
+    /// Brain scripts implicitly loop (restart from top when they halt).
+    pub is_brain: bool,
 }
 
 impl ScriptState {
@@ -51,6 +53,23 @@ impl ScriptState {
             yielded: false,
             step_limit_hit: false,
             error: None,
+            is_brain: false,
+        }
+    }
+
+    /// Reset script to restart from the beginning on the next tick.
+    /// Preserves the program and variable slot count; clears execution state.
+    /// Sets variables[0] = EntityRef(entity_id) if variables exist.
+    pub fn reset_for_restart(&mut self, entity_id: EntityId) {
+        self.pc = 0;
+        self.stack.clear();
+        self.call_stack.clear();
+        self.yielded = false;
+        self.step_limit_hit = false;
+        let num_vars = self.variables.len();
+        self.variables = vec![SimValue::None; num_vars];
+        if num_vars > 0 {
+            self.variables[0] = SimValue::EntityRef(entity_id);
         }
     }
 }

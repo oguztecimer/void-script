@@ -355,6 +355,32 @@ impl SimWorld {
         self.pending_spawns.push(entity);
     }
 
+    /// Flush pending spawns and despawns immediately.
+    pub fn flush_pending(&mut self) {
+        for entity in self.pending_spawns.drain(..) {
+            let id = entity.id;
+            let etype = entity.entity_type.clone();
+            let ename = entity.name.clone();
+            let pos = entity.position;
+            let spawner = entity.owner;
+            let index = self.entities.len();
+            self.entities.push(entity);
+            self.entity_index.insert(id, index);
+            self.events.push(SimEvent::EntitySpawned {
+                entity_id: id,
+                entity_type: etype,
+                name: ename,
+                position: pos,
+                spawner_id: spawner,
+            });
+        }
+        for id in self.pending_despawns.drain(..) {
+            if let Some(&idx) = self.entity_index.get(&id) {
+                self.entities[idx].alive = false;
+            }
+        }
+    }
+
     /// Queue an entity for removal at end of tick.
     pub fn queue_despawn(&mut self, id: EntityId) {
         self.pending_despawns.push(id);
@@ -507,7 +533,10 @@ impl SimWorld {
                                                 }
                                             }
                                         }
-                                        Ok(None) => break,
+                                        Ok(None) => {
+                                            if state.is_brain { state.reset_for_restart(eid); }
+                                            break;
+                                        }
                                         Err(err) => {
                                             state.error = Some(err.to_string());
                                             self.events.push(Self::script_error_event(eid, &err.to_string(), state));
@@ -525,7 +554,7 @@ impl SimWorld {
                         }
                     }
                     Ok(None) => {
-                        // Main brain halted.
+                        if state.is_brain { state.reset_for_restart(eid); }
                     }
                     Err(err) => {
                         state.error = Some(err.to_string());
@@ -625,7 +654,10 @@ impl SimWorld {
                                                         }
                                                     }
                                                 }
-                                                Ok(None) => break,
+                                                Ok(None) => {
+                                                    if state.is_brain { state.reset_for_restart(eid); }
+                                                    break;
+                                                }
                                                 Err(err) => {
                                                     state.error = Some(err.to_string());
                                                     self.events.push(Self::script_error_event(eid, &err.to_string(), state));
@@ -641,7 +673,9 @@ impl SimWorld {
                                     }
                                 }
                             }
-                            Ok(None) => {} // script halted, no interruption
+                            Ok(None) => {
+                                if state.is_brain { state.reset_for_restart(eid); }
+                            }
                             Err(err) => {
                                 state.error = Some(err.to_string());
                                 self.events.push(Self::script_error_event(eid, &err.to_string(), state));
@@ -794,7 +828,10 @@ impl SimWorld {
                                     }
                                     // else: another instant action, keep looping
                                 }
-                                Ok(None) => break,
+                                Ok(None) => {
+                                    if script_state.is_brain { script_state.reset_for_restart(eid); }
+                                    break;
+                                }
                                 Err(err) => {
                                     script_state.error = Some(err.to_string());
                                     self.events.push(Self::script_error_event(eid, &err.to_string(), &script_state));
@@ -805,12 +842,7 @@ impl SimWorld {
                     }
                 }
                 Ok(None) => {
-                    // Script halted or finished.
-                    self.events.push(SimEvent::ScriptFinished {
-                        entity_id: eid,
-                        success: true,
-                        error: None,
-                    });
+                    if script_state.is_brain { script_state.reset_for_restart(eid); }
                 }
                 Err(err) => {
                     script_state.error = Some(err.to_string());
@@ -861,29 +893,7 @@ impl SimWorld {
         }
 
         // 7. Flush pending spawns/despawns.
-        for entity in self.pending_spawns.drain(..) {
-            let id = entity.id;
-            let etype = entity.entity_type.clone();
-            let ename = entity.name.clone();
-            let pos = entity.position;
-            let spawner = entity.owner;
-            let index = self.entities.len();
-            self.entities.push(entity);
-            self.entity_index.insert(id, index);
-            self.events.push(SimEvent::EntitySpawned {
-                entity_id: id,
-                entity_type: etype,
-                name: ename,
-                position: pos,
-                spawner_id: spawner,
-            });
-        }
-
-        for id in self.pending_despawns.drain(..) {
-            if let Some(&idx) = self.entity_index.get(&id) {
-                self.entities[idx].alive = false;
-            }
-        }
+        self.flush_pending();
 
         // Clean up dead entities (swap-remove for performance).
         self.entities.retain(|e| e.alive);
@@ -2733,7 +2743,12 @@ mod tests {
         world.custom_command_arg_counts.insert("cast_haste".into(), 0);
 
         let program = CompiledScript::new(
-            vec![Instruction::ActionCustom("cast_haste".into()), Instruction::Halt],
+            vec![
+                Instruction::ActionCustom("cast_haste".into()),
+                // Wait forever after casting (don't re-cast on implicit loop restart).
+                Instruction::ActionWait,
+                Instruction::Jump(1),
+            ],
             0,
         );
         world.get_entity_mut(summoner).unwrap().script_state =

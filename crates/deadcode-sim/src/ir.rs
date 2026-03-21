@@ -69,59 +69,10 @@ pub enum Instruction {
     /// Pop string attr name, pop value, get attribute.
     GetAttr,
 
-    // --- Query instructions (instant, do not consume tick) ---
-    /// Scan for entities matching a type filter. Pop filter string, push list of EntityRefs.
-    QueryScan,
-    /// Get position of entity. Pop EntityRef, push Int.
-    QueryGetPos,
-    /// Find nearest entity matching filter. Pop filter string, push EntityRef or None.
-    QueryNearest,
-    /// Distance between two entities. Pop 2 EntityRefs, push Int.
-    QueryDistance,
-    /// Get health of entity. Pop EntityRef, push Int.
-    QueryGetHealth,
-    /// Get energy of entity. Pop EntityRef, push Int.
-    /// Get shield of entity. Pop EntityRef, push Int.
-    QueryGetShield,
-    /// Get current target. Pop EntityRef, push EntityRef or None.
-    QueryGetTarget,
-    /// Check if entity has a target. Pop EntityRef, push Bool.
-    QueryHasTarget,
-    /// Get entity type as string. Pop EntityRef, push Str.
-    QueryGetType,
-    /// Get entity name. Pop EntityRef, push Str.
-    QueryGetName,
-    /// Get entity owner ID. Pop EntityRef, push Int.
-    QueryGetOwner,
-    /// Get a global resource value. Pop Str name, push Int (0 if nonexistent).
-    QueryGetResource,
-    /// Get a stat value from an entity. Pop Str stat_name, pop EntityRef, push Int.
-    QueryGetStat,
-    /// Get all type tags of an entity. Pop EntityRef, push List of Str.
-    QueryGetTypes,
-    /// Check if an entity has a type tag. Pop Str type_name, pop EntityRef, push Bool.
-    QueryHasType,
-
     // --- Action instructions (consume tick — executor yields after these) ---
-    /// Move toward position. Pop Int target_pos.
-    ActionMove,
-    /// Attack target entity. Pop EntityRef target.
-    ActionAttack,
-    /// Flee from target entity. Pop EntityRef threat.
-    ActionFlee,
-    /// Wait one tick. No args.
-    ActionWait,
-    /// Set target. Pop EntityRef.
-    ActionSetTarget,
     /// Custom action defined by mods. Args are already on the stack.
     /// The String is the command name; arg count is looked up from the command registry.
     ActionCustom(String),
-
-    // --- Instant effect instructions (do not consume tick — handled in tick loop) ---
-    /// Gain a global resource. Pop Int amount, pop Str name. Returns new total via tick loop.
-    InstantGainResource,
-    /// Try to spend a global resource. Pop Int amount, pop Str name. Returns Bool via tick loop.
-    InstantTrySpendResource,
 
     // --- Local variable access (var_base-relative for function params/locals) ---
     /// Load function-local variable at var_base + offset.

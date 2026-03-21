@@ -1171,14 +1171,14 @@ impl SimWorld {
         self.events.extend(events);
     }
 
-    /// Handle an instant action (Print, GainResource, TrySpendResource).
+    /// Handle an instant action (Print).
     /// Returns `None` if the action was handled (instant), `Some(action)` if it
     /// should be collected as a tick-consuming action.
     fn try_handle_instant(
         &mut self,
         eid: EntityId,
         action: UnitAction,
-        script_state: &mut crate::entity::ScriptState,
+        _script_state: &mut crate::entity::ScriptState,
     ) -> Option<UnitAction> {
         match action {
             UnitAction::Print { text } => {
@@ -1186,16 +1186,6 @@ impl SimWorld {
                     entity_id: eid,
                     text,
                 });
-                None
-            }
-            UnitAction::GainResource { name, amount } => {
-                let new_total = self.gain_resource(&name, amount);
-                script_state.stack.push(crate::value::SimValue::Int(new_total));
-                None
-            }
-            UnitAction::TrySpendResource { name, amount } => {
-                let success = self.try_spend_resource(&name, amount);
-                script_state.stack.push(crate::value::SimValue::Bool(success));
                 None
             }
             other => Some(other),
@@ -1237,6 +1227,19 @@ mod tests {
         world.spawn_entity_with_config(etype.into(), name.into(), pos, Some(&test_config()))
     }
 
+    /// Register a no-op "wait" custom command so `ActionCustom("wait")` works in tests.
+    fn register_wait_command(world: &mut SimWorld) {
+        world.register_custom_command(&CommandDef {
+            name: "wait".into(),
+            description: "wait one tick".into(),
+            args: vec![],
+            effects: vec![],
+            unlisted: true,
+            phases: vec![],
+            ..Default::default()
+        });
+    }
+
     #[test]
     fn spawn_and_query() {
         let mut world = SimWorld::new(42);
@@ -1244,78 +1247,6 @@ mod tests {
         let entity = world.get_entity(id).unwrap();
         assert_eq!(entity.position, 100);
         assert_eq!(entity.name, "miner1");
-    }
-
-    #[test]
-    fn tick_moves_unit() {
-        let mut world = SimWorld::new(42);
-        let id = spawn_test_entity(&mut world, "skeleton", "miner1", 0);
-
-        // Give it a script: move(100), halt
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::Int(100)),
-                Instruction::ActionMove,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(id).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let entity = world.get_entity(id).unwrap();
-        // Should have moved by speed (default 1) toward 100.
-        assert!(entity.position > 0);
-    }
-
-    #[test]
-    fn determinism() {
-        fn run_sim(seed: u64) -> SimSnapshot {
-            let mut world = SimWorld::new(seed);
-
-            let m1 = spawn_test_entity(&mut world, "skeleton", "m1", 0);
-            let m2 = spawn_test_entity(&mut world, "skeleton", "m2", 500);
-            let _ast = spawn_test_entity(&mut world, "grave", "rock", 250);
-
-            // Script: while True: move(250)
-            let program = CompiledScript::new(
-                vec![
-                    Instruction::LoadConst(SimValue::Bool(true)),
-                    Instruction::JumpIfFalse(4),
-                    Instruction::LoadConst(SimValue::Int(250)),
-                    Instruction::ActionMove,
-                    Instruction::Jump(0),
-                    Instruction::Halt,
-                ],
-                0,
-            );
-
-            for id in [m1, m2] {
-                world.get_entity_mut(id).unwrap().script_state =
-                    Some(ScriptState::new(program.clone(), 0));
-            }
-
-            world.start();
-            for _ in 0..100 {
-                world.tick();
-            }
-
-            world.snapshot()
-        }
-
-        let a = run_sim(42);
-        let b = run_sim(42);
-
-        assert_eq!(a.tick, b.tick);
-        assert_eq!(a.entities.len(), b.entities.len());
-        for (ea, eb) in a.entities.iter().zip(b.entities.iter()) {
-            assert_eq!(ea.id, eb.id);
-            assert_eq!(ea.position, eb.position);
-            assert_eq!(ea.health, eb.health);
-        }
     }
 
     #[test]
@@ -1361,6 +1292,7 @@ mod tests {
     #[test]
     fn phased_command_three_phases() {
         let mut world = SimWorld::new(42);
+        register_wait_command(&mut world);
         let id = spawn_test_entity(&mut world, "summoner", "s", 0);
 
         // Register a phased command: 2-tick phase 0, 1-tick phase 1, 1-tick phase 2.
@@ -1402,7 +1334,7 @@ mod tests {
             vec![
                 Instruction::ActionCustom("spell".into()),
                 // After channel completes, loop wait.
-                Instruction::ActionWait,
+                Instruction::ActionCustom("wait".into()),
                 Instruction::Jump(1),
             ],
             0,
@@ -1446,64 +1378,9 @@ mod tests {
     }
 
     #[test]
-    fn phased_command_interruptible_cancelled_by_action() {
-        let mut world = SimWorld::new(42);
-        let id = spawn_test_entity(&mut world, "summoner", "s", 0);
-
-        // Register phased command with interruptible phase.
-        let def = CommandDef {
-            name: "channel".into(),
-            description: "".into(),
-            args: vec![],
-            effects: vec![],
-            unlisted: false,
-            phases: vec![
-                PhaseDef {
-                    ticks: 5,
-                    interruptible: true,
-                    per_update: vec![CommandEffect::Output { message: "channeling".into() }],
-                    update_interval: 1,
-                    on_start: vec![],
-                },
-            ],
-            ..Default::default()
-        };
-        world.register_custom_command(&def);
-
-        // Script: call channel(), then immediately move(100) (which interrupts).
-        let program = CompiledScript::new(
-            vec![
-                Instruction::ActionCustom("channel".into()),
-                // Next tick (during interruptible phase), script runs and yields move.
-                Instruction::LoadConst(SimValue::Int(100)),
-                Instruction::ActionMove,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(id).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-
-        // Tick 1: script calls channel() → channel set up.
-        world.tick();
-        world.take_events();
-
-        // Tick 2: interruptible phase — script yields move(100) → interrupt.
-        world.tick();
-        let events = world.take_events();
-        let texts = output_texts(&events);
-        assert!(texts.iter().any(|t| t.contains("interrupted")), "Should emit interrupted: {:?}", texts);
-        // Channel should be gone.
-        assert!(world.get_entity(id).unwrap().active_channel.is_none());
-        // Entity should have moved.
-        assert!(world.get_entity(id).unwrap().position > 0);
-    }
-
-    #[test]
     fn phased_command_use_global_resource_failure_cancels() {
         let mut world = SimWorld::new(42);
+        register_wait_command(&mut world);
         let id = spawn_test_entity(&mut world, "summoner", "s", 0);
         // Set mana resource to 15 — enough for 1 tick of 10 drain but not 2.
         world.resources.insert("mana".into(), 15);
@@ -1540,7 +1417,7 @@ mod tests {
         let program = CompiledScript::new(
             vec![
                 Instruction::ActionCustom("drain".into()),
-                Instruction::ActionWait,
+                Instruction::ActionCustom("wait".into()),
                 Instruction::Jump(1),
             ],
             0,
@@ -1575,69 +1452,9 @@ mod tests {
     }
 
     #[test]
-    fn phased_command_non_interruptible_blocks_script() {
-        let mut world = SimWorld::new(42);
-        let id = spawn_test_entity(&mut world, "summoner", "s", 0);
-
-        let def = CommandDef {
-            name: "lock".into(),
-            description: "".into(),
-            args: vec![],
-            effects: vec![],
-            unlisted: false,
-            phases: vec![
-                PhaseDef {
-                    ticks: 2,
-                    interruptible: false,
-                    per_update: vec![],
-                    update_interval: 1,
-                    on_start: vec![CommandEffect::Output { message: "locked".into() }],
-                },
-            ],
-            ..Default::default()
-        };
-        world.register_custom_command(&def);
-
-        // Script: call lock(), then move(100).
-        // During non-interruptible phase, script should NOT execute.
-        let program = CompiledScript::new(
-            vec![
-                Instruction::ActionCustom("lock".into()),
-                Instruction::LoadConst(SimValue::Int(100)),
-                Instruction::ActionMove,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(id).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-
-        // Tick 1: initiation.
-        world.tick();
-        world.take_events();
-        assert_eq!(world.get_entity(id).unwrap().position, 0);
-
-        // Tick 2: non-interruptible phase tick 0 — script blocked.
-        world.tick();
-        world.take_events();
-        assert_eq!(world.get_entity(id).unwrap().position, 0, "Script should be blocked");
-
-        // Tick 3: non-interruptible phase tick 1 — still blocked.
-        world.tick();
-        world.take_events();
-        assert_eq!(world.get_entity(id).unwrap().position, 0, "Script should still be blocked");
-
-        // Tick 4: channel done — script resumes, moves.
-        world.tick();
-        world.take_events();
-        assert!(world.get_entity(id).unwrap().position > 0, "Script should resume and move");
-    }
-
-    #[test]
     fn phased_command_update_interval() {
         let mut world = SimWorld::new(42);
+        register_wait_command(&mut world);
         let id = spawn_test_entity(&mut world, "summoner", "s", 0);
 
         // Phase with update_interval = 2 over 4 ticks.
@@ -1665,7 +1482,7 @@ mod tests {
         let program = CompiledScript::new(
             vec![
                 Instruction::ActionCustom("pulse".into()),
-                Instruction::ActionWait,
+                Instruction::ActionCustom("wait".into()),
                 Instruction::Jump(1),
             ],
             0,
@@ -1738,141 +1555,6 @@ mod tests {
         assert_eq!(world.get_resource("gold"), 5);
     }
 
-    #[test]
-    fn resource_via_script_get_resource() {
-        let mut world = SimWorld::new(42);
-        world.resources.insert("souls".into(), 42);
-        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
-
-        // Script: print(get_resource("souls")); halt
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::Str("souls".into())),
-                Instruction::QueryGetResource,
-                Instruction::Print,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(id).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let texts = output_texts(&world.take_events());
-        assert_eq!(texts, vec!["42"]);
-    }
-
-    #[test]
-    fn resource_via_script_gain_and_spend() {
-        let mut world = SimWorld::new(42);
-        world.resources.insert("souls".into(), 10);
-        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
-
-        // Script: gain_resource("souls", 5); try_spend_resource("souls", 20); wait
-        // gain_resource should return 15 (pushed to stack, then popped by Pop)
-        // try_spend_resource should return false (15 < 20)
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::Str("souls".into())),
-                Instruction::LoadConst(SimValue::Int(5)),
-                Instruction::InstantGainResource,
-                Instruction::Pop, // discard return value
-                Instruction::LoadConst(SimValue::Str("souls".into())),
-                Instruction::LoadConst(SimValue::Int(20)),
-                Instruction::InstantTrySpendResource,
-                Instruction::Print, // prints "false"
-                Instruction::ActionWait,
-            ],
-            0,
-        );
-        world.get_entity_mut(id).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let texts = output_texts(&world.take_events());
-        assert_eq!(texts, vec!["False"]);
-        assert_eq!(world.get_resource("souls"), 15); // gain worked, spend failed
-    }
-
-    #[test]
-    fn resource_via_script_successful_spend() {
-        let mut world = SimWorld::new(42);
-        world.resources.insert("souls".into(), 10);
-        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
-
-        // Script: try_spend_resource("souls", 3); print result; wait
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::Str("souls".into())),
-                Instruction::LoadConst(SimValue::Int(3)),
-                Instruction::InstantTrySpendResource,
-                Instruction::Print, // prints "true"
-                Instruction::ActionWait,
-            ],
-            0,
-        );
-        world.get_entity_mut(id).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let texts = output_texts(&world.take_events());
-        assert_eq!(texts, vec!["True"]);
-        assert_eq!(world.get_resource("souls"), 7);
-    }
-
-    #[test]
-    fn resource_in_conditional_flow() {
-        let mut world = SimWorld::new(42);
-        world.resources.insert("souls".into(), 5);
-        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
-
-        // Script:
-        //   result = try_spend_resource("souls", 3)  // true, souls -> 2
-        //   if result:
-        //     print("spent")
-        //   else:
-        //     print("broke")
-        //   wait
-        let program = CompiledScript::new(
-            vec![
-                // try_spend_resource("souls", 3)
-                Instruction::LoadConst(SimValue::Str("souls".into())),
-                Instruction::LoadConst(SimValue::Int(3)),
-                Instruction::InstantTrySpendResource,
-                // store result in var 1 (var 0 is self)
-                Instruction::StoreVar(1),
-                // if result:
-                Instruction::LoadVar(1),
-                Instruction::JumpIfFalse(9),
-                // print("spent")
-                Instruction::LoadConst(SimValue::Str("spent".into())),
-                Instruction::Print,
-                Instruction::Jump(11),
-                // else: print("broke")
-                Instruction::LoadConst(SimValue::Str("broke".into())),
-                Instruction::Print,
-                // wait
-                Instruction::ActionWait,
-            ],
-            2,
-        );
-        world.get_entity_mut(id).unwrap().script_state =
-            Some(ScriptState::new(program, 2));
-
-        world.start();
-        world.tick();
-
-        let texts = output_texts(&world.take_events());
-        assert!(texts.contains(&"spent".to_string()), "Should have spent: {:?}", texts);
-        assert_eq!(world.get_resource("souls"), 2);
-    }
-
     // --- Resource availability tests ---
 
     #[test]
@@ -1894,60 +1576,6 @@ mod tests {
         let mut world = SimWorld::new(42);
         world.available_resources = Some(["bones".to_string()].into_iter().collect());
         assert!(world.check_resource_available("souls").is_err());
-    }
-
-    #[test]
-    fn unavailable_resource_get_errors_in_script() {
-        let mut world = SimWorld::new(42);
-        world.resources.insert("souls".into(), 42);
-        world.available_resources = Some(["bones".to_string()].into_iter().collect());
-        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
-
-        // Script: get_resource("souls"); halt — should error because "souls" is not available.
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::Str("souls".into())),
-                Instruction::QueryGetResource,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(id).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let events = world.take_events();
-        assert!(events.iter().any(|e| matches!(e, SimEvent::ScriptError { .. })));
-    }
-
-    #[test]
-    fn unavailable_resource_gain_errors_in_script() {
-        let mut world = SimWorld::new(42);
-        world.resources.insert("souls".into(), 10);
-        world.available_resources = Some(["bones".to_string()].into_iter().collect());
-        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
-
-        // Script: gain_resource("souls", 5); wait — should error.
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::Str("souls".into())),
-                Instruction::LoadConst(SimValue::Int(5)),
-                Instruction::InstantGainResource,
-                Instruction::ActionWait,
-            ],
-            0,
-        );
-        world.get_entity_mut(id).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let events = world.take_events();
-        assert!(events.iter().any(|e| matches!(e, SimEvent::ScriptError { .. })));
-        assert_eq!(world.get_resource("souls"), 10); // unchanged
     }
 
     // --- Conditional effects tests ---
@@ -2171,6 +1799,7 @@ mod tests {
         use crate::action::{CommandDef, CommandEffect, PhaseDef};
 
         let mut world = SimWorld::new(42);
+        register_wait_command(&mut world);
         let caster = spawn_test_entity(&mut world, "summoner", "s", 500);
 
         let cmd = CommandDef {
@@ -2200,7 +1829,7 @@ mod tests {
         let program = CompiledScript::new(
             vec![
                 Instruction::ActionCustom("inline_channel".into()),
-                Instruction::ActionWait,
+                Instruction::ActionCustom("wait".into()),
                 Instruction::Jump(1),
             ],
             0,
@@ -2238,6 +1867,7 @@ mod tests {
         use crate::action::{CommandDef, CommandEffect, Condition, CompareOp, DynInt, PhaseDef};
 
         let mut world = SimWorld::new(42);
+        register_wait_command(&mut world);
         world.resources.insert("mana".into(), 50);
         let caster = spawn_test_entity(&mut world, "summoner", "s", 500);
 
@@ -2276,7 +1906,7 @@ mod tests {
         let program = CompiledScript::new(
             vec![
                 Instruction::ActionCustom("branch_channel".into()),
-                Instruction::ActionWait,
+                Instruction::ActionCustom("wait".into()),
                 Instruction::Jump(1),
             ],
             0,
@@ -2350,129 +1980,9 @@ mod tests {
         assert!(texts.contains(&"mana+skeletons".to_string()), "Nested conditions: {:?}", texts);
     }
 
-    #[test]
-    fn available_resource_works_normally() {
-        let mut world = SimWorld::new(42);
-        world.resources.insert("bones".into(), 0);
-        world.available_resources = Some(["bones".to_string()].into_iter().collect());
-        let id = spawn_test_entity(&mut world, "skeleton", "test", 0);
-
-        // Script: gain_resource("bones", 5); print(get_resource("bones")); wait
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::Str("bones".into())),
-                Instruction::LoadConst(SimValue::Int(5)),
-                Instruction::InstantGainResource,
-                Instruction::Pop, // discard return value
-                Instruction::LoadConst(SimValue::Str("bones".into())),
-                Instruction::QueryGetResource,
-                Instruction::Print,
-                Instruction::ActionWait,
-            ],
-            0,
-        );
-        world.get_entity_mut(id).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let texts = output_texts(&world.take_events());
-        assert_eq!(texts, vec!["5"]);
-        assert_eq!(world.get_resource("bones"), 5);
-    }
-
     // ---------------------------------------------------------------
     // Trigger system tests
     // ---------------------------------------------------------------
-
-    #[test]
-    fn trigger_entity_died_fires_effects() {
-        use crate::action::{TriggerDef, TriggerFilter};
-
-        let mut world = SimWorld::new(42);
-        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
-        let skeleton = spawn_test_entity(&mut world, "skeleton", "skel1", 502);
-
-        // Register a trigger: when a skeleton dies, output a message.
-        world.register_trigger(TriggerDef {
-            event: "entity_died".into(),
-            filter: TriggerFilter {
-                entity_type: Some("skeleton".into()),
-                ..Default::default()
-            },
-            conditions: vec![],
-            effects: vec![
-                CommandEffect::Output { message: "A skeleton has fallen!".into() },
-            ],
-        });
-
-        // Give summoner a script that attacks the skeleton.
-        // First, set skeleton health low so one attack kills it.
-        world.get_entity_mut(skeleton).unwrap().set_stat("health", 1);
-
-        // Give summoner a script: attack(skeleton), halt
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::EntityRef(skeleton)),
-                Instruction::ActionAttack,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(summoner).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let events = world.take_events();
-        let texts = output_texts(&events);
-        assert!(texts.contains(&"A skeleton has fallen!".to_string()),
-            "Expected trigger output, got: {:?}", texts);
-    }
-
-    #[test]
-    fn trigger_entity_died_filter_ignores_wrong_type() {
-        use crate::action::{TriggerDef, TriggerFilter};
-
-        let mut world = SimWorld::new(42);
-        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
-        let zombie = spawn_test_entity(&mut world, "zombie", "z1", 502);
-
-        // Trigger only fires for skeleton deaths, not zombie deaths.
-        world.register_trigger(TriggerDef {
-            event: "entity_died".into(),
-            filter: TriggerFilter {
-                entity_type: Some("skeleton".into()),
-                ..Default::default()
-            },
-            conditions: vec![],
-            effects: vec![
-                CommandEffect::Output { message: "Should NOT appear".into() },
-            ],
-        });
-
-        world.get_entity_mut(zombie).unwrap().set_stat("health", 1);
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::EntityRef(zombie)),
-                Instruction::ActionAttack,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(summoner).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let events = world.take_events();
-        let texts = output_texts(&events);
-        assert!(!texts.contains(&"Should NOT appear".to_string()),
-            "Trigger should not fire for zombie death, got: {:?}", texts);
-    }
 
     #[test]
     fn trigger_tick_interval_fires_periodically() {
@@ -2676,54 +2186,6 @@ mod tests {
             "Command trigger should fire, got: {:?}", texts);
     }
 
-    #[test]
-    fn trigger_entity_died_with_spawn_effect() {
-        use crate::action::{TriggerDef, TriggerFilter, DynInt};
-
-        let mut world = SimWorld::new(42);
-        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
-        let skeleton = spawn_test_entity(&mut world, "skeleton", "skel1", 502);
-
-        // When a skeleton dies, spawn a ghost.
-        world.register_trigger(TriggerDef {
-            event: "entity_died".into(),
-            filter: TriggerFilter {
-                entity_type: Some("skeleton".into()),
-                ..Default::default()
-            },
-            conditions: vec![],
-            effects: vec![
-                CommandEffect::Spawn { entity_id: "ghost".into(), offset: DynInt::Fixed(0) },
-            ],
-        });
-
-        world.get_entity_mut(skeleton).unwrap().set_stat("health", 1);
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::EntityRef(skeleton)),
-                Instruction::ActionAttack,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(summoner).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        // The ghost should be queued for spawn (pending). It won't be flushed
-        // because trigger effects fire after flush_pending. Check pending_spawns.
-        // Actually, trigger effects call queue_spawn which adds to pending_spawns.
-        // These will be flushed next tick.
-        world.tick(); // flush the pending spawn
-
-        let ghost_count = world.entities()
-            .filter(|e| e.entity_type == "ghost" && e.alive)
-            .count();
-        assert_eq!(ghost_count, 1, "Trigger should have spawned a ghost");
-    }
-
     // ---------------------------------------------------------------
     // Buff system tests
     // ---------------------------------------------------------------
@@ -2734,6 +2196,7 @@ mod tests {
         use indexmap::IndexMap as StdMap;
 
         let mut world = SimWorld::new(42);
+        register_wait_command(&mut world);
         let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         // Register a buff that adds 5 speed for 3 ticks.
@@ -2768,7 +2231,7 @@ mod tests {
             vec![
                 Instruction::ActionCustom("cast_haste".into()),
                 // Wait forever after casting (don't re-cast on implicit loop restart).
-                Instruction::ActionWait,
+                Instruction::ActionCustom("wait".into()),
                 Instruction::Jump(1),
             ],
             0,
@@ -2805,6 +2268,7 @@ mod tests {
         use indexmap::IndexMap as StdMap;
 
         let mut world = SimWorld::new(42);
+        register_wait_command(&mut world);
         let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         world.register_buff(BuffDef {
@@ -2838,7 +2302,7 @@ mod tests {
         let program = CompiledScript::new(
             vec![
                 Instruction::ActionCustom("rage_up".into()),
-                Instruction::ActionWait,
+                Instruction::ActionCustom("wait".into()),
                 Instruction::ActionCustom("rage_up".into()),
                 Instruction::Halt,
             ],
@@ -2862,6 +2326,7 @@ mod tests {
         use crate::action::BuffDef;
 
         let mut world = SimWorld::new(42);
+        register_wait_command(&mut world);
         let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 500);
 
         world.register_buff(BuffDef {
@@ -2891,8 +2356,8 @@ mod tests {
         let program = CompiledScript::new(
             vec![
                 Instruction::ActionCustom("shield_cast".into()),
-                Instruction::ActionWait,
-                Instruction::ActionWait,
+                Instruction::ActionCustom("wait".into()),
+                Instruction::ActionCustom("wait".into()),
                 Instruction::ActionCustom("shield_cast".into()), // Refresh at tick 4
                 Instruction::Halt,
             ],
@@ -3397,39 +2862,6 @@ mod tests {
     // nearest() deterministic tie-breaking
     // -----------------------------------------------------------------------
 
-    #[test]
-    fn nearest_tiebreak_lower_entity_id_wins() {
-        use crate::query::nearest;
-
-        let mut world = SimWorld::new(42);
-        // Querier at position 100
-        let querier = spawn_test_entity(&mut world, "summoner", "me", 100);
-        // Two entities equidistant at 90 and 110 (both distance 10 from querier)
-        let e_left = spawn_test_entity(&mut world, "skeleton", "left", 90);
-        let e_right = spawn_test_entity(&mut world, "skeleton", "right", 110);
-
-        let result = nearest(&world, querier, "skeleton");
-        // The one with the lower entity ID should win the tie.
-        let expected_winner = if e_left.0 < e_right.0 { e_left } else { e_right };
-        assert_eq!(result, SimValue::EntityRef(expected_winner));
-    }
-
-    #[test]
-    fn nearest_tiebreak_reversed_spawn_order() {
-        use crate::query::nearest;
-
-        let mut world = SimWorld::new(99);
-        // Spawn far entity first, then close, then another at same distance as close.
-        let querier = spawn_test_entity(&mut world, "summoner", "me", 0);
-        let _far = spawn_test_entity(&mut world, "zombie", "far", 100);
-        let close_a = spawn_test_entity(&mut world, "zombie", "a", 50);
-        let _close_b = spawn_test_entity(&mut world, "zombie", "b", -50); // abs(-50 - 0) = 50
-
-        let result = nearest(&world, querier, "zombie");
-        // close_a and close_b are equidistant (50). close_a has lower ID => wins.
-        assert_eq!(result, SimValue::EntityRef(close_a));
-    }
-
     /// Helper: run instructions on a fresh world (single entity) and return final state.
     fn run_instructions(instructions: Vec<Instruction>) -> (ScriptState, Option<UnitAction>) {
         let mut world = SimWorld::new(42);
@@ -3441,192 +2873,6 @@ mod tests {
     }
 
     // --- Scoped target tests ---
-
-    #[test]
-    fn trigger_killer_target_gets_heal() {
-        use crate::action::{CommandEffect, DynInt, TriggerDef, TriggerFilter};
-
-        let mut world = SimWorld::new(42);
-
-        // Spawn attacker (summoner) and a skeleton.
-        let attacker = spawn_test_entity(&mut world, "summoner", "summoner", 0);
-        let victim = spawn_test_entity(&mut world, "skeleton", "skel", 3);
-
-        // Lower attacker's health so we can detect heal.
-        world.get_entity_mut(attacker).unwrap().set_stat("health", 50);
-        // Set skeleton health low enough to die from one hit.
-        world.get_entity_mut(victim).unwrap().set_stat("health", 5);
-
-        // Register a trigger: when a skeleton dies, heal the killer by 20.
-        world.register_trigger(TriggerDef {
-            event: "entity_died".into(),
-            filter: TriggerFilter { entity_type: Some("skeleton".into()), ..Default::default() },
-            conditions: vec![],
-            effects: vec![CommandEffect::Heal {
-                target: "killer".into(),
-                amount: DynInt::Fixed(20),
-            }],
-        });
-
-        // Script: attack the skeleton.
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::EntityRef(victim)),
-                Instruction::ActionAttack,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(attacker).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        // Attacker should have been healed: 50 + 20 = 70.
-        let attacker_health = world.get_entity(attacker).unwrap().stat("health");
-        assert_eq!(attacker_health, 70, "Killer should have been healed to 70, got {}", attacker_health);
-    }
-
-    #[test]
-    fn trigger_source_target_references_dead_entity_type() {
-        use crate::action::{CommandEffect, DynInt, TriggerDef, TriggerFilter};
-
-        let mut world = SimWorld::new(42);
-
-        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 0);
-        let victim = spawn_test_entity(&mut world, "skeleton", "skel", 3);
-        world.get_entity_mut(victim).unwrap().set_stat("health", 5);
-
-        // Trigger on entity_died: modify_stat on source (the dead entity).
-        // Since the entity is dead, this should silently no-op.
-        world.register_trigger(TriggerDef {
-            event: "entity_died".into(),
-            filter: TriggerFilter { entity_type: Some("skeleton".into()), ..Default::default() },
-            conditions: vec![],
-            effects: vec![CommandEffect::ModifyStat {
-                target: "source".into(),
-                stat: "speed".into(),
-                amount: DynInt::Fixed(10),
-            }],
-        });
-
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::EntityRef(victim)),
-                Instruction::ActionAttack,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(summoner).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        // Should not crash. The dead entity is removed, so the effect is a no-op.
-    }
-
-    #[test]
-    fn trigger_owner_target_from_entity_field() {
-        use crate::action::{CommandDef, CommandEffect, DynInt, TriggerDef, TriggerFilter};
-
-        let mut world = SimWorld::new(42);
-
-        let summoner = spawn_test_entity(&mut world, "summoner", "summoner", 0);
-        world.get_entity_mut(summoner).unwrap().set_stat("health", 50);
-
-        // Register a spawn command (offset 3 = within attack range of 5).
-        let spawn_cmd = CommandDef {
-            name: "raise".into(),
-            description: "".into(),
-            args: vec![],
-            effects: vec![CommandEffect::Spawn {
-                entity_id: "skeleton".into(),
-                offset: DynInt::Fixed(3),
-            }],
-            unlisted: false,
-            phases: vec![],
-            ..Default::default()
-        };
-        world.register_custom_command(&spawn_cmd);
-
-        // Set up entity config for skeletons.
-        world.entity_configs.insert("skeleton".into(), EntityConfig {
-            stats: IndexMap::from([
-                ("health".into(), 5),
-                ("max_health".into(), 5),
-                ("speed".into(), 1),
-                ("attack_damage".into(), 10),
-                ("attack_range".into(), 5),
-                ("attack_cooldown".into(), 3),
-            ]),
-        });
-
-        // Trigger: when a skeleton dies, heal its owner by 10.
-        world.register_trigger(TriggerDef {
-            event: "entity_died".into(),
-            filter: TriggerFilter { entity_type: Some("skeleton".into()), ..Default::default() },
-            conditions: vec![],
-            effects: vec![CommandEffect::Heal {
-                target: "owner".into(),
-                amount: DynInt::Fixed(10),
-            }],
-        });
-
-        // Script: raise(); wait forever
-        let program = CompiledScript::new(
-            vec![
-                Instruction::ActionCustom("raise".into()),
-                Instruction::ActionWait,
-                Instruction::Jump(1),
-            ],
-            0,
-        );
-        world.get_entity_mut(summoner).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-
-        // Tick 1: summoner calls raise(), skeleton gets queued and spawned.
-        world.tick();
-        world.take_events();
-
-        // Find the spawned skeleton.
-        let skel_id = world.entities()
-            .find(|e| e.entity_type == "skeleton")
-            .map(|e| e.id)
-            .expect("skeleton should exist");
-
-        // Verify owner was set.
-        assert_eq!(
-            world.get_entity(skel_id).unwrap().owner,
-            Some(summoner),
-            "Skeleton should be owned by summoner"
-        );
-
-        // Set skeleton to 1 health so summoner can kill it.
-        world.get_entity_mut(skel_id).unwrap().set_stat("health", 1);
-
-        // Give summoner an attack script targeting the skeleton.
-        let attack_program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::EntityRef(skel_id)),
-                Instruction::ActionAttack,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(summoner).unwrap().script_state =
-            Some(ScriptState::new(attack_program, 0));
-
-        world.tick();
-
-        // Summoner should have been healed: 50 + 10 = 60.
-        let summoner_health = world.get_entity(summoner).unwrap().stat("health");
-        assert_eq!(summoner_health, 60, "Owner should have been healed to 60, got {}", summoner_health);
-    }
 
     #[test]
     fn spawn_effect_sets_owner() {
@@ -3672,47 +2918,6 @@ mod tests {
             .expect("skeleton should be spawned");
 
         assert_eq!(skel.owner, Some(summoner), "Spawned entity should have owner set to spawner");
-    }
-
-    #[test]
-    fn trigger_attacker_target_on_damage() {
-        use crate::action::{CommandEffect, DynInt, TriggerDef, TriggerFilter};
-
-        let mut world = SimWorld::new(42);
-
-        let attacker = spawn_test_entity(&mut world, "summoner", "summoner", 0);
-        let target = spawn_test_entity(&mut world, "skeleton", "skel", 3);
-
-        // Register trigger: when a skeleton is damaged, modify_stat on attacker.
-        world.register_trigger(TriggerDef {
-            event: "entity_damaged".into(),
-            filter: TriggerFilter { entity_type: Some("skeleton".into()), ..Default::default() },
-            conditions: vec![],
-            effects: vec![CommandEffect::ModifyStat {
-                target: "attacker".into(),
-                stat: "xp".into(),
-                amount: DynInt::Fixed(5),
-            }],
-        });
-
-        // Script: attack the skeleton.
-        let program = CompiledScript::new(
-            vec![
-                Instruction::LoadConst(SimValue::EntityRef(target)),
-                Instruction::ActionAttack,
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(attacker).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        // Attacker should have gained 5 xp.
-        let xp = world.get_entity(attacker).unwrap().stat("xp");
-        assert_eq!(xp, 5, "Attacker should have 5 xp from trigger, got {}", xp);
     }
 
     // --- is_alive and distance condition tests ---

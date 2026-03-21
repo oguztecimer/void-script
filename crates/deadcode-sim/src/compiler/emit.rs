@@ -585,98 +585,22 @@ impl<'a> Compiler<'a> {
                     return Ok(());
                 }
 
-                // 2. Check mod-defined commands (game builtins + custom commands).
+                // 2. Check mod-defined commands (custom commands only).
                 if let Some(meta) = self.custom_commands.get(name).cloned() {
                     self.check_command_available(name, line)?;
-                    match meta.kind {
-                        CommandKind::Query => {
-                            if args.is_empty() && meta.implicit_self {
-                                self.emit_load(VarLocation::Global(0)); // self is slot 0
-                            } else if args.len() != meta.num_args {
-                                return Err(CompileError::new(
-                                    line,
-                                    format!(
-                                        "{}() takes {} argument(s), got {}",
-                                        name, meta.num_args, args.len()
-                                    ),
-                                ));
-                            } else {
-                                for arg in args {
-                                    self.compile_expr(arg)?;
-                                }
-                            }
-                            match builtins::builtin_instruction(name) {
-                                Some(instr) => self.emit(instr),
-                                None => {
-                                    return Err(CompileError::new(
-                                        line,
-                                        format!("no IR instruction for query '{name}'"),
-                                    ));
-                                }
-                            }
-                        }
-                        CommandKind::Action => {
-                            if args.len() != meta.num_args {
-                                return Err(CompileError::new(
-                                    line,
-                                    format!(
-                                        "{}() takes {} argument(s), got {}",
-                                        name, meta.num_args, args.len()
-                                    ),
-                                ));
-                            }
-                            for arg in args {
-                                self.compile_expr(arg)?;
-                            }
-                            match builtins::builtin_instruction(name) {
-                                Some(instr) => self.emit(instr),
-                                None => {
-                                    return Err(CompileError::new(
-                                        line,
-                                        format!("no IR instruction for action '{name}'"),
-                                    ));
-                                }
-                            }
-                        }
-                        CommandKind::Instant => {
-                            if args.len() != meta.num_args {
-                                return Err(CompileError::new(
-                                    line,
-                                    format!(
-                                        "{}() takes {} argument(s), got {}",
-                                        name, meta.num_args, args.len()
-                                    ),
-                                ));
-                            }
-                            for arg in args {
-                                self.compile_expr(arg)?;
-                            }
-                            match builtins::builtin_instruction(name) {
-                                Some(instr) => self.emit(instr),
-                                None => {
-                                    return Err(CompileError::new(
-                                        line,
-                                        format!("no IR instruction for instant effect '{name}'"),
-                                    ));
-                                }
-                            }
-                        }
-                        CommandKind::Custom => {
-                            if args.len() != meta.num_args {
-                                return Err(CompileError::new(
-                                    line,
-                                    format!(
-                                        "{}() takes {} argument(s), got {}",
-                                        name, meta.num_args, args.len()
-                                    ),
-                                ));
-                            }
-                            for arg in args {
-                                self.compile_expr(arg)?;
-                            }
-                            self.emit(Instruction::ActionCustom(name.to_string()));
-                        }
+                    if args.len() != meta.num_args {
+                        return Err(CompileError::new(
+                            line,
+                            format!(
+                                "{}() takes {} argument(s), got {}",
+                                name, meta.num_args, args.len()
+                            ),
+                        ));
                     }
+                    for arg in args {
+                        self.compile_expr(arg)?;
+                    }
+                    self.emit(Instruction::ActionCustom(name.to_string()));
                     return Ok(());
                 }
 
@@ -854,35 +778,10 @@ impl<'a> Compiler<'a> {
                 self.emit(Instruction::DictGet);
             }
             _ => {
-                // Try as a mod-defined command with the object as first arg.
-                // e.g., entity.get_health() → get_health(entity)
-                if let Some(meta) = self.custom_commands.get(method).cloned() {
-                    if meta.kind != CommandKind::Query {
-                        return Err(CompileError::new(
-                            line,
-                            format!("method call syntax is only supported for queries, not '{method}'"),
-                        ));
-                    }
-                    self.check_command_available(method, line)?;
-                    self.compile_expr(object)?;
-                    for arg in args {
-                        self.compile_expr(arg)?;
-                    }
-                    match builtins::builtin_instruction(method) {
-                        Some(instr) => self.emit(instr),
-                        None => {
-                            return Err(CompileError::new(
-                                line,
-                                format!("no IR instruction for query '{method}'"),
-                            ));
-                        }
-                    }
-                } else {
-                    return Err(CompileError::new(
-                        line,
-                        format!("unknown method '{method}'"),
-                    ));
-                }
+                return Err(CompileError::new(
+                    line,
+                    format!("unknown method '{method}'"),
+                ));
             }
         }
         Ok(())

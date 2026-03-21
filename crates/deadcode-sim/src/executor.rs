@@ -20,7 +20,7 @@ const MAX_CALL_DEPTH: usize = 256;
 /// The caller takes `ScriptState` out of the entity before calling this, then
 /// puts it back afterwards. The executor gets `&SimWorld` for read-only queries.
 pub fn execute_unit(
-    entity_id: EntityId,
+    _entity_id: EntityId,
     state: &mut ScriptState,
     world: &SimWorld,
 ) -> Result<Option<UnitAction>, SimError> {
@@ -545,113 +545,7 @@ pub fn execute_unit(
                 state.stack.push(SimValue::Int(result));
             }
 
-            // --- Query instructions (instant) ---
-            Instruction::QueryScan => {
-                let filter = pop_str(&mut state.stack)?;
-                let results = query::scan(world, entity_id, &filter);
-                state.stack.push(SimValue::List(results));
-            }
-            Instruction::QueryGetPos => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let pos = query::get_pos(world, eid)?;
-                state.stack.push(SimValue::Int(pos));
-            }
-            Instruction::QueryNearest => {
-                let filter = pop_str(&mut state.stack)?;
-                let result = query::nearest(world, entity_id, &filter);
-                state.stack.push(result);
-            }
-            Instruction::QueryDistance => {
-                let b = pop_entity_ref(&mut state.stack)?;
-                let a = pop_entity_ref(&mut state.stack)?;
-                let dist = query::distance(world, a, b)?;
-                state.stack.push(SimValue::Int(dist));
-            }
-            Instruction::QueryGetHealth => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::get_stat(world, eid, "health")?;
-                state.stack.push(val);
-            }
-            Instruction::QueryGetShield => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::get_stat(world, eid, "shield")?;
-                state.stack.push(val);
-            }
-            Instruction::QueryGetTarget => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::get_target(world, eid)?;
-                state.stack.push(val);
-            }
-            Instruction::QueryHasTarget => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::has_target(world, eid)?;
-                state.stack.push(SimValue::Bool(val));
-            }
-            Instruction::QueryGetType => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::get_type(world, eid)?;
-                state.stack.push(SimValue::Str(val));
-            }
-            Instruction::QueryGetName => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::get_name(world, eid)?;
-                state.stack.push(SimValue::Str(val));
-            }
-            Instruction::QueryGetOwner => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = query::get_owner(world, eid)?;
-                state.stack.push(val);
-            }
-            Instruction::QueryGetResource => {
-                let name = pop_str(&mut state.stack)?;
-                world.check_resource_available(&name)?;
-                let val = world.get_resource(&name);
-                state.stack.push(SimValue::Int(val));
-            }
-            Instruction::QueryGetStat => {
-                let stat_name = pop_str(&mut state.stack)?;
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let val = world.get_entity(eid)
-                    .map_or(0, |e| e.stat(&stat_name));
-                state.stack.push(SimValue::Int(val));
-            }
-            Instruction::QueryGetTypes => {
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let types = query::get_types(world, eid)?;
-                state.stack.push(SimValue::List(types));
-            }
-            Instruction::QueryHasType => {
-                let type_name = pop_str(&mut state.stack)?;
-                let eid = pop_entity_ref(&mut state.stack)?;
-                let result = query::has_type(world, eid, &type_name)?;
-                state.stack.push(SimValue::Bool(result));
-            }
-
             // --- Action instructions (consume tick) ---
-            Instruction::ActionMove => {
-                let target_pos = pop_int(&mut state.stack)?;
-                state.yielded = true;
-                return Ok(Some(UnitAction::Move { target_pos }));
-            }
-            Instruction::ActionAttack => {
-                let target = pop_entity_ref(&mut state.stack)?;
-                state.yielded = true;
-                return Ok(Some(UnitAction::Attack { target }));
-            }
-            Instruction::ActionFlee => {
-                let threat = pop_entity_ref(&mut state.stack)?;
-                state.yielded = true;
-                return Ok(Some(UnitAction::Flee { threat }));
-            }
-            Instruction::ActionWait => {
-                state.yielded = true;
-                return Ok(Some(UnitAction::Wait));
-            }
-            Instruction::ActionSetTarget => {
-                let target = pop_entity_ref(&mut state.stack)?;
-                state.yielded = true;
-                return Ok(Some(UnitAction::SetTarget { target }));
-            }
             Instruction::ActionCustom(name) => {
                 // Pop N args from stack (N from custom command registry).
                 let num_args = world.custom_command_arg_counts
@@ -666,20 +560,6 @@ pub fn execute_unit(
                 state.yielded = true;
                 return Ok(Some(UnitAction::Custom { name, args }));
             }
-            // --- Instant effect instructions (don't consume tick) ---
-            Instruction::InstantGainResource => {
-                let amount = pop_int(&mut state.stack)?;
-                let name = pop_str(&mut state.stack)?;
-                world.check_resource_available(&name)?;
-                return Ok(Some(UnitAction::GainResource { name, amount }));
-            }
-            Instruction::InstantTrySpendResource => {
-                let amount = pop_int(&mut state.stack)?;
-                let name = pop_str(&mut state.stack)?;
-                world.check_resource_available(&name)?;
-                return Ok(Some(UnitAction::TrySpendResource { name, amount }));
-            }
-
             // --- Misc ---
             Instruction::Print => {
                 let val = pop(&mut state.stack)?;
@@ -722,16 +602,6 @@ fn pop_str(stack: &mut Vec<SimValue>) -> Result<String, SimError> {
         SimValue::Str(s) => Ok(s),
         other => Err(SimError::type_error(format!(
             "expected str, got {}",
-            other.type_name()
-        ))),
-    }
-}
-
-fn pop_entity_ref(stack: &mut Vec<SimValue>) -> Result<EntityId, SimError> {
-    match pop(stack)? {
-        SimValue::EntityRef(id) => Ok(id),
-        other => Err(SimError::type_error(format!(
-            "expected entity, got {}",
             other.type_name()
         ))),
     }
@@ -914,20 +784,6 @@ mod tests {
     }
 
     #[test]
-    fn action_move_yields() {
-        let (state, action) = run_script(
-            vec![
-                Instruction::LoadConst(SimValue::Int(500)),
-                Instruction::ActionMove,
-                Instruction::LoadConst(SimValue::Int(999)), // should not execute
-            ],
-            0,
-        );
-        assert!(state.yielded);
-        assert!(matches!(action, Some(UnitAction::Move { target_pos: 500 })));
-    }
-
-    #[test]
     fn step_limit_auto_yields() {
         // Infinite loop with no action — should auto-yield after STEP_LIMIT.
         let (state, action) = run_script(
@@ -977,32 +833,6 @@ mod tests {
                 SimValue::Int(3)
             ]))
         );
-    }
-
-    #[test]
-    fn while_loop_move_oscillate() {
-        // Hand-assembled: while True: move(100); move(0)
-        // Should yield on first move(100).
-        let (state, action) = run_script(
-            vec![
-                // 0: push True
-                Instruction::LoadConst(SimValue::Bool(true)),
-                // 1: jump if false to 5 (end)
-                Instruction::JumpIfFalse(5),
-                // 2: move(100)
-                Instruction::LoadConst(SimValue::Int(100)),
-                Instruction::ActionMove,
-                // 4: jump back to 0
-                Instruction::Jump(0),
-                // 5: halt
-                Instruction::Halt,
-            ],
-            0,
-        );
-        assert!(state.yielded);
-        assert!(matches!(action, Some(UnitAction::Move { target_pos: 100 })));
-        // PC should be at 4 (the instruction after ActionMove)
-        assert_eq!(state.pc, 4);
     }
 
     // --- Floor division/modulo tests ---

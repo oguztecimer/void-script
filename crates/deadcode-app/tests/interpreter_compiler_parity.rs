@@ -7,14 +7,11 @@
 //! # Known intentional divergences
 //!
 //! - `float()`: interpreter returns Float, compiler errors (sim has no floats)
-//! - Game builtins (move, scan, etc.): interpreter returns stubs, compiler uses real sim world
-//! - Custom command gating: interpreter only checks custom_commands set, compiler checks all types
 
 use std::collections::HashMap;
 
 use crossbeam_channel::unbounded;
 
-use deadcode_sim::action::CommandKind;
 use deadcode_sim::compiler;
 use deadcode_sim::compiler::CommandMeta;
 use deadcode_sim::entity::ScriptState;
@@ -23,42 +20,6 @@ use deadcode_sim::value::SimValue;
 use deadcode_sim::world::SimWorld;
 
 use grimscript_lang::debug::{DebugCommand, ScriptEvent, OutputLevel};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Build the standard set of game builtin command metadata for tests.
-fn test_command_metadata() -> HashMap<String, CommandMeta> {
-    let mut m = HashMap::new();
-    // Queries
-    m.insert("scan".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-    m.insert("nearest".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-    m.insert("distance".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
-    m.insert("get_pos".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
-    m.insert("get_health".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
-    m.insert("get_shield".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
-    m.insert("get_target".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
-    m.insert("has_target".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
-    m.insert("get_type".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-    m.insert("get_name".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-    m.insert("get_owner".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-    m.insert("get_resource".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-    m.insert("get_stat".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
-    m.insert("get_custom_stat".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
-    m.insert("get_types".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-    m.insert("has_type".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
-    // Actions
-    m.insert("move".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
-    m.insert("attack".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
-    m.insert("flee".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
-    m.insert("wait".into(), CommandMeta { num_args: 0, kind: CommandKind::Action, implicit_self: false });
-    m.insert("set_target".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
-    // Instant effects
-    m.insert("gain_resource".into(), CommandMeta { num_args: 2, kind: CommandKind::Instant, implicit_self: false });
-    m.insert("try_spend_resource".into(), CommandMeta { num_args: 2, kind: CommandKind::Instant, implicit_self: false });
-    m
-}
 
 /// Run source through the interpreter, collecting output lines.
 fn interpreter_outputs(source: &str) -> Vec<String> {
@@ -80,7 +41,7 @@ fn interpreter_outputs(source: &str) -> Vec<String> {
 
 /// Run source through compiler + executor, collecting print outputs from sim events.
 fn compiler_outputs(source: &str) -> Vec<String> {
-    let script = compiler::compile_source_full(source, None, test_command_metadata()).expect("compilation failed");
+    let script = compiler::compile_source_full(source, None, HashMap::new()).expect("compilation failed");
     let mut world = SimWorld::new(42);
     let eid = world.spawn_entity("skeleton".into(), "test".into(), 100);
     let num_vars = script.num_variables;

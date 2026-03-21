@@ -73,42 +73,16 @@ pub fn compile_source_full(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::{CommandKind, UnitAction};
+    use crate::action::UnitAction;
     use crate::entity::ScriptState;
     use crate::executor;
     use crate::ir::Instruction;
     use crate::world::SimWorld;
 
-    /// Build the standard set of game builtin command metadata for tests.
+    /// Build the standard set of command metadata for tests.
+    /// All game builtins have been removed — returns an empty map.
     fn test_command_metadata() -> HashMap<String, CommandMeta> {
-        let mut m = HashMap::new();
-        // Queries
-        m.insert("scan".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-        m.insert("nearest".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-        m.insert("distance".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
-        m.insert("get_pos".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
-        m.insert("get_health".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
-        m.insert("get_shield".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
-        m.insert("get_target".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
-        m.insert("has_target".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: true });
-        m.insert("get_type".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-        m.insert("get_name".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-        m.insert("get_owner".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-        m.insert("get_resource".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-        m.insert("get_stat".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
-        m.insert("get_custom_stat".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
-        m.insert("get_types".into(), CommandMeta { num_args: 1, kind: CommandKind::Query, implicit_self: false });
-        m.insert("has_type".into(), CommandMeta { num_args: 2, kind: CommandKind::Query, implicit_self: false });
-        // Actions
-        m.insert("move".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
-        m.insert("attack".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
-        m.insert("flee".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
-        m.insert("wait".into(), CommandMeta { num_args: 0, kind: CommandKind::Action, implicit_self: false });
-        m.insert("set_target".into(), CommandMeta { num_args: 1, kind: CommandKind::Action, implicit_self: false });
-        // Instant effects
-        m.insert("gain_resource".into(), CommandMeta { num_args: 2, kind: CommandKind::Instant, implicit_self: false });
-        m.insert("try_spend_resource".into(), CommandMeta { num_args: 2, kind: CommandKind::Instant, implicit_self: false });
-        m
+        HashMap::new()
     }
 
     /// Helper: compile source with game builtins, execute on a fresh world, return final state + action.
@@ -276,26 +250,6 @@ mod tests {
     }
 
     #[test]
-    fn action_move_yields() {
-        let (state, action) = compile_and_run("move(500)");
-        assert!(state.yielded);
-        assert!(matches!(action, Some(UnitAction::Move { target_pos: 500 })));
-    }
-
-    #[test]
-    fn action_wait_yields() {
-        let (state, action) = compile_and_run("wait()");
-        assert!(state.yielded);
-        assert!(matches!(action, Some(UnitAction::Wait)));
-    }
-
-    #[test]
-    fn query_scan() {
-        let script = compile_source_full("targets = scan(\"fighter\")", None, test_command_metadata()).unwrap();
-        assert!(script.instructions.iter().any(|i| matches!(i, Instruction::QueryScan)));
-    }
-
-    #[test]
     fn is_none_check() {
         let vars = run_to_completion("x = None\ny = x is None\nz = x is not None");
         assert_eq!(vars.get(2), Some(&SimValue::Bool(true)));
@@ -398,30 +352,12 @@ mod tests {
     }
 
     #[test]
-    fn implicit_self_query() {
-        let script = compile_source_full("h = get_health()", None, test_command_metadata()).unwrap();
-        let instrs: Vec<_> = script.instructions.iter().collect();
-        let has_self_load = instrs.windows(2).any(|w| {
-            matches!(w[0], Instruction::LoadVar(0)) && matches!(w[1], Instruction::QueryGetHealth)
-        });
-        assert!(has_self_load);
-    }
-
-    #[test]
     fn deterministic_compilation() {
         let src = "x = 1\ny = 2\nz = x + y";
         let a = compile_source(src).unwrap();
         let b = compile_source(src).unwrap();
         assert_eq!(a.instructions.len(), b.instructions.len());
         assert_eq!(a.num_variables, b.num_variables);
-    }
-
-    #[test]
-    fn while_true_move_oscillate() {
-        let src = "while True:\n    move(100)\n    move(0)";
-        let (state, action) = compile_and_run(src);
-        assert!(state.yielded);
-        assert!(matches!(action, Some(UnitAction::Move { target_pos: 100 })));
     }
 
     #[test]
@@ -465,32 +401,6 @@ mod tests {
     fn short_circuit_or() {
         let vars = run_to_completion("x = 0 or 42");
         assert_eq!(vars.get(1), Some(&SimValue::Int(42)));
-    }
-
-    #[test]
-    fn get_resource_emits_query_instruction() {
-        let script = compile_source_full("x = get_resource(\"souls\")", None, test_command_metadata()).unwrap();
-        assert!(script.instructions.iter().any(|i| matches!(i, Instruction::QueryGetResource)));
-    }
-
-    #[test]
-    fn gain_resource_emits_instant_instruction() {
-        let script = compile_source_full("x = gain_resource(\"souls\", 5)", None, test_command_metadata()).unwrap();
-        assert!(script.instructions.iter().any(|i| matches!(i, Instruction::InstantGainResource)));
-    }
-
-    #[test]
-    fn try_spend_resource_emits_instant_instruction() {
-        let script = compile_source_full("x = try_spend_resource(\"souls\", 3)", None, test_command_metadata()).unwrap();
-        assert!(script.instructions.iter().any(|i| matches!(i, Instruction::InstantTrySpendResource)));
-    }
-
-    #[test]
-    fn resource_builtins_gated_by_available_commands() {
-        let available: HashSet<String> = ["move"].iter().map(|s| s.to_string()).collect();
-        let result = compile_source_full("get_resource(\"souls\")", Some(available), test_command_metadata());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not available"));
     }
 
     // --- Bug fix tests ---

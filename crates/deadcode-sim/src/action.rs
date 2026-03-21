@@ -308,22 +308,10 @@ pub enum EffectOutcome {
 /// An action a unit wants to perform this tick.
 #[derive(Debug, Clone)]
 pub enum UnitAction {
-    /// Move toward a target position by `speed` units.
-    Move { target_pos: i64 },
-    /// Attack a target entity.
-    Attack { target: EntityId },
-    /// Flee from a threat (move away).
-    Flee { threat: EntityId },
     /// Do nothing for one tick.
     Wait,
-    /// Set the unit's target.
-    SetTarget { target: EntityId },
     /// Print a value (not really a game action, but uses the same yield path).
     Print { text: String },
-    /// Gain a global resource (instant — handled in tick loop, not resolve_action).
-    GainResource { name: String, amount: i64 },
-    /// Try to spend a global resource (instant — handled in tick loop, not resolve_action).
-    TrySpendResource { name: String, amount: i64 },
     /// Custom mod-defined command with resolved arguments.
     Custom { name: String, args: Vec<SimValue> },
 }
@@ -522,101 +510,11 @@ pub fn resolve_action(
     let mut events = Vec::new();
 
     match action {
-        UnitAction::Move { target_pos } => {
-            if let Some(entity) = world.get_entity_mut(entity_id) {
-                let speed = entity.stat("speed");
-                let dx = target_pos - entity.position;
-                let step = dx.signum() * speed.min(dx.abs());
-                entity.position += step;
-                events.push(SimEvent::EntityMoved {
-                    entity_id,
-                    new_position: entity.position,
-                });
-            }
-        }
-
-        UnitAction::Attack { target } => {
-            let (damage, range, attacker_pos) = match world.get_entity(entity_id) {
-                Some(e) => (e.stat("attack_damage"), e.stat("attack_range"), e.position),
-                None => return events,
-            };
-
-            match world.get_entity(target) {
-                Some(t) if t.alive => {
-                    let dist = (t.position - attacker_pos).abs();
-                    if dist > range {
-                        return events;
-                    }
-                }
-                _ => return events,
-            };
-
-            if let Some(target_entity) = world.get_entity_mut(target) {
-                let mut remaining = damage;
-                let shield = target_entity.stat("shield");
-                if shield > 0 {
-                    let shield_absorbed = remaining.min(shield);
-                    target_entity.set_stat("shield", shield - shield_absorbed);
-                    remaining -= shield_absorbed;
-                }
-                let new_health = (target_entity.stat("health") - remaining).max(0);
-                target_entity.set_stat("health", new_health);
-
-                events.push(SimEvent::EntityDamaged {
-                    entity_id: target,
-                    damage,
-                    new_health,
-                    attacker_id: Some(entity_id),
-                });
-
-                if new_health <= 0 {
-                    target_entity.alive = false;
-                    let owner_id = target_entity.owner;
-                    events.push(SimEvent::EntityDied {
-                        entity_id: target,
-                        name: target_entity.name.clone(),
-                        killer_id: Some(entity_id),
-                        owner_id,
-                    });
-                }
-            }
-
-            if let Some(attacker) = world.get_entity_mut(entity_id) {
-                let cooldown = attacker.stat("attack_cooldown");
-                attacker.set_stat("cooldown_remaining", cooldown);
-            }
-        }
-
-        UnitAction::Flee { threat } => {
-            let threat_pos = match world.get_entity(threat) {
-                Some(e) => e.position,
-                None => return events,
-            };
-            if let Some(entity) = world.get_entity_mut(entity_id) {
-                let speed = entity.stat("speed");
-                let direction = if entity.position >= threat_pos { 1 } else { -1 };
-                entity.position += direction * speed;
-                events.push(SimEvent::EntityMoved {
-                    entity_id,
-                    new_position: entity.position,
-                });
-            }
-        }
-
         UnitAction::Wait => {}
-
-        UnitAction::SetTarget { target } => {
-            if let Some(entity) = world.get_entity_mut(entity_id) {
-                entity.target = Some(target);
-            }
-        }
 
         UnitAction::Print { text } => {
             events.push(SimEvent::ScriptOutput { entity_id, text });
         }
-
-        // Instant resource actions are handled in the tick loop, not here.
-        UnitAction::GainResource { .. } | UnitAction::TrySpendResource { .. } => {}
 
         UnitAction::Custom { name, args } => {
             events.push(SimEvent::CommandUsed {

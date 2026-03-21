@@ -348,48 +348,11 @@ pub fn call_builtin(
                 "append() should be called as a method",
             ))
         }
-        "move" => {
-            send_output(output_tx, "[move] Moving...");
-            Ok(Value::None)
-        }
-        "get_pos" => Ok(Value::Int(0)),
-        "scan" => Ok(Value::List(vec![])),
-        "nearest" => Ok(Value::Entity {
-            id: 1,
-            name: "target".into(),
-            entity_type: "unknown".into(),
-        }),
-        "distance" => Ok(Value::Int(10)),
-        "attack" => {
-            send_output(output_tx, "[attack] Attacking...");
-            Ok(Value::None)
-        }
-        "flee" => {
-            send_output(output_tx, "[flee] Fleeing!");
-            Ok(Value::None)
-        }
-        "get_health" => Ok(Value::Int(100)),
-        "get_shield" => Ok(Value::Int(50)),
-        "wait" => {
-            send_output(output_tx, "[wait] Waiting...");
-            Ok(Value::None)
-        }
-        "set_target" => Ok(Value::None),
-        "get_target" => Ok(Value::None),
-        "has_target" => Ok(Value::Bool(false)),
-        "get_type" => Ok(Value::String("unknown".into())),
-        "get_name" => Ok(Value::String("entity".into())),
-        "get_owner" => Ok(Value::String("player".into())),
-        "get_resource" => Ok(Value::Int(0)),
-        "gain_resource" => Ok(Value::Int(0)),
-        "try_spend_resource" => Ok(Value::Bool(true)),
-        "get_stat" | "get_custom_stat" => Ok(Value::Int(0)),
-        "get_types" => Ok(Value::List(vec![])),
-        "has_type" => Ok(Value::Bool(false)),
         _ => {
-            // Custom command stub — just prints the command name.
-            send_output(output_tx, &format!("[{name}] (custom command)"));
-            Ok(Value::None)
+            Err(GrimScriptError::runtime(
+                0,
+                format!("Unknown builtin: {name}"),
+            ))
         }
     }
 }

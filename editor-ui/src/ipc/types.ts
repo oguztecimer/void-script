@@ -5,8 +5,6 @@ export type RustToJsMessage =
   | { type: 'script_list'; scripts: ScriptInfo[] }
   | { type: 'tab_close'; script_id: string }
   | { type: 'console_output'; text: string; level: 'info' | 'warn' | 'error' }
-  | { type: 'script_started'; script_id: string }
-  | { type: 'script_finished'; script_id: string; success: boolean; error?: string }
   | { type: 'debug_paused'; script_id: string; line: number; variables: VariableInfo[]; call_stack: string[] }
   | { type: 'debug_resumed'; script_id: string }
   | { type: 'terminal_finished'; success: boolean; error?: string }
@@ -23,8 +21,6 @@ export type JsToRustMessage =
   | { type: 'script_request'; script_id: string }
   | { type: 'script_list_request' }
   | { type: 'tab_changed'; script_id: string }
-  | { type: 'run_script'; script_id: string }
-  | { type: 'stop_script'; script_id: string }
   | { type: 'debug_start'; script_id: string }
   | { type: 'debug_continue'; script_id: string }
   | { type: 'debug_step_over'; script_id: string }

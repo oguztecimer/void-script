@@ -613,6 +613,17 @@ pub fn execute_unit(
                     .map_or(0, |e| e.stat(&stat_name));
                 state.stack.push(SimValue::Int(val));
             }
+            Instruction::QueryGetTypes => {
+                let eid = pop_entity_ref(&mut state.stack)?;
+                let types = query::get_types(world, eid)?;
+                state.stack.push(SimValue::List(types));
+            }
+            Instruction::QueryHasType => {
+                let type_name = pop_str(&mut state.stack)?;
+                let eid = pop_entity_ref(&mut state.stack)?;
+                let result = query::has_type(world, eid, &type_name)?;
+                state.stack.push(SimValue::Bool(result));
+            }
 
             // --- Action instructions (consume tick) ---
             Instruction::ActionMove => {

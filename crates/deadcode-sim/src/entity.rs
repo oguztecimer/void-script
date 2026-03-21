@@ -84,7 +84,12 @@ pub struct EntityConfig {
 pub struct SimEntity {
     pub id: EntityId,
     /// Free-form type string (e.g., "skeleton", "summoner", "grave").
+    /// Used as the unique entity definition ID for sprite/config registry lookups.
     pub entity_type: String,
+    /// Composable type tags for queries and filtering.
+    /// An entity can have multiple types (e.g., ["undead", "melee", "skeleton_ai"]).
+    /// If empty, behaves as if it contains just `entity_type`.
+    pub types: Vec<String>,
     pub name: String,
     pub owner: Option<EntityId>,
 
@@ -112,10 +117,12 @@ pub struct SimEntity {
 
 impl SimEntity {
     pub fn new(id: EntityId, entity_type: String, name: String, position: i64) -> Self {
+        let types = vec![entity_type.clone()];
         let stats = IndexMap::new();
         Self {
             id,
             entity_type,
+            types,
             name,
             owner: None,
             position,
@@ -127,6 +134,31 @@ impl SimEntity {
             active_channel: None,
             active_buffs: Vec::new(),
         }
+    }
+
+    /// Create a new entity with explicit type tags.
+    pub fn new_with_types(id: EntityId, entity_type: String, types: Vec<String>, name: String, position: i64) -> Self {
+        let stats = IndexMap::new();
+        Self {
+            id,
+            entity_type,
+            types,
+            name,
+            owner: None,
+            position,
+            stats,
+            target: None,
+            alive: true,
+            spawn_ticks_remaining: 0,
+            script_state: None,
+            active_channel: None,
+            active_buffs: Vec::new(),
+        }
+    }
+
+    /// Check if this entity has a given type tag.
+    pub fn has_type(&self, tag: &str) -> bool {
+        self.types.iter().any(|t| t == tag)
     }
 
     /// Get a stat value (returns 0 if not set).

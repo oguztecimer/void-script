@@ -30,7 +30,7 @@ interface EditorState {
   bottomPanelOpen: boolean;
   rightPanelOpen: boolean;
   bottomPanelTab: string;
-  isRunning: boolean;
+  isSimPaused: boolean;
   isDebugging: boolean;
   isPaused: boolean;
   debugLine: number | null;
@@ -64,7 +64,7 @@ interface EditorState {
   toggleRightPanel: () => void;
   setBottomPanelOpen: (open: boolean) => void;
   setBottomPanelTab: (tab: string) => void;
-  setRunning: (running: boolean) => void;
+  setSimPaused: (paused: boolean) => void;
   setDebugging: (debugging: boolean) => void;
   setPaused: (paused: boolean) => void;
   setDebugLine: (line: number | null) => void;
@@ -93,7 +93,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   bottomPanelOpen: true,
   rightPanelOpen: false,
   bottomPanelTab: 'terminal',
-  isRunning: false,
+  isSimPaused: false,
   isDebugging: false,
   isPaused: false,
   debugLine: null,
@@ -185,7 +185,7 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   setBottomPanelOpen: (open) => set({ bottomPanelOpen: open }),
   setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
 
-  setRunning: (running) => set({ isRunning: running }),
+  setSimPaused: (paused) => set({ isSimPaused: paused }),
 
   setDebugging: (debugging) => set((state) => ({
     isDebugging: debugging,

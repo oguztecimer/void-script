@@ -72,10 +72,10 @@ src/
   rng.rs          — SplitMix64 PRNG + Fisher-Yates shuffle (deterministic)
   value.rs        — SimValue: Int, Bool, Str, None, List, Dict(IndexMap), EntityRef (no floats)
   error.rs        — SimError types
-  entity.rs       — SimEntity (unified stats HashMap, owner: Option<EntityId>), EntityId, EntityConfig, ScriptState (incl. step_limit_hit), CallFrame, spawn_ticks_remaining
+  entity.rs       — SimEntity (unified stats HashMap, types: Vec<String>, owner: Option<EntityId>), EntityId, EntityConfig, ScriptState (incl. step_limit_hit), CallFrame, spawn_ticks_remaining
   ir.rs           — 60+ stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
-  world.rs        — SimWorld: entity storage, tick() loop, event collection, snapshots, global resources, trigger processing
+  world.rs        — SimWorld: entity storage, tick() loop (main brain + entity shuffle), event collection, snapshots, global resources, trigger processing, entity_types_registry
   action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/DynInt/CompareOp/Condition/EffectOutcome/TriggerDef/TriggerFilter/EffectContext types for mod-defined commands and triggers
   query.rs        — scan(), nearest(), distance() — linear scan over entities
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
@@ -110,7 +110,11 @@ src/
 
 **Buff system:** Mods define temporary stat modifiers via `[[buffs]]` in `mod.toml`. Each `BuffDef` has `name`, `duration`, `modifiers` (stat→amount), `per_tick`/`on_apply`/`on_expire` effect lists, `stackable`, and `max_stacks`. Two new effect types: `apply_buff { target, buff, duration? }` and `remove_buff { target, buff }`. Active buffs tracked per-entity via `SimEntity.active_buffs`. Modifiers directly modify stats on apply and reverse on expire. Stackable buffs accumulate stacks; non-stackable refresh duration. Buff tick processing (step 6b) runs per_tick effects, decrements durations, and handles expiry (reverse modifiers, run on_expire effects). Buff definitions stored in `SimWorld.buff_registry`.
 
-**Unified entity stats:** All entity stats live in a single `SimEntity.stats: IndexMap<String, i64>` (deterministic iteration order), accessed via `stat(&self, name) -> i64` (returns 0 if unset), `set_stat(&mut self, name, value)`, and `clamp_stat(&mut self, name)` (clamps to `[0, max_{name}]` if a max exists). There are **no built-in default stats** — entities start with an empty stats map; all stats come from `EntityConfig` applied by mods. `EntityConfig` contains `stats: IndexMap<String, i64>`; `apply_config()` auto-sets `max_health`/`max_shield` when health/shield are defined without explicit max values. In `mod.toml`, `[[entities]]` has a `stats` table for all stats (aliased from `custom_stats` for backward compat). `modify_stat` and `use_resource` effects work with all stats generically. Stats are accessible via entity attribute access (`entity.armor`) and the `get_stat(entity, "name")` GrimScript builtin (query, instant, gated by available_commands; `get_custom_stat` kept as alias).
+**Multi-type entity system:** Entities have a `types: Vec<String>` field containing composable type tags for queries and filtering. The `entity_type: String` field serves as the unique entity definition ID for registry lookups (sprites, configs). `SimEntity::new()` auto-populates `types = [entity_type]` for backward compat; `SimEntity::new_with_types()` allows explicit type tags. `has_type(&self, tag) -> bool` checks membership. Query functions `scan()` and `nearest()` filter by `has_type()` instead of exact match. New GrimScript builtins: `get_types(entity) -> List`, `has_type(entity, name) -> Bool`. Entity attribute `entity.types` returns the type list. `DynInt::EntityCount`, `Condition::EntityCount`, `Sacrifice` effects, and trigger filters all use `has_type()` for matching. `SimWorld.entity_types_registry` stores def ID → types mapping for spawn effects.
+
+**Type definitions (`[[types]]` in mod.toml):** Types are composable tags with optional stats, commands, and brain scripts. Each `TypeDef` has `name`, `brain: bool`, `stats: IndexMap`, `commands: Vec<String>`, and optional `script` path. Entity `[[entities]]` definitions reference types via `types = ["undead", "melee"]`. Stats are merged in type order, then entity-level stats override. Type `.gs` scripts loaded from `grimscript/` directory. Entity definitions use `id` field (unique key) with `type` as backward-compat fallback; `types` defaults to `[id]` if absent. `[[spawn]]` uses `entity_id` field (with `entity_type` as serde alias).
+
+**Unified entity stats:** All entity stats live in a single `SimEntity.stats: IndexMap<String, i64>` (deterministic iteration order), accessed via `stat(&self, name) -> i64` (returns 0 if unset), `set_stat(&mut self, name, value)`, and `clamp_stat(&mut self, name)` (clamps to `[0, max_{name}]` if a max exists). There are **no built-in default stats** — entities start with an empty stats map; all stats come from `EntityConfig` applied by mods. `EntityConfig` contains `stats: IndexMap<String, i64>`; `apply_config()` auto-sets `max_health`/`max_shield` when health/shield are defined without explicit max values. In `mod.toml`, entity stats merge from types (in type order) then entity-level overrides. `modify_stat` and `use_resource` effects work with all stats generically. Stats are accessible via entity attribute access (`entity.armor`) and the `get_stat(entity, "name")` GrimScript builtin (query, instant, gated by available_commands; `get_custom_stat` kept as alias).
 
 **Computed values (DynInt):** `DynInt` extended with three game-state variants: `EntityCount { entity_type, multiplier }` resolves to the count of alive entities of a type, `ResourceValue { resource, multiplier }` resolves to a global resource's current value, `CasterStat { stat, multiplier }` resolves to the caster's stat value. TOML format: `"entity_count(skeleton)"`, `"resource(mana)"`, `"stat(health)"`, with optional multiplier `"entity_count(skeleton)*2"`. All effect `amount`/`offset` fields use `resolve_with_world()` for game-state access. Backward compatible — plain integers and `"rand(min,max)"` continue to work.
 
@@ -120,7 +124,13 @@ src/
 
 **Scoped targets (trigger effects):** Trigger effect resolution passes an `EffectContext` struct through `resolve_effects_inner()` that carries event-participant IDs. Four scoped target strings are available in trigger effect `target` fields: `"source"` (event subject), `"owner"` (source entity's owner, resolved via `SimEntity.owner: Option<EntityId>` with fallback to entity field), `"attacker"` (damage dealer, available in `entity_damaged` triggers), `"killer"` (killing-blow dealer, available in `entity_died` triggers). `resolve_target_from_args()` checks context first; unresolvable scoped targets silently no-op the effect. `SimEvent` variants enriched: `EntityDamaged` carries `attacker_id`, `EntityDied` carries `killer_id`/`owner_id`, `EntitySpawned` carries `spawner_id`. `get_owner()` returns `EntityRef` or `None` (previously `Int(0)`). Scoped targets are accepted by `validate_target()` in trigger contexts.
 
-**Unified execution:** The sim runs continuously from game open. Run/Debug compiles GrimScript to IR and hot-swaps the summoner's `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). A `[reload] Script recompiled and loaded` console message is emitted on successful hot-swap. The interpreter path is only used for terminal one-liners.
+**Unified execution:** The sim runs continuously from game open. Entities with brain types get compiled scripts assigned at startup via `compile_and_assign_all_brains()`. Saving a type `.gs` file triggers auto-reload: recompiles and hot-swaps all affected entities' `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). The main brain (`main.gs`) runs entity-less before the entity shuffle each tick. Terminal commands execute against the main brain / first alive entity. The `handle_run_script_sim` path still exists for legacy `SummonerBrain` scripts.
+
+**Main brain:** Entity-less script stored as `SimWorld.main_brain: Option<ScriptState>`. Runs first every tick (step 2c, before entity shuffle) using sentinel `EntityId(0)`. Can call resource ops, queries, print, custom commands. Cannot perform entity actions (move, attack, flee — silently ignored). Terminal commands execute against the main brain.
+
+**Command gating (two layers):** A command must pass both gates: (1) Global unlock (`[initial].commands`) — progression gate; (2) Type capability (`commands` on `[[types]]`) — per-entity capability gate. An entity's effective commands = union of its types' `commands` ∩ globally unlocked. If no types define commands, all globally unlocked commands are available (backward compat). In dev mode, all commands available (gates bypassed). Computed via `modding::compute_effective_commands()`.
+
+**Auto-reload on save:** Saving a type `.gs` file in the editor triggers `handle_type_script_reload()`: brain type changed → recompile all entities with that brain; non-brain type changed → recompile all entities including that type (library changed); `main.gs` changed → recompile main brain. Script composition per entity: non-brain type `.gs` (library) + mod libraries + brain `.gs` (execution logic).
 
 **Spawn state:** Dynamically spawned entities (from effects) have `spawn_ticks_remaining > 0` — they play their spawn animation and can't act or be targeted by queries until the timer reaches 0. Duration is computed from the entity type's atlas JSON spawn animation. Initial mod spawns start ready (`spawn_ticks_remaining = 0`).
 
@@ -131,6 +141,7 @@ src/
 **Tick loop** (`SimWorld::tick()`):
 1. Derive per-tick RNG: `SimRng::new(seed ^ tick)`. Snapshot entity types and resource values for trigger processing.
 2. Decrement spawn timers on spawning entities
+2c. Execute main brain (entity-less, sentinel EntityId(0), instant actions only)
 3. Shuffle ready entity IDs (excludes spawning entities, includes entities with active channels)
 4. For each: process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print, resource ops — re-enter executor), collect tick-consuming action, put state back
 5. Resolve all actions against world state
@@ -144,7 +155,7 @@ src/
 JSON messages as serde-tagged enums in `deadcode-editor/src/ipc.rs` (`JsToRust`/`RustToJs`). JS side types in `editor-ui/src/ipc/types.ts`, handler in `editor-ui/src/ipc/bridge.ts`.
 
 Message categories:
-- **Script ops:** ScriptSave, ScriptRequest, ScriptList, RunScript, StopScript
+- **Script ops:** ScriptSave, ScriptRequest, ScriptList, ScriptReloaded
 - **Debug:** DebugStart, DebugContinue, StepOver/Into/Out, ToggleBreakpoint, DebugPaused/Resumed
 - **Simulation:** StartSimulation, StopSimulation, PauseSimulation → SimulationStarted, SimulationStopped, SimulationTick
 - **Window:** Minimize, Maximize, Close, DragStart, ResizeStart, Shake, SetSize
@@ -207,6 +218,8 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 | Add event trigger | `mods/<mod>/mod.toml` → `[[triggers]]` with event, filter, conditions, effects |
 | Add trigger event type | `crates/deadcode-sim/src/world.rs` → `SimEvent` enum + emit in tick loop + match in `process_triggers()` |
 | Add scoped target to new trigger event | Add participant IDs to `SimEvent` variant + populate `EffectContext` fields in `process_triggers()` match arm in `world.rs` |
+| Define entity type | `mods/<mod>/mod.toml` → `[[types]]` with name, brain, stats, commands |
+| Add entity with types | `mods/<mod>/mod.toml` → `[[entities]]` with id, types, sprite, stats (entity stats override type stats) |
 
 ## Documentation Maintenance
 

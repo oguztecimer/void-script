@@ -67,12 +67,14 @@ pub struct App {
     unit_manager: Option<UnitManager>,
 
     // --- Modding system ---
-    /// Entity type → sprite data (PNG bytes + JSON metadata).
+    /// Entity def ID → sprite data (PNG bytes + JSON metadata).
     sprite_registry: HashMap<String, SpriteData>,
-    /// Entity type → pivot [x, y].
+    /// Entity def ID → pivot [x, y].
     pivot_registry: HashMap<String, [f32; 2]>,
-    /// Entity type → stat overrides.
+    /// Entity def ID → stat overrides.
     entity_configs: HashMap<String, deadcode_sim::entity::EntityConfig>,
+    /// Entity def ID → resolved type tags.
+    entity_types: HashMap<String, Vec<String>>,
 
     // --- Simulation system ---
     sim_world: Option<SimWorld>,
@@ -94,6 +96,10 @@ pub struct App {
     command_defs: HashMap<String, CommandDef>,
     /// GrimScript library source (prepended to player scripts before compilation).
     library_source: String,
+    /// Type name → type definition (collected from all mods).
+    type_defs: HashMap<String, modding::TypeDef>,
+    /// Type name → default script source (from mods' grimscript/ directories).
+    type_scripts: HashMap<String, String>,
     /// Mapping from sim EntityId to render UnitId for position sync.
     entity_unit_map: HashMap<u64, u64>,
     /// Effects to run when the game opens (from [initial] sections in mods).
@@ -135,6 +141,7 @@ impl App {
             sprite_registry: HashMap::new(),
             pivot_registry: HashMap::new(),
             entity_configs: HashMap::new(),
+            entity_types: HashMap::new(),
 
             // Simulation system
             sim_world: None,
@@ -153,6 +160,8 @@ impl App {
             available_resources: Vec::new(),
             command_defs: HashMap::new(),
             library_source: String::new(),
+            type_defs: HashMap::new(),
+            type_scripts: HashMap::new(),
             entity_unit_map: HashMap::new(),
             initial_effects: Vec::new(),
             initial_effects_pending: true,
@@ -509,6 +518,8 @@ impl ApplicationHandler<UserEvent> for App {
         self.available_resources = modding::collect_available_resources(&mods);
         self.command_defs = modding::collect_command_defs(&mods);
         self.library_source = modding::collect_library_source(&mods);
+        self.type_defs = modding::collect_type_defs(&mods);
+        self.type_scripts = modding::collect_type_scripts(&mods);
         self.initial_effects = modding::collect_initial_effects(&mods);
 
         // Merge sprite/pivot/config registries from all loaded mods.
@@ -532,6 +543,9 @@ impl ApplicationHandler<UserEvent> for App {
             for (etype, config) in &loaded_mod.entity_configs {
                 self.entity_configs.entry(etype.clone()).or_insert_with(|| config.clone());
             }
+            for (etype, types) in &loaded_mod.entity_types {
+                self.entity_types.entry(etype.clone()).or_insert_with(|| types.clone());
+            }
         }
 
         // Validate spawn entity type references, commands, triggers, behaviors, and buffs.
@@ -542,6 +556,8 @@ impl ApplicationHandler<UserEvent> for App {
         modding::validate_spawns(&mods, &known_types);
         modding::validate_command_defs(&mods);
         modding::validate_triggers(&mods);
+        modding::validate_type_defs(&mods);
+        modding::validate_entity_defs(&mods, &self.type_defs);
         modding::validate_buffs(&mods, &known_stats);
 
         // --- Unit system init ---
@@ -553,9 +569,9 @@ impl ApplicationHandler<UserEvent> for App {
         for loaded_mod in &mods {
             for spawn_def in &loaded_mod.manifest.spawn {
                 // Spawn render unit if sprite data is available.
-                let maybe_uid = if let Some(sprite) = self.sprite_registry.get(&spawn_def.entity_type) {
+                let maybe_uid = if let Some(sprite) = self.sprite_registry.get(&spawn_def.entity_id) {
                     let [px, py] = self.pivot_registry
-                        .get(&spawn_def.entity_type)
+                        .get(&spawn_def.entity_id)
                         .copied()
                         .unwrap_or([24.0, 0.0]);
                     Some(um.spawn(
@@ -570,14 +586,25 @@ impl ApplicationHandler<UserEvent> for App {
                     None
                 };
 
-                // Spawn sim entity with optional stat overrides.
-                let config = self.entity_configs.get(&spawn_def.entity_type);
-                let eid = sim.spawn_entity_with_config(
-                    spawn_def.entity_type.clone(),
-                    spawn_def.name.clone(),
-                    spawn_def.position,
-                    config,
-                );
+                // Spawn sim entity with optional stat overrides and type tags.
+                let config = self.entity_configs.get(&spawn_def.entity_id);
+                let types = self.entity_types.get(&spawn_def.entity_id).cloned().unwrap_or_default();
+                let eid = if types.is_empty() {
+                    sim.spawn_entity_with_config(
+                        spawn_def.entity_id.clone(),
+                        spawn_def.name.clone(),
+                        spawn_def.position,
+                        config,
+                    )
+                } else {
+                    sim.spawn_entity_with_types(
+                        spawn_def.entity_id.clone(),
+                        types,
+                        spawn_def.name.clone(),
+                        spawn_def.position,
+                        config,
+                    )
+                };
                 if let Some(uid) = maybe_uid {
                     self.entity_unit_map.insert(eid.0, uid);
                 }
@@ -614,9 +641,12 @@ impl ApplicationHandler<UserEvent> for App {
             Some(self.available_resources.iter().cloned().collect())
         };
 
-        // Copy entity configs to sim for spawn effects.
+        // Copy entity configs and type mappings to sim for spawn effects.
         for (etype, config) in &self.entity_configs {
             sim.entity_configs.insert(etype.clone(), config.clone());
+        }
+        for (etype, types) in &self.entity_types {
+            sim.entity_types_registry.insert(etype.clone(), types.clone());
         }
 
         // Compute spawn animation durations from sprite atlas metadata.
@@ -648,11 +678,25 @@ impl ApplicationHandler<UserEvent> for App {
         self.hittest_disabled = true;
         self.last_tick = Instant::now();
 
+        // --- Compile brain scripts and assign to entities ---
+        self.compile_and_assign_all_brains();
+
         // --- Editor system init ---
         let scripts_dir = std::env::current_dir()
             .unwrap_or_default()
             .join("scripts");
-        self.script_store = Some(ScriptStore::new(scripts_dir));
+        let mut store = ScriptStore::new(scripts_dir);
+
+        // Ensure type scripts exist in scripts/types/ directory.
+        let type_script_defs: Vec<(String, bool, String)> = self.type_defs.iter()
+            .map(|(name, tdef)| {
+                let default_src = self.type_scripts.get(name).cloned().unwrap_or_default();
+                (name.clone(), tdef.brain, default_src)
+            })
+            .collect();
+        store.ensure_type_scripts(&type_script_defs);
+
+        self.script_store = Some(store);
 
         open_editor(&mut self.webview_manager, &self.ipc_sender, self.settings.editor_window.as_ref().map(|g| (g.x, g.y, g.width, g.height)));
 
@@ -865,75 +909,13 @@ impl App {
         }).collect()
     }
 
-    /// Compile script and assign to summoner's ScriptState in the sim.
-    ///
-    /// The simulation runs continuously from game open. This method recompiles
-    /// the GrimScript source to IR and replaces the summoner's `ScriptState`
-    /// entirely — the previous program counter, value stack, and variables are
-    /// discarded (full restart). The entity keeps its current position, health,
-    /// and other world state. The new script takes effect at the next tick.
-    fn handle_run_script_sim(&mut self, script_id: &str) {
-        let source = match self.script_store.as_ref().and_then(|s| s.scripts.get(script_id)) {
-            Some(script) => script.content.clone(),
-            None => return,
-        };
-        let sid = script_id.to_string();
-
-        // Build available commands for the compiler.
-        let available = self.available_commands_for_compiler();
-        let custom = self.custom_command_arg_counts();
-
-        // Prepend library functions from mods.
-        let full_source = self.prepend_library_source(&source);
-
-        // Compile source to IR.
-        let compiled = deadcode_sim::compiler::compile_source_full(&full_source, available, custom);
-        match compiled {
-            Ok(script) => {
-                // Find summoner entity in sim and assign script.
-                if let Some(sim) = &mut self.sim_world {
-                    // Find the summoner (first entity of type "summoner").
-                    let summoner_id = sim.entities()
-                        .find(|e| e.entity_type == "summoner" && e.alive)
-                        .map(|e| e.id);
-
-                    if let Some(eid) = summoner_id {
-                        let num_vars = script.num_variables;
-                        let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
-                        // Set self = EntityRef for the summoner.
-                        if !state.variables.is_empty() {
-                            state.variables[0] = deadcode_sim::SimValue::EntityRef(eid);
-                        }
-                        if let Some(entity) = sim.get_entity_mut(eid) {
-                            entity.script_state = Some(state);
-                            // Clear any active channel — hot-reload resets all execution state.
-                            entity.active_channel = None;
-                        }
-                    }
-                }
-                self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
-                    text: "[reload] Script recompiled and loaded".to_string(),
-                    level: "info".to_string(),
-                });
-                self.webview_manager.send_to_all(&RustToJs::ScriptStarted {
-                    script_id: sid,
-                });
-            }
-            Err(error) => {
-                self.webview_manager.send_to_all(&RustToJs::ScriptFinished {
-                    script_id: sid,
-                    success: false,
-                    error: Some(error),
-                });
-            }
-        }
-    }
 
     /// Compile and execute a console command through the sim.
     ///
-    /// The command is compiled to IR and executed immediately against the
-    /// summoner entity. Actions are resolved and events forwarded to the editor.
-    /// This ensures custom commands, queries, and all builtins work in the console.
+    /// The command is compiled to IR and executed against the main brain
+    /// (entity-less, EntityId(0)). Actions are resolved and events forwarded
+    /// to the editor. This ensures custom commands, queries, and all builtins
+    /// work in the console.
     fn handle_console_command_sim(&mut self, source: &str) {
         let available = self.available_commands_for_compiler();
         let custom = self.custom_command_arg_counts();
@@ -945,46 +927,48 @@ impl App {
         match compiled {
             Ok(script) => {
                 if let Some(sim) = &mut self.sim_world {
-                    let summoner_id = sim.entities()
+                    // Use main brain sentinel EntityId(0) for entity-less execution.
+                    // Fall back to first alive entity for backward compat with entity-targeting commands.
+                    let caster_id = sim.entities()
                         .find(|e| e.entity_type == "summoner" && e.alive)
-                        .map(|e| e.id);
+                        .map(|e| e.id)
+                        .or_else(|| sim.entities().find(|e| e.alive).map(|e| e.id))
+                        .unwrap_or(deadcode_sim::entity::EntityId(0));
 
-                    if let Some(eid) = summoner_id {
-                        let num_vars = script.num_variables;
-                        let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
-                        // Set self = EntityRef for the summoner.
-                        if !state.variables.is_empty() {
-                            state.variables[0] = deadcode_sim::SimValue::EntityRef(eid);
-                        }
+                    let num_vars = script.num_variables;
+                    let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                    // Set self = EntityRef for the caster (if a real entity exists).
+                    if !state.variables.is_empty() && caster_id.0 != 0 {
+                        state.variables[0] = deadcode_sim::SimValue::EntityRef(caster_id);
+                    }
 
-                        // Execute until halt or action, collecting events.
-                        let mut all_events = Vec::new();
-                        let mut error_msg = None;
-                        loop {
-                            match deadcode_sim::executor::execute_unit(eid, &mut state, sim) {
-                                Ok(Some(action)) => {
-                                    let action_events = deadcode_sim::action::resolve_action(sim, eid, action);
-                                    all_events.extend(action_events);
-                                }
-                                Ok(None) => break, // Script finished.
-                                Err(err) => {
-                                    error_msg = Some(err.to_string());
-                                    break;
-                                }
+                    // Execute until halt or action, collecting events.
+                    let mut all_events = Vec::new();
+                    let mut error_msg = None;
+                    loop {
+                        match deadcode_sim::executor::execute_unit(caster_id, &mut state, sim) {
+                            Ok(Some(action)) => {
+                                let action_events = deadcode_sim::action::resolve_action(sim, caster_id, action);
+                                all_events.extend(action_events);
+                            }
+                            Ok(None) => break, // Script finished.
+                            Err(err) => {
+                                error_msg = Some(err.to_string());
+                                break;
                             }
                         }
+                    }
 
-                        // Forward collected events to editor and apply animations.
-                        for event in &all_events {
-                            self.forward_sim_event_to_editor(event);
-                            self.apply_sim_event_to_units(event);
-                        }
-                        if let Some(err) = error_msg {
-                            self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
-                                text: format!("[error] {err}"),
-                                level: "error".to_string(),
-                            });
-                        }
+                    // Forward collected events to editor and apply animations.
+                    for event in &all_events {
+                        self.forward_sim_event_to_editor(event);
+                        self.apply_sim_event_to_units(event);
+                    }
+                    if let Some(err) = error_msg {
+                        self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                            text: format!("[error] {err}"),
+                            level: "error".to_string(),
+                        });
                     }
                 }
             }
@@ -1057,36 +1041,10 @@ impl App {
                     level: "error".to_string(),
                 });
             }
-            deadcode_sim::SimEvent::ScriptFinished { success, error, .. } => {
-                self.webview_manager.send_to_all(&RustToJs::ScriptFinished {
-                    script_id: String::new(),
-                    success: *success,
-                    error: error.clone(),
-                });
-            }
             _ => {}
         }
     }
 
-    /// Stop the summoner's script (clear its ScriptState).
-    fn handle_stop_script_sim(&mut self, script_id: &str) {
-        if let Some(sim) = &mut self.sim_world {
-            let summoner_id = sim.entities()
-                .find(|e| e.entity_type == "summoner" && e.alive)
-                .map(|e| e.id);
-
-            if let Some(eid) = summoner_id {
-                if let Some(entity) = sim.get_entity_mut(eid) {
-                    entity.script_state = None;
-                }
-            }
-        }
-        self.webview_manager.send_to_all(&RustToJs::ScriptFinished {
-            script_id: script_id.to_string(),
-            success: true,
-            error: None,
-        });
-    }
 
     /// Get available commands for the compiler (None = all allowed in dev mode).
     fn available_commands_for_compiler(&self) -> Option<HashSet<String>> {
@@ -1110,6 +1068,249 @@ impl App {
         } else {
             format!("{}\n{}", self.library_source, source)
         }
+    }
+
+    /// Compile and assign brain scripts to all entities and the main brain.
+    /// Called at startup and during auto-reload.
+    fn compile_and_assign_all_brains(&mut self) {
+        let global_unlocks = self.build_global_unlocks();
+        let custom_arg_counts = self.custom_command_arg_counts();
+
+        // Compile and assign main brain.
+        let main_source = self.get_type_script_source("main");
+        if !main_source.is_empty() {
+            let available = if deadcode_desktop::is_dev_mode() {
+                None
+            } else {
+                Some(global_unlocks.clone())
+            };
+            let full_source = self.prepend_library_source(&main_source);
+            match deadcode_sim::compiler::compile_source_full(&full_source, available, custom_arg_counts.clone()) {
+                Ok(script) => {
+                    if let Some(sim) = &mut self.sim_world {
+                        let num_vars = script.num_variables;
+                        let state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                        sim.main_brain = Some(state);
+                    }
+                }
+                Err(err) => {
+                    eprintln!("[brain] error compiling main.gs: {err}");
+                }
+            }
+        }
+
+        // Collect entity info before borrowing sim mutably.
+        let entity_info: Vec<(deadcode_sim::entity::EntityId, Vec<String>)> =
+            if let Some(sim) = &self.sim_world {
+                sim.entities()
+                    .filter(|e| e.alive)
+                    .map(|e| (e.id, e.types.clone()))
+                    .collect()
+            } else {
+                return;
+            };
+
+        for (eid, types) in entity_info {
+            self.compile_and_assign_entity_brain(eid, &types, &global_unlocks, &custom_arg_counts);
+        }
+    }
+
+    /// Build the set of globally unlocked commands.
+    fn build_global_unlocks(&self) -> HashSet<String> {
+        if deadcode_desktop::is_dev_mode() {
+            let mut all = HashSet::new();
+            for name in self.available_commands.iter() {
+                all.insert(name.clone());
+            }
+            for name in self.command_defs.keys() {
+                all.insert(name.clone());
+            }
+            all
+        } else {
+            self.available_commands.iter().cloned().collect()
+        }
+    }
+
+    /// Compile and assign a brain script to a single entity.
+    fn compile_and_assign_entity_brain(
+        &mut self,
+        eid: deadcode_sim::entity::EntityId,
+        types: &[String],
+        global_unlocks: &HashSet<String>,
+        custom_arg_counts: &HashMap<String, usize>,
+    ) {
+        // Find the brain type for this entity.
+        let brain_type = types.iter()
+            .find(|t| self.type_defs.get(*t).map_or(false, |td| td.brain));
+
+        let brain_type = match brain_type {
+            Some(bt) => bt.clone(),
+            None => return, // No brain type — entity doesn't execute scripts.
+        };
+
+        // Get brain script source.
+        let brain_source = self.get_type_script_source(&brain_type);
+        if brain_source.is_empty() {
+            return;
+        }
+
+        // Build library source from non-brain types' scripts.
+        let mut type_lib_source = String::new();
+        for t in types {
+            if self.type_defs.get(t).map_or(false, |td| td.brain) {
+                continue; // Skip brain types in library.
+            }
+            let src = self.get_type_script_source(t);
+            if !src.is_empty() {
+                if !type_lib_source.is_empty() {
+                    type_lib_source.push('\n');
+                }
+                type_lib_source.push_str(&src);
+            }
+        }
+
+        // Compose: type library + mod library + brain script.
+        let mut full_source = String::new();
+        if !type_lib_source.is_empty() {
+            full_source.push_str(&type_lib_source);
+            full_source.push('\n');
+        }
+        if !self.library_source.is_empty() {
+            full_source.push_str(&self.library_source);
+            full_source.push('\n');
+        }
+        full_source.push_str(&brain_source);
+
+        // Compute effective commands for this entity.
+        let effective = modding::compute_effective_commands(types, &self.type_defs, global_unlocks);
+        let available = if deadcode_desktop::is_dev_mode() {
+            None
+        } else {
+            Some(effective)
+        };
+
+        match deadcode_sim::compiler::compile_source_full(&full_source, available, custom_arg_counts.clone()) {
+            Ok(script) => {
+                if let Some(sim) = &mut self.sim_world {
+                    let num_vars = script.num_variables;
+                    let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                    // Set self = EntityRef.
+                    if !state.variables.is_empty() {
+                        state.variables[0] = deadcode_sim::SimValue::EntityRef(eid);
+                    }
+                    if let Some(entity) = sim.get_entity_mut(eid) {
+                        entity.script_state = Some(state);
+                        entity.active_channel = None;
+                    }
+                }
+            }
+            Err(err) => {
+                eprintln!("[brain] error compiling {brain_type}.gs for entity: {err}");
+            }
+        }
+    }
+
+    /// Get the source code for a type script.
+    /// Checks the script store first (user edits), falls back to mod defaults.
+    fn get_type_script_source(&self, type_name: &str) -> String {
+        // Check script store for user-edited version.
+        if let Some(store) = &self.script_store {
+            if let Some(script) = store.find_type_script(type_name) {
+                return script.content.clone();
+            }
+        }
+        // Fall back to mod default.
+        self.type_scripts.get(type_name).cloned().unwrap_or_default()
+    }
+
+    /// Handle auto-reload when a type script is saved.
+    /// Recompiles and hot-swaps all affected entities.
+    fn handle_type_script_reload(&mut self, type_name: &str) {
+        let global_unlocks: HashSet<String> = if deadcode_desktop::is_dev_mode() {
+            let mut all = HashSet::new();
+            for name in self.available_commands.iter() {
+                all.insert(name.clone());
+            }
+            for name in self.command_defs.keys() {
+                all.insert(name.clone());
+            }
+            all
+        } else {
+            self.available_commands.iter().cloned().collect()
+        };
+        let custom_arg_counts = self.custom_command_arg_counts();
+
+        if type_name == "main" {
+            // Recompile main brain.
+            let main_source = self.get_type_script_source("main");
+            if !main_source.is_empty() {
+                let available = if deadcode_desktop::is_dev_mode() {
+                    None
+                } else {
+                    Some(global_unlocks.clone())
+                };
+                let full_source = self.prepend_library_source(&main_source);
+                match deadcode_sim::compiler::compile_source_full(&full_source, available, custom_arg_counts) {
+                    Ok(script) => {
+                        if let Some(sim) = &mut self.sim_world {
+                            let num_vars = script.num_variables;
+                            let state = deadcode_sim::entity::ScriptState::new(script, num_vars);
+                            sim.main_brain = Some(state);
+                        }
+                        self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                            text: "[reload] main.gs recompiled and loaded".to_string(),
+                            level: "info".to_string(),
+                        });
+                    }
+                    Err(err) => {
+                        self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                            text: format!("[error] main.gs: {err}"),
+                            level: "error".to_string(),
+                        });
+                    }
+                }
+            }
+            return;
+        }
+
+        // Determine which entities are affected.
+        let is_brain = self.type_defs.get(type_name).map_or(false, |td| td.brain);
+
+        let affected: Vec<(deadcode_sim::entity::EntityId, Vec<String>)> = if let Some(sim) = &self.sim_world {
+            sim.entities()
+                .filter(|e| e.alive && e.has_type(type_name))
+                .map(|e| (e.id, e.types.clone()))
+                .collect()
+        } else {
+            return;
+        };
+
+        if affected.is_empty() {
+            return;
+        }
+
+        let count = affected.len();
+        for (eid, types) in affected {
+            if is_brain {
+                // Brain type changed — recompile this entity's brain.
+                self.compile_and_assign_entity_brain(eid, &types, &global_unlocks, &custom_arg_counts);
+            } else {
+                // Non-brain type changed — library changed, find the brain and recompile.
+                let has_brain = types.iter()
+                    .any(|t| self.type_defs.get(t).map_or(false, |td| td.brain));
+                if has_brain {
+                    self.compile_and_assign_entity_brain(eid, &types, &global_unlocks, &custom_arg_counts);
+                }
+            }
+        }
+
+        self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+            text: format!("[reload] {type_name}.gs recompiled for {count} entities"),
+            level: "info".to_string(),
+        });
+        self.webview_manager.send_to_all(&RustToJs::ScriptReloaded {
+            type_name: type_name.to_string(),
+        });
     }
 
     fn poll_editor_ipc(&mut self) {
@@ -1155,10 +1356,23 @@ impl App {
                     }
                 }
                 JsToRust::ScriptSave { script_id, content } => {
+                    // Check if this is a type script — trigger auto-reload.
+                    let type_name = self.script_store.as_ref()
+                        .and_then(|s| s.scripts.get(&script_id))
+                        .filter(|s| matches!(s.script_type,
+                            deadcode_editor::scripts::ScriptType::TypeBrain |
+                            deadcode_editor::scripts::ScriptType::TypeLibrary))
+                        .map(|s| s.name.clone());
+
                     if let Some(store) = &mut self.script_store {
                         store.save_script(&script_id, content);
                     }
                     self.editor_state.set_modified(&script_id, false);
+
+                    // Auto-reload if it was a type script.
+                    if let Some(tname) = type_name {
+                        self.handle_type_script_reload(&tname);
+                    }
                 }
                 JsToRust::ScriptRequest { script_id } => {
                     if let Some(store) = &self.script_store {
@@ -1182,16 +1396,18 @@ impl App {
                     }
                 }
                 JsToRust::TabChanged { .. } => {}
-                JsToRust::RunScript { script_id } => {
-                    self.handle_run_script_sim(&script_id);
-                }
-                JsToRust::StopScript { script_id } => {
-                    self.handle_stop_script_sim(&script_id);
-                }
                 JsToRust::DebugStart { script_id } => {
-                    // Debug uses the same compile→sim path for now.
+                    // Type scripts use auto-reload path.
+                    let type_name = self.script_store.as_ref()
+                        .and_then(|s| s.scripts.get(&script_id))
+                        .filter(|s| matches!(s.script_type,
+                            deadcode_editor::scripts::ScriptType::TypeBrain |
+                            deadcode_editor::scripts::ScriptType::TypeLibrary))
+                        .map(|s| s.name.clone());
+                    if let Some(tname) = type_name {
+                        self.handle_type_script_reload(&tname);
+                    }
                     // TODO: IR-level debug stepping support.
-                    self.handle_run_script_sim(&script_id);
                 }
                 JsToRust::DebugContinue { .. } => {
                     self.execution_manager.handle_debug_command(DebugCommand::Continue, &self.webview_manager);
@@ -1241,13 +1457,19 @@ impl App {
                     self.handle_console_command_sim(&command);
                 }
                 JsToRust::StartSimulation => {
-                    // Sim runs continuously from game open — no-op.
+                    if let Some(sim) = &mut self.sim_world {
+                        sim.start();
+                    }
                 }
                 JsToRust::StopSimulation => {
-                    // Sim runs continuously from game open — no-op.
+                    if let Some(sim) = &mut self.sim_world {
+                        sim.stop();
+                    }
                 }
                 JsToRust::PauseSimulation => {
-                    // Sim runs continuously from game open — no-op.
+                    if let Some(sim) = &mut self.sim_world {
+                        sim.set_paused(true);
+                    }
                 }
             }
         }

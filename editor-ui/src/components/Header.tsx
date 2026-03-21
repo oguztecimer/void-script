@@ -19,10 +19,9 @@ export function Header() {
   const activeTabId = useStore((s) => s.activeTabId);
   const tabs = useStore((s) => s.tabs);
   const activeTab = tabs.find((t) => t.scriptId === activeTabId);
-  const isRunning = useStore((s) => s.isRunning);
   const isDebugging = useStore((s) => s.isDebugging);
   const isPaused = useStore((s) => s.isPaused);
-  const active = isRunning || isDebugging;
+  const isSimPaused = useStore((s) => s.isSimPaused);
 
   return (
     <div className={`${styles.toolbar} ${!tv.showHeaderToolbar ? styles.toolbarPlain : ''}`} onMouseDown={handleDragStart}>
@@ -39,82 +38,61 @@ export function Header() {
 
         <Separator variant="line" level="subtle" />
 
-        {/* Run/Debug/Stop buttons */}
-        {!active ? (
+        {/* Pause/Resume sim + Debug buttons */}
+        {!isSimPaused ? (
+          <ToolBtn
+            size="small"
+            variant="filled"
+            title="Pause Simulation"
+            shortcut="Shift+F10"
+            bgColor="var(--bg-btn-stop)"
+            hoverBgColor="var(--bg-btn-stop-hover)"
+            iconColor="var(--icon-stop)"
+            onClick={() => sendToRust({ type: 'pause_simulation' })}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16">
+              <rect x="3" y="2" width="4" height="12" rx="1" fill="currentColor"/>
+              <rect x="9" y="2" width="4" height="12" rx="1" fill="currentColor"/>
+            </svg>
+          </ToolBtn>
+        ) : (
+          <ToolBtn
+            size="small"
+            variant="filled"
+            title="Resume Simulation"
+            shortcut="Shift+F10"
+            bgColor="var(--bg-btn-run)"
+            hoverBgColor="var(--bg-btn-run-hover)"
+            iconColor="var(--icon-run)"
+            onClick={() => sendToRust({ type: 'start_simulation' })}
+          >
+            <svg width="20" height="20" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
+          </ToolBtn>
+        )}
+        {isDebugging && isPaused && (
           <>
+            <Separator variant="line" level="subtle" />
             <ToolBtn
               size="small"
               variant="filled"
-              title="Run"
-              shortcut="Shift+F10"
+              title="Resume"
+              shortcut="F9"
               bgColor="var(--bg-btn-run)"
               hoverBgColor="var(--bg-btn-run-hover)"
               iconColor="var(--icon-run)"
-              onClick={() => activeTabId && sendToRust({ type: 'run_script', script_id: activeTabId })}
-              disabled={!activeTabId}
+              onClick={() => activeTabId && sendToRust({ type: 'debug_continue', script_id: activeTabId })}
             >
               <svg width="20" height="20" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
             </ToolBtn>
-            <ToolBtn
-              size="small"
-              variant="filled"
-              title="Debug"
-              shortcut="Shift+F9"
-              bgColor="var(--bg-btn-debug)"
-              hoverBgColor="var(--bg-btn-debug-hover)"
-              iconColor="var(--icon-debug)"
-              onClick={() => activeTabId && sendToRust({ type: 'debug_start', script_id: activeTabId })}
-              disabled={!activeTabId}
-            >
-              <svg width="20" height="20" viewBox="0 0 16 16">
-                <circle cx="8" cy="9" r="5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                <line x1="8" y1="4" x2="6" y2="1" stroke="currentColor" strokeWidth="1.5"/>
-                <line x1="8" y1="4" x2="10" y2="1" stroke="currentColor" strokeWidth="1.5"/>
-                <line x1="3" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="1"/>
-                <line x1="3" y1="10" x2="13" y2="10" stroke="currentColor" strokeWidth="1"/>
-              </svg>
+            <ToolBtn size="small" title="Step Over" shortcut="F8" onClick={() => activeTabId && sendToRust({ type: 'debug_step_over', script_id: activeTabId })}>
+              <svg width="20" height="20" viewBox="0 0 16 16"><path d="M2 12h4V8h4v4h4L8 4z" fill="currentColor" transform="rotate(90 8 8)"/></svg>
             </ToolBtn>
-          </>
-        ) : (
-          <>
-            <ToolBtn
-              size="small"
-              variant="filled"
-              title="Stop"
-              shortcut="Ctrl+F2"
-              bgColor="var(--bg-btn-stop)"
-              hoverBgColor="var(--bg-btn-stop-hover)"
-              iconColor="var(--icon-stop)"
-              onClick={() => activeTabId && sendToRust({ type: 'stop_script', script_id: activeTabId })}
-            >
-              <svg width="14" height="14" viewBox="0 0 10 10"><rect width="10" height="10" rx="1.5" fill="currentColor"/></svg>
+            <ToolBtn size="small" title="Step Into" shortcut="F7" onClick={() => activeTabId && sendToRust({ type: 'debug_step_into', script_id: activeTabId })}>
+              <svg width="20" height="20" viewBox="0 0 16 16"><path d="M8 2v8m-3-3l3 3 3-3M5 14h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
             </ToolBtn>
-            {isDebugging && isPaused && (
-              <>
-                <Separator variant="line" level="subtle" />
-                <ToolBtn
-                  size="small"
-                  variant="filled"
-                  title="Resume"
-                  shortcut="F9"
-                  bgColor="var(--bg-btn-run)"
-                  hoverBgColor="var(--bg-btn-run-hover)"
-                  iconColor="var(--icon-run)"
-                  onClick={() => activeTabId && sendToRust({ type: 'debug_continue', script_id: activeTabId })}
-                >
-                  <svg width="20" height="20" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
-                </ToolBtn>
-                <ToolBtn size="small" title="Step Over" shortcut="F8" onClick={() => activeTabId && sendToRust({ type: 'debug_step_over', script_id: activeTabId })}>
-                  <svg width="20" height="20" viewBox="0 0 16 16"><path d="M2 12h4V8h4v4h4L8 4z" fill="currentColor" transform="rotate(90 8 8)"/></svg>
-                </ToolBtn>
-                <ToolBtn size="small" title="Step Into" shortcut="F7" onClick={() => activeTabId && sendToRust({ type: 'debug_step_into', script_id: activeTabId })}>
-                  <svg width="20" height="20" viewBox="0 0 16 16"><path d="M8 2v8m-3-3l3 3 3-3M5 14h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
-                </ToolBtn>
-                <ToolBtn size="small" title="Step Out" shortcut="Shift+F8" onClick={() => activeTabId && sendToRust({ type: 'debug_step_out', script_id: activeTabId })}>
-                  <svg width="20" height="20" viewBox="0 0 16 16"><path d="M8 14V6m-3 3l3-3 3 3M5 2h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
-                </ToolBtn>
-              </>
-            )}
+            <ToolBtn size="small" title="Step Out" shortcut="Shift+F8" onClick={() => activeTabId && sendToRust({ type: 'debug_step_out', script_id: activeTabId })}>
+              <svg width="20" height="20" viewBox="0 0 16 16"><path d="M8 14V6m-3 3l3-3 3 3M5 2h6" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>
+            </ToolBtn>
           </>
         )}
 

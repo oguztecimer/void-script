@@ -2,9 +2,45 @@
 
 ## [Unreleased]
 
+### Simulation Engine
+
+#### Added
+- **S-21: Multi-type entity system** — Entities now support composable type tags via a `types: Vec<String>` field on `SimEntity`. Query functions `scan()` and `nearest()` filter by `has_type()` instead of exact `entity_type` match, so `scan("undead")` matches any entity with the "undead" type tag. New `has_type(entity, name)` and `get_types(entity)` GrimScript builtins added (mapped to `QueryHasType` and `QueryGetTypes` IR instructions). Entity attribute access via `entity.types` returns the type list. `DynInt::EntityCount`, `Condition::EntityCount`, and `Sacrifice` effects all use `has_type()` for matching. Trigger filter matching uses the types list instead of the single entity_type. `SimWorld` gains `entity_types_registry` for spawn effect type resolution and `spawn_entity_with_types()` for creating entities with explicit type tags. `EntitySnapshot` includes `types` field.
+- **S-22: Entity definition IDs** — `SimEntity.entity_type` now serves as the unique entity definition ID for registry lookups (sprites, configs), while `SimEntity.types` provides composable tags for queries and filtering. `SimEntity::new()` auto-populates `types = [entity_type]` for backward compatibility. `SimEntity::new_with_types()` allows explicit type tag specification.
+
 ### Modding System
 
+#### Added
+- **M-03: Type definitions** — New `[[types]]` section in `mod.toml` for defining composable type tags with stats, commands, and brain scripts. Each `TypeDef` has `name`, `brain` (bool), `stats` (IndexMap), `commands` (Vec), and optional `script` path. Type stats are merged in type order, then entity-level stats override. Type `.gs` scripts are loaded from `grimscript/` directory and syntax-checked at mod load time.
+- **M-04: Entity def ID and types** — `[[entities]]` gains `id` (unique definition key) and `types` (list of type tag names). Backward compat: if `id` absent, `type` is used; if `types` absent, defaults to `[id]`. Entity stats are now merged from types (in order) then entity-level overrides.
+- **M-05: Spawn entity_id field** — `[[spawn]]` gains `entity_id` field (with `entity_type` as serde alias for backward compat).
+
+### Simulation Engine (continued)
+
+#### Added
+- **S-23: Main brain** — Entity-less built-in brain stored as `SimWorld.main_brain: Option<ScriptState>`. Runs first each tick (before entity shuffle), using sentinel `EntityId(0)`. Can call resource ops, queries, print, and custom commands. Cannot perform entity actions (move, attack, flee). Terminal commands execute against the main brain.
+
+### Modding System (continued)
+
+#### Added
+- **M-06: Type-based command gating** — Two-layer gate: global unlock (`[initial].commands`) intersected with type capability (`commands` on `[[types]]`). An entity can only use commands that appear in at least one of its types' `commands` lists AND are globally unlocked. If no types define commands, falls back to all globally unlocked commands (backward compat). Computed via `compute_effective_commands()`.
+- **M-07: Brain script compilation** — Entities with brain types get compiled scripts assigned on spawn. Script composition: non-brain type `.gs` files (library functions) + mod libraries + brain type `.gs` (main execution logic). Brain scripts are compiled with the entity's effective command set.
+- **M-08: Auto-reload on save** — Saving a type `.gs` file in the editor triggers hot-reload: brain type changes recompile all entities with that brain; non-brain type changes recompile all entities that include that type (library changed); `main.gs` changes recompile the main brain.
+- **M-09: Type script file management** — `ensure_type_scripts()` creates `.gs` files in `scripts/types/` from mod defaults if they don't already exist. Run/Debug buttons on type scripts trigger auto-reload instead of summoner binding.
+- **M-10: Type and entity validation** — `validate_type_defs()` checks for empty/duplicate type names. `validate_entity_defs()` checks for empty/duplicate entity IDs, unknown type references, duplicate types per entity, and brain count (warns on >1 brain type).
+
+### Editor
+
+#### Added
+- **E-01: Type script categories** — Script list now supports `type_brain` (Brains) and `type_library` (Libraries) script types for type-associated scripts in the `scripts/types/` subdirectory.
+- **E-02: ScriptReloaded IPC message** — New `script_reloaded` message notifies frontend when a type script is hot-reloaded.
+
+#### Removed
+- **E-03: Run/Stop script buttons** — Replaced by Pause/Resume simulation buttons. Scripts auto-reload on save; no manual run/stop needed. `RunScript`, `StopScript` IPC messages removed. `ScriptStarted`, `ScriptFinished` IPC messages removed.
+- **E-04: SummonerBrain script type** — Removed. All entity scripts are now type-based (TypeBrain/TypeLibrary). The `summoner_brain` category no longer exists.
+
 #### Changed
+- **E-05: Pause/Resume simulation** — Former no-op simulation controls now actually pause/resume the sim. Toolbar shows a pause button when running, resume button when paused.
 - **M-01: Removed entity convenience stat fields** — `[[entities]]` no longer supports top-level `health`, `speed`, `attack_damage`, `attack_range`, `attack_cooldown`, and `shield` fields. All stats are now defined exclusively in the `stats` table (e.g., `stats = { health = 50, speed = 2 }`). Auto-max behavior (`max_health`/`max_shield`) is preserved via `apply_config()`. The `custom_stats` alias still works.
 - **M-02: Summoner defined by core mod** — The summoner entity is no longer hardcoded in `app.rs`. It is now defined in `mods/core/mod.toml` as a normal `[[entities]]` entry with a `[[spawn]]` block, just like any other entity. Entity type, stats, sprite, pivot, and spawn position are all moddable. The embedded fallback mirrors this. Script execution still finds the summoner by entity type `"summoner"`.
 

@@ -77,8 +77,9 @@ impl ScriptExecutionManager {
             is_debug: false,
         });
 
-        webview.send_to_all(&RustToJs::ScriptStarted {
-            script_id: sid,
+        webview.send_to_all(&RustToJs::ConsoleOutput {
+            text: "[run] Script started".to_string(),
+            level: "info".to_string(),
         });
     }
 
@@ -120,8 +121,9 @@ impl ScriptExecutionManager {
             is_debug: true,
         });
 
-        webview.send_to_all(&RustToJs::ScriptStarted {
-            script_id: sid,
+        webview.send_to_all(&RustToJs::ConsoleOutput {
+            text: "[debug] Debug session started".to_string(),
+            level: "info".to_string(),
         });
     }
 
@@ -255,10 +257,15 @@ impl ScriptExecutionManager {
                             });
                         }
                         ScriptEvent::Finished { success, error } => {
-                            webview.send_to_all(&RustToJs::ScriptFinished {
-                                script_id: active.script_id.clone(),
-                                success,
-                                error,
+                            let msg = if success {
+                                "--- Script finished ---".to_string()
+                            } else {
+                                format!("--- Script failed: {} ---", error.as_deref().unwrap_or("unknown"))
+                            };
+                            let level = if success { "info" } else { "error" };
+                            webview.send_to_all(&RustToJs::ConsoleOutput {
+                                text: msg,
+                                level: level.to_string(),
                             });
                         }
                     }

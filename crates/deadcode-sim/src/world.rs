@@ -83,6 +83,7 @@ pub struct SimSnapshot {
 pub struct EntitySnapshot {
     pub id: EntityId,
     pub entity_type: String,
+    pub types: Vec<String>,
     pub name: String,
     pub position: i64,
     pub health: i64,
@@ -111,6 +112,8 @@ pub struct SimWorld {
     pub custom_command_phases: HashMap<String, Vec<PhaseDef>>,
     /// Entity type → stat overrides (for spawning from effects).
     pub entity_configs: HashMap<String, EntityConfig>,
+    /// Entity def ID → resolved type tags (for spawning from effects).
+    pub entity_types_registry: HashMap<String, Vec<String>>,
     /// Entity type → spawn animation duration in ticks (0 = no spawn animation).
     pub spawn_durations: HashMap<String, i64>,
     /// Command display order (from available_commands insertion order).
@@ -127,6 +130,8 @@ pub struct SimWorld {
     pub triggers: Vec<TriggerDef>,
     /// Buff name → buff definition registry.
     pub buff_registry: HashMap<String, BuffDef>,
+    /// Main brain script state — entity-less, runs first each tick.
+    pub main_brain: Option<crate::entity::ScriptState>,
 }
 
 impl SimWorld {
@@ -146,6 +151,7 @@ impl SimWorld {
             custom_command_descriptions: HashMap::new(),
             custom_command_phases: HashMap::new(),
             entity_configs: HashMap::new(),
+            entity_types_registry: HashMap::new(),
             spawn_durations: HashMap::new(),
             command_order: Vec::new(),
             resources: IndexMap::new(),
@@ -154,6 +160,7 @@ impl SimWorld {
             unlisted_commands: HashSet::new(),
             triggers: Vec::new(),
             buff_registry: HashMap::new(),
+            main_brain: None,
         }
     }
 
@@ -288,6 +295,27 @@ impl SimWorld {
         id
     }
 
+    /// Spawn an entity with explicit type tags and optional stat overrides.
+    pub fn spawn_entity_with_types(
+        &mut self,
+        entity_type: String,
+        types: Vec<String>,
+        name: String,
+        position: i64,
+        config: Option<&EntityConfig>,
+    ) -> EntityId {
+        let id = EntityId(self.next_entity_id);
+        self.next_entity_id += 1;
+        let mut entity = SimEntity::new_with_types(id, entity_type, types, name, position);
+        if let Some(cfg) = config {
+            entity.apply_config(cfg);
+        }
+        let index = self.entities.len();
+        self.entities.push(entity);
+        self.entity_index.insert(id, index);
+        id
+    }
+
     /// Queue an entity to be spawned at end of tick.
     pub fn queue_spawn(&mut self, entity: SimEntity) {
         self.pending_spawns.push(entity);
@@ -334,6 +362,7 @@ impl SimWorld {
                 .map(|e| EntitySnapshot {
                     id: e.id,
                     entity_type: e.entity_type.clone(),
+                    types: e.types.clone(),
                     name: e.name.clone(),
                     position: e.position,
                     health: e.stat("health"),
@@ -356,10 +385,10 @@ impl SimWorld {
 
         // 1b. Snapshot state for trigger processing.
         let resource_snapshot = self.resources.clone();
-        let entity_type_map: HashMap<EntityId, String> = self
+        let entity_types_map: HashMap<EntityId, Vec<String>> = self
             .entities
             .iter()
-            .map(|e| (e.id, e.entity_type.clone()))
+            .map(|e| (e.id, e.types.clone()))
             .collect();
 
         // 2. Derive per-tick RNG.
@@ -371,6 +400,72 @@ impl SimWorld {
                 entity.spawn_ticks_remaining -= 1;
             }
         }
+
+        // 2c. Execute main brain (entity-less, runs first before entity shuffle).
+        let mut brain_state = self.main_brain.take();
+        if let Some(ref mut state) = brain_state {
+            if state.error.is_none() && state.pc < state.program.instructions.len() {
+                let brain_eid = EntityId(0); // sentinel — no entity
+                match executor::execute_unit(brain_eid, state, self) {
+                    Ok(Some(action)) => {
+                        // Handle instant actions in a loop.
+                        match self.try_handle_instant(brain_eid, action, state) {
+                            None => {
+                                let mut instant_count = 0u32;
+                                loop {
+                                    instant_count += 1;
+                                    if instant_count > 1000 {
+                                        state.error = Some("main brain: too many instant actions".to_string());
+                                        self.events.push(SimEvent::ScriptError {
+                                            entity_id: brain_eid,
+                                            error: "main brain: too many instant actions".to_string(),
+                                        });
+                                        break;
+                                    }
+                                    match executor::execute_unit(brain_eid, state, self) {
+                                        Ok(Some(action)) => {
+                                            match self.try_handle_instant(brain_eid, action, state) {
+                                                None => {} // another instant, keep going
+                                                Some(UnitAction::Wait) => break,
+                                                Some(_) => break, // main brain can't do entity actions
+                                            }
+                                        }
+                                        Ok(None) => break,
+                                        Err(err) => {
+                                            state.error = Some(err.to_string());
+                                            self.events.push(SimEvent::ScriptError {
+                                                entity_id: brain_eid,
+                                                error: err.to_string(),
+                                            });
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            Some(UnitAction::Wait) => {} // no-op
+                            Some(_) => {} // main brain can't do entity actions
+                        }
+                    }
+                    Ok(None) => {
+                        // Main brain halted.
+                    }
+                    Err(err) => {
+                        state.error = Some(err.to_string());
+                        self.events.push(SimEvent::ScriptError {
+                            entity_id: brain_eid,
+                            error: err.to_string(),
+                        });
+                    }
+                }
+                if state.step_limit_hit {
+                    self.events.push(SimEvent::ScriptOutput {
+                        entity_id: brain_eid,
+                        text: "[warning] Main brain exceeded step limit — auto-yielded".into(),
+                    });
+                }
+            }
+        }
+        self.main_brain = brain_state;
 
         // 3. Collect scriptable entity IDs (including channeling entities), shuffle.
         //    Skip entities that are still spawning.
@@ -688,7 +783,7 @@ impl SimWorld {
         self.rebuild_index();
 
         // 8. Process triggers against events collected during this tick.
-        self.process_triggers(&entity_type_map, &resource_snapshot);
+        self.process_triggers(&entity_types_map, &resource_snapshot);
     }
 
     /// Tick all active buffs: run per_tick effects, decrement durations, expire.
@@ -762,7 +857,7 @@ impl SimWorld {
     /// Trigger effects do not re-trigger other triggers within the same tick.
     fn process_triggers(
         &mut self,
-        entity_type_map: &HashMap<EntityId, String>,
+        entity_types_map: &HashMap<EntityId, Vec<String>>,
         resource_snapshot: &IndexMap<String, i64>,
     ) {
         if self.triggers.is_empty() {
@@ -783,8 +878,8 @@ impl SimWorld {
                     for event in &tick_events {
                         if let SimEvent::EntityDied { entity_id, killer_id, owner_id, .. } = event {
                             if let Some(ref filter_type) = trigger.filter.entity_type {
-                                let et = entity_type_map.get(entity_id).map(|s| s.as_str()).unwrap_or("");
-                                if et != filter_type { continue; }
+                                let types = entity_types_map.get(entity_id).map(|v| v.as_slice()).unwrap_or(&[]);
+                                if !types.iter().any(|t| t == filter_type) { continue; }
                             }
                             if self.check_trigger_conditions(trigger, caster) {
                                 let ctx = EffectContext {
@@ -820,8 +915,8 @@ impl SimWorld {
                     for event in &tick_events {
                         if let SimEvent::EntityDamaged { entity_id, attacker_id, .. } = event {
                             if let Some(ref filter_type) = trigger.filter.entity_type {
-                                let et = entity_type_map.get(entity_id).map(|s| s.as_str()).unwrap_or("");
-                                if et != filter_type { continue; }
+                                let types = entity_types_map.get(entity_id).map(|v| v.as_slice()).unwrap_or(&[]);
+                                if !types.iter().any(|t| t == filter_type) { continue; }
                             }
                             if self.check_trigger_conditions(trigger, caster) {
                                 let owner = self.get_entity(*entity_id).and_then(|e| e.owner);

@@ -38,6 +38,9 @@ pub struct ModManifest {
     /// Buff definitions (temporary stat modifiers with automatic expiry).
     #[serde(default)]
     pub buffs: Vec<BuffDef>,
+    /// Type definitions: composable type tags with stats, commands, and brain scripts.
+    #[serde(default)]
+    pub types: Vec<TypeDef>,
 }
 
 /// A resource definition: either a plain integer (capless) or `{ value, max }` (capped).
@@ -119,22 +122,66 @@ pub struct ModMeta {
     pub min_game_version: Option<String>,
 }
 
+/// A type definition: composable tag with optional stats, commands, and brain script.
+#[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
+pub struct TypeDef {
+    pub name: String,
+    /// If true, this type drives entity execution via a `.gs` brain script.
+    #[serde(default)]
+    pub brain: bool,
+    /// Stats provided by this type (merged in type order).
+    #[serde(default)]
+    pub stats: indexmap::IndexMap<String, i64>,
+    /// Commands that entities with this type can use (type capability gate).
+    #[serde(default)]
+    pub commands: Vec<String>,
+    /// Path to a .gs script file (relative to mod's grimscript/ dir).
+    #[serde(default)]
+    pub script: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct EntityDef {
-    #[serde(rename = "type")]
-    pub entity_type: String,
+    /// Unique entity definition ID. Falls back to `type` if absent.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// Legacy field — used as `id` if `id` is absent.
+    #[serde(default, rename = "type")]
+    pub entity_type: Option<String>,
+    /// Composable type tags. If absent, defaults to `[id]`.
+    #[serde(default)]
+    pub types: Vec<String>,
     /// Sprite path relative to mod dir (without extension). Expects .png + .json pair.
     pub sprite: Option<String>,
     /// Sprite pivot [x, y].
     #[serde(default)]
     pub pivot: Option<[f32; 2]>,
     /// All stats for this entity (e.g., health = 50, speed = 2, armor = 5).
+    /// These override type-level stats.
     #[serde(default, alias = "custom_stats")]
     pub stats: indexmap::IndexMap<String, i64>,
 }
 
 impl EntityDef {
-    /// Convert to a sim `EntityConfig` for stat overrides.
+    /// Resolve the entity definition ID (prefers `id`, falls back to `entity_type`).
+    pub fn resolved_id(&self) -> String {
+        self.id.clone()
+            .or_else(|| self.entity_type.clone())
+            .expect("entity must have either 'id' or 'type'")
+    }
+
+    /// Resolve the types list (defaults to `[resolved_id()]` if empty).
+    pub fn resolved_types(&self) -> Vec<String> {
+        if self.types.is_empty() {
+            vec![self.resolved_id()]
+        } else {
+            self.types.clone()
+        }
+    }
+
+    /// Convert to a sim `EntityConfig` for entity-level stat overrides only (no type merging).
+    #[allow(dead_code)]
     pub fn to_entity_config(&self) -> EntityConfig {
         EntityConfig { stats: self.stats.clone() }
     }
@@ -142,7 +189,9 @@ impl EntityDef {
 
 #[derive(Debug, Deserialize)]
 pub struct SpawnDef {
-    pub entity_type: String,
+    /// Entity definition ID to spawn. `entity_type` is a serde alias for backward compat.
+    #[serde(alias = "entity_type")]
+    pub entity_id: String,
     pub name: String,
     pub position: i64,
 }
@@ -170,18 +219,25 @@ pub struct SpriteData {
 // Loaded mod: manifest + resolved sprite data
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 pub struct LoadedMod {
     pub manifest: ModManifest,
-    /// Entity type → sprite data (PNG bytes + JSON string).
+    /// Entity def ID → sprite data (PNG bytes + JSON string).
     pub sprites: HashMap<String, SpriteData>,
-    /// Entity type → pivot [x, y].
+    /// Entity def ID → pivot [x, y].
     pub pivots: HashMap<String, [f32; 2]>,
-    /// Entity type → entity config (stat overrides).
+    /// Entity def ID → entity config (stat overrides).
     pub entity_configs: HashMap<String, EntityConfig>,
+    /// Entity def ID → resolved type tags.
+    pub entity_types: HashMap<String, Vec<String>>,
     /// Command name → command definition.
     pub command_defs: HashMap<String, CommandDef>,
     /// GrimScript library source code (concatenated from all library files).
     pub library_source: String,
+    /// Type name → type definition (from [[types]] in mod.toml).
+    pub type_defs: HashMap<String, TypeDef>,
+    /// Type name → script source (from grimscript/ directory).
+    pub type_scripts: HashMap<String, String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +254,10 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
     let mut sprites = HashMap::new();
     let mut pivots = HashMap::new();
     let mut entity_configs = HashMap::new();
+    let mut entity_types_map = HashMap::new();
     let mut command_defs = HashMap::new();
+    let mut type_defs = HashMap::new();
+    let mut type_scripts = HashMap::new();
 
     // Parse command definitions.
     if let Some(cmds) = &manifest.commands {
@@ -207,7 +266,71 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
         }
     }
 
+    // Load type definitions.
+    for tdef in &manifest.types {
+        type_defs.insert(tdef.name.clone(), tdef.clone());
+    }
+
+    // Load type .gs scripts from grimscript/ directory.
+    let grimscript_dir = mod_dir.join("grimscript");
+    if grimscript_dir.is_dir() {
+        for tdef in &manifest.types {
+            let script_path = if let Some(ref path) = tdef.script {
+                grimscript_dir.join(path)
+            } else {
+                grimscript_dir.join(format!("{}.gs", tdef.name))
+            };
+            if script_path.exists() {
+                match std::fs::read_to_string(&script_path) {
+                    Ok(src) => {
+                        // Syntax-check at load time.
+                        match grimscript_lang::lexer::Lexer::new(&src).tokenize() {
+                            Ok(tokens) => {
+                                if let Err(e) = grimscript_lang::parser::Parser::new(tokens).parse() {
+                                    eprintln!(
+                                        "[mod:{}] warning: syntax error in type script '{}' (line {}): {}",
+                                        manifest.meta.id, tdef.name, e.line, e.message
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[mod:{}] warning: lex error in type script '{}' (line {}): {}",
+                                    manifest.meta.id, tdef.name, e.line, e.message
+                                );
+                            }
+                        }
+                        type_scripts.insert(tdef.name.clone(), src);
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[mod:{}] warning: failed to read type script '{}': {e}",
+                            manifest.meta.id, script_path.display()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     for entity_def in &manifest.entities {
+        let def_id = entity_def.resolved_id();
+        let resolved_types = entity_def.resolved_types();
+
+        // Build merged config: type stats (in order) then entity-level overrides.
+        let mut merged_stats = indexmap::IndexMap::new();
+        for type_name in &resolved_types {
+            if let Some(tdef) = type_defs.get(type_name) {
+                for (stat, &value) in &tdef.stats {
+                    merged_stats.insert(stat.clone(), value);
+                }
+            }
+        }
+        // Entity-level stats override type stats.
+        for (stat, &value) in &entity_def.stats {
+            merged_stats.insert(stat.clone(), value);
+        }
+
         // Load sprite files if a sprite path is specified.
         if let Some(sprite_path) = &entity_def.sprite {
             let png_path = mod_dir.join(format!("{sprite_path}.png"));
@@ -218,11 +341,11 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
                     .unwrap_or_else(|e| panic!("Failed to read {}: {e}", png_path.display()));
                 let json = std::fs::read_to_string(&json_path)
                     .unwrap_or_else(|e| panic!("Failed to read {}: {e}", json_path.display()));
-                sprites.insert(entity_def.entity_type.clone(), SpriteData { png, json });
+                sprites.insert(def_id.clone(), SpriteData { png, json });
             } else {
                 eprintln!(
                     "[mod] warning: sprite files not found for '{}': {} / {}",
-                    entity_def.entity_type,
+                    def_id,
                     png_path.display(),
                     json_path.display()
                 );
@@ -230,10 +353,11 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
         }
 
         if let Some(pivot) = entity_def.pivot {
-            pivots.insert(entity_def.entity_type.clone(), pivot);
+            pivots.insert(def_id.clone(), pivot);
         }
 
-        entity_configs.insert(entity_def.entity_type.clone(), entity_def.to_entity_config());
+        entity_configs.insert(def_id.clone(), EntityConfig { stats: merged_stats });
+        entity_types_map.insert(def_id, resolved_types);
     }
 
     // Load .grim library files.
@@ -281,8 +405,11 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
         sprites,
         pivots,
         entity_configs,
+        entity_types: entity_types_map,
         command_defs,
         library_source,
+        type_defs,
+        type_scripts,
     })
 }
 
@@ -517,11 +644,12 @@ fn embedded_fallback() -> LoadedMod {
         entities: vec![],
         spawn: vec![
             SpawnDef {
-                entity_type: "summoner".into(),
+                entity_id: "summoner".into(),
                 name: "summoner".into(),
                 position: 500,
             },
         ],
+        types: vec![],
         commands: Some(CommandsDef {
             definitions: vec![],
             libraries: vec![],
@@ -569,8 +697,11 @@ fn embedded_fallback() -> LoadedMod {
         sprites,
         pivots,
         entity_configs,
+        entity_types: HashMap::new(),
         command_defs: HashMap::new(),
         library_source: String::new(),
+        type_defs: HashMap::new(),
+        type_scripts: HashMap::new(),
     }
 }
 
@@ -624,10 +755,10 @@ fn collect_all_effects_recursive<'a>(effects: &'a [CommandEffect], out: &mut Vec
 pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
     for m in mods {
         for spawn in &m.manifest.spawn {
-            if !known_types.contains(&spawn.entity_type) {
+            if !known_types.contains(&spawn.entity_id) {
                 eprintln!(
-                    "[mod:{}] warning: spawn '{}' references unknown entity type '{}'",
-                    m.manifest.meta.id, spawn.name, spawn.entity_type
+                    "[mod:{}] warning: spawn '{}' references unknown entity id '{}'",
+                    m.manifest.meta.id, spawn.name, spawn.entity_id
                 );
             }
         }
@@ -1077,6 +1208,130 @@ pub fn validate_triggers(mods: &[LoadedMod]) {
     }
 }
 
+/// Validate type definitions across all loaded mods.
+pub fn validate_type_defs(mods: &[LoadedMod]) {
+    let mut seen_types: HashSet<String> = HashSet::new();
+    for m in mods {
+        let mod_id = &m.manifest.meta.id;
+        for tdef in &m.manifest.types {
+            if tdef.name.is_empty() {
+                eprintln!("[mod:{mod_id}] warning: type definition has empty name");
+                continue;
+            }
+            if seen_types.contains(&tdef.name) {
+                eprintln!(
+                    "[mod:{mod_id}] warning: type '{}' already defined in another mod — skipping",
+                    tdef.name
+                );
+            } else {
+                seen_types.insert(tdef.name.clone());
+            }
+        }
+    }
+}
+
+/// Validate entity definitions across all loaded mods.
+pub fn validate_entity_defs(mods: &[LoadedMod], all_type_defs: &HashMap<String, TypeDef>) {
+    let mut seen_ids: HashSet<String> = HashSet::new();
+    for m in mods {
+        let mod_id = &m.manifest.meta.id;
+        for edef in &m.manifest.entities {
+            let def_id = edef.resolved_id();
+            if def_id.is_empty() {
+                eprintln!("[mod:{mod_id}] warning: entity has empty id");
+                continue;
+            }
+            if seen_ids.contains(&def_id) {
+                eprintln!(
+                    "[mod:{mod_id}] warning: entity id '{}' already defined — skipping",
+                    def_id
+                );
+            } else {
+                seen_ids.insert(def_id.clone());
+            }
+
+            let types = edef.resolved_types();
+
+            // Check for duplicate types in a single entity.
+            let mut entity_type_set = HashSet::new();
+            for t in &types {
+                if !entity_type_set.insert(t.clone()) {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: entity '{}' has duplicate type '{}'",
+                        def_id, t
+                    );
+                }
+            }
+
+            // Check that referenced types exist.
+            for t in &types {
+                if !all_type_defs.contains_key(t) && t != &def_id {
+                    eprintln!(
+                        "[mod:{mod_id}] warning: entity '{}' references unknown type '{}'",
+                        def_id, t
+                    );
+                }
+            }
+
+            // Check brain count.
+            let brain_count = types.iter()
+                .filter(|t| all_type_defs.get(*t).map_or(false, |td| td.brain))
+                .count();
+            if brain_count > 1 {
+                eprintln!(
+                    "[mod:{mod_id}] warning: entity '{}' has {} brain types (expected 0 or 1)",
+                    def_id, brain_count
+                );
+            }
+        }
+    }
+}
+
+/// Collect all type definitions from loaded mods (first-defined wins).
+pub fn collect_type_defs(mods: &[LoadedMod]) -> HashMap<String, TypeDef> {
+    let mut defs = HashMap::new();
+    for m in mods {
+        for (name, tdef) in &m.type_defs {
+            defs.entry(name.clone()).or_insert_with(|| tdef.clone());
+        }
+    }
+    defs
+}
+
+/// Collect all type scripts from loaded mods (first-defined wins).
+pub fn collect_type_scripts(mods: &[LoadedMod]) -> HashMap<String, String> {
+    let mut scripts = HashMap::new();
+    for m in mods {
+        for (name, src) in &m.type_scripts {
+            scripts.entry(name.clone()).or_insert_with(|| src.clone());
+        }
+    }
+    scripts
+}
+
+/// Compute effective commands for an entity: union of its types' commands ∩ globally unlocked.
+pub fn compute_effective_commands(
+    entity_types: &[String],
+    all_type_defs: &HashMap<String, TypeDef>,
+    global_unlocks: &HashSet<String>,
+) -> HashSet<String> {
+    let mut type_commands: HashSet<String> = HashSet::new();
+    for t in entity_types {
+        if let Some(tdef) = all_type_defs.get(t) {
+            for cmd in &tdef.commands {
+                type_commands.insert(cmd.clone());
+            }
+        }
+    }
+    // Intersection: only commands that are both in type capabilities AND globally unlocked.
+    if type_commands.is_empty() {
+        // If no types define commands, allow all globally unlocked (backward compat).
+        global_unlocks.clone()
+    } else {
+        type_commands.intersection(global_unlocks).cloned().collect()
+    }
+}
+
 /// Collect library source code from all loaded mods (in load order).
 /// Returns the concatenated GrimScript source to be prepended to player scripts.
 /// Function name collisions use first-loaded-wins (consistent with commands).
@@ -1131,12 +1386,16 @@ mod tests {
                 resources: HashMap::new(),
                 triggers: vec![],
                 buffs: vec![],
+                types: vec![],
             },
             sprites: HashMap::new(),
             pivots: HashMap::new(),
             entity_configs: HashMap::new(),
+            entity_types: HashMap::new(),
             command_defs: HashMap::new(),
             library_source: String::new(),
+            type_defs: HashMap::new(),
+            type_scripts: HashMap::new(),
         }
     }
 

@@ -1,7 +1,8 @@
 export const TYPE_LABELS: Record<string, string> = {
-  unit_brain: 'Unit Brains',
-  summoner_brain: 'Summoner',
+  type_brain: 'Brains',
+  type_library: 'Libraries',
+  unit_brain: 'Scripts',
   behavior: 'Behavior',
 };
 
-export const TYPE_ORDER = ['unit_brain', 'summoner_brain', 'behavior'];
+export const TYPE_ORDER = ['type_brain', 'type_library', 'unit_brain', 'behavior'];

@@ -29,17 +29,6 @@ pub enum RustToJs {
         text: String,
         level: String, // "info", "warn", "error"
     },
-    #[serde(rename = "script_started")]
-    ScriptStarted {
-        script_id: String,
-    },
-    #[serde(rename = "script_finished")]
-    ScriptFinished {
-        script_id: String,
-        success: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
-    },
     #[serde(rename = "debug_paused")]
     DebugPaused {
         script_id: String,
@@ -77,6 +66,11 @@ pub enum RustToJs {
         command_info: Vec<CommandInfo>,
         #[serde(default)]
         resources: Vec<String>,
+    },
+    /// Notify frontend that a type script was hot-reloaded.
+    #[serde(rename = "script_reloaded")]
+    ScriptReloaded {
+        type_name: String,
     },
 }
 
@@ -140,10 +134,6 @@ pub enum JsToRust {
     TabChanged {
         script_id: String,
     },
-    #[serde(rename = "run_script")]
-    RunScript { script_id: String },
-    #[serde(rename = "stop_script")]
-    StopScript { script_id: String },
     #[serde(rename = "debug_start")]
     DebugStart { script_id: String },
     #[serde(rename = "debug_continue")]

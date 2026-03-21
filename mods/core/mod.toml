@@ -3,26 +3,51 @@ id = "core"
 name = "Core"
 version = "0.1.0"
 
+# --- Type Definitions ---
+# Types are composable tags with stats and commands.
+# Entities reference types to inherit their stats and capabilities.
+
+[[types]]
+name = "summoner"
+stats = { health = 100, speed = 1 }
+commands = ["help", "trance", "raise", "harvest", "pact"]
+
+[[types]]
+name = "undead"
+stats = { health = 50 }
+
+[[types]]
+name = "melee"
+stats = { speed = 2 }
+
+# --- Entity Definitions ---
+
 [[entities]]
-type = "summoner"
+id = "summoner"
+types = ["summoner"]
 sprite = "sprites/summoner_atlas"
 pivot = [49.0, 2.0]
-stats = { health = 100, speed = 1 }
 
 [[entities]]
-type = "skeleton"
+id = "skeleton"
+types = ["undead", "melee"]
 sprite = "sprites/skeleton_atlas"
 pivot = [24.0, 0.0]
-stats = { health = 50, speed = 2 }
+
+# --- Spawns ---
 
 [[spawn]]
-entity_type = "summoner"
+entity_id = "summoner"
 name = "summoner"
 position = 500
+
+# --- Resources ---
 
 [resources]
 mana = { value = 50, max = 100 }
 bones = 0
+
+# --- Initial State ---
 
 [initial]
 commands = ["help","trance","raise","harvest","pact"]
@@ -31,6 +56,8 @@ effects = [
   { type = "output", message = "The dead stir beneath your feet" },
   { type = "output", message = "Call for <hl>help()</hl> to hear them speak" },
 ]
+
+# --- Commands ---
 
 [[commands.definitions]]
 name = "help"

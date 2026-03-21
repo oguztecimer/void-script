@@ -1105,6 +1105,8 @@ fn query_name(q: &QueryBuiltin) -> &'static str {
         QueryBuiltin::GetOwner => "get_owner",
         QueryBuiltin::GetResource => "get_resource",
         QueryBuiltin::GetStat => "get_stat",
+        QueryBuiltin::GetTypes => "get_types",
+        QueryBuiltin::HasType => "has_type",
     }
 }
 

@@ -10,7 +10,7 @@ pub fn scan(world: &SimWorld, self_id: EntityId, filter: &str) -> Vec<SimValue> 
     world
         .entities()
         .filter(|e| e.is_ready() && e.id != self_id)
-        .filter(|e| filter.is_empty() || filter == "*" || filter == "all" || e.entity_type == filter)
+        .filter(|e| filter.is_empty() || filter == "*" || filter == "all" || e.has_type(&filter))
         .map(|e| SimValue::EntityRef(e.id))
         .collect()
 }
@@ -29,7 +29,7 @@ pub fn nearest(world: &SimWorld, self_id: EntityId, filter: &str) -> SimValue {
         if !e.is_ready() || e.id == self_id {
             continue;
         }
-        if !filter.is_empty() && filter != "*" && filter != "all" && e.entity_type != filter {
+        if !filter.is_empty() && filter != "*" && filter != "all" && !e.has_type(&filter) {
             continue;
         }
         let dist = (e.position - self_pos).abs();
@@ -121,6 +121,22 @@ pub fn get_owner(world: &SimWorld, id: EntityId) -> Result<SimValue, SimError> {
     })
 }
 
+/// Get all type tags of an entity as a list of strings.
+pub fn get_types(world: &SimWorld, id: EntityId) -> Result<Vec<SimValue>, SimError> {
+    let e = world
+        .get_entity(id)
+        .ok_or_else(|| SimError::entity_not_found(id.0))?;
+    Ok(e.types.iter().map(|t| SimValue::Str(t.clone())).collect())
+}
+
+/// Check if an entity has a specific type tag.
+pub fn has_type(world: &SimWorld, id: EntityId, type_name: &str) -> Result<bool, SimError> {
+    let e = world
+        .get_entity(id)
+        .ok_or_else(|| SimError::entity_not_found(id.0))?;
+    Ok(e.has_type(type_name))
+}
+
 /// Get an entity attribute by name (used by GetAttr instruction on EntityRef).
 pub fn get_entity_attr(
     world: &SimWorld,
@@ -134,6 +150,7 @@ pub fn get_entity_attr(
         "position" | "pos" | "x" => Ok(SimValue::Int(e.position)),
         "name" => Ok(SimValue::Str(e.name.clone())),
         "type" => Ok(SimValue::Str(e.entity_type.clone())),
+        "types" => Ok(SimValue::List(e.types.iter().map(|t| SimValue::Str(t.clone())).collect())),
         "owner" => Ok(match e.owner {
             Some(owner_id) => SimValue::EntityRef(owner_id),
             None => SimValue::None,

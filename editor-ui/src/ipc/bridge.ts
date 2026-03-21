@@ -36,19 +36,6 @@ export function initIpcBridge(): void {
       case 'console_output':
         store.addTerminalOutput(msg.text, msg.level);
         break;
-      case 'script_started':
-        store.setRunning(true);
-        store.setBottomPanelOpen(true);
-        break;
-      case 'script_finished':
-        store.setRunning(false);
-        store.setDebugging(false);
-        store.setPaused(false);
-        store.addTerminalOutput(
-          msg.success ? '--- Script finished ---' : `--- Script failed: ${msg.error} ---`,
-          msg.success ? 'info' : 'error'
-        );
-        break;
       case 'debug_paused':
         store.setPaused(true);
         store.setDebugging(true);

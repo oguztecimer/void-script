@@ -56,7 +56,7 @@ impl DynInt {
             }
             DynInt::EntityCount { entity_type, multiplier } => {
                 let count = world.entities()
-                    .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.entity_type == *entity_type)
+                    .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.has_type(entity_type))
                     .count() as i64;
                 count * multiplier
             }
@@ -667,7 +667,7 @@ pub fn evaluate_condition_with_ctx(
         }
         Condition::EntityCount { entity_type, compare, amount } => {
             let count = world.entities()
-                .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.entity_type == *entity_type)
+                .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.has_type(entity_type))
                 .count() as i64;
             let threshold = amount.resolve_with_world(rng, world, entity_id);
             compare.evaluate(count, threshold)
@@ -814,9 +814,14 @@ fn resolve_effects_inner(
                     .map(|e| e.position + offset)
                     .unwrap_or(offset);
                 let id = EntityId(world.next_entity_id());
-                let mut spawned = SimEntity::new(
+                let types = world.entity_types_registry
+                    .get(entity_type)
+                    .cloned()
+                    .unwrap_or_else(|| vec![entity_type.clone()]);
+                let mut spawned = SimEntity::new_with_types(
                     id,
                     entity_type.clone(),
+                    types,
                     format!("{}_{}", entity_type, id.0),
                     position,
                 );
@@ -894,7 +899,7 @@ fn resolve_effects_inner(
             CommandEffect::Sacrifice { entity_type, resource, per_kill } => {
                 // Collect IDs, names, and owners of all alive, non-spawning entities matching entity_type.
                 let victims: Vec<(EntityId, String, Option<EntityId>)> = world.entities()
-                    .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.entity_type == *entity_type)
+                    .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.has_type(entity_type))
                     .map(|e| (e.id, e.name.clone(), e.owner))
                     .collect();
 

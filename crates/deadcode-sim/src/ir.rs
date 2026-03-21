@@ -97,6 +97,10 @@ pub enum Instruction {
     QueryGetResource,
     /// Get a stat value from an entity. Pop Str stat_name, pop EntityRef, push Int.
     QueryGetStat,
+    /// Get all type tags of an entity. Pop EntityRef, push List of Str.
+    QueryGetTypes,
+    /// Check if an entity has a type tag. Pop Str type_name, pop EntityRef, push Bool.
+    QueryHasType,
 
     // --- Action instructions (consume tick — executor yields after these) ---
     /// Move toward position. Pop Int target_pos.

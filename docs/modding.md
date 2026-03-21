@@ -8,6 +8,7 @@ How to create mods for VOID//SCRIPT. The base game ("Core") is itself a mod — 
 
 - [Mod Structure](#mod-structure)
 - [mod.toml Reference](#modtoml-reference)
+- [Type Definitions](#type-definitions)
 - [Entity Definitions](#entity-definitions)
 - [Spawn Definitions](#spawn-definitions)
 - [Global Resources](#global-resources)
@@ -79,16 +80,36 @@ version = "0.1.0"       # Semver version string
 depends_on = []         # Mod IDs this mod requires (loaded first)
 conflicts_with = []     # Mod IDs that cannot coexist with this mod
 
+# --- Type Definitions ---
+[[types]]
+name = "undead"                      # Type tag name
+stats = { health = 50 }              # Stats provided by this type
+commands = ["raise", "harvest"]      # Commands entities with this type can use
+
+[[types]]
+name = "melee"
+stats = { speed = 2, attack_damage = 10 }
+commands = ["attack"]
+
+[[types]]
+name = "skeleton_ai"
+brain = true                         # Brain types drive entity execution via .gs files
+commands = ["move", "attack", "flee"]
+
 # --- Entity Definitions ---
 [[entities]]
-type = "warrior"                    # Entity type string
+id = "warrior"                      # Unique entity definition ID (for registry lookups)
+types = ["undead", "melee"]         # Composable type tags (stats merged in order)
 sprite = "sprites/warrior_atlas"    # Path to sprite files (no extension; expects .png + .json)
 pivot = [24.0, 0.0]                 # Sprite pivot point [x, y]
-stats = { health = 80, speed = 2, attack_damage = 15, attack_range = 3, attack_cooldown = 2, shield = 10, armor = 5, crit = 10 }
+stats = { armor = 5, crit = 10 }   # Entity-level stats (override type stats)
+
+# Backward compat: if `id` is absent, `type` is used as the ID.
+# If `types` is absent, defaults to `[id]`.
 
 # --- Initial Spawns ---
 [[spawn]]
-entity_type = "warrior"
+entity_id = "warrior"               # References entity definition ID (entity_type is a serde alias)
 name = "guard"
 position = 300
 
@@ -153,37 +174,93 @@ speed = 2
 
 ---
 
+## Type Definitions
+
+Types are composable tags that provide stats, commands, and behavior to entities. An entity can have multiple types — their stats are merged in order.
+
+```toml
+[[types]]
+name = "undead"                      # Type tag name (unique across all mods)
+stats = { health = 50 }              # Stats provided by this type
+commands = ["raise", "harvest"]      # Commands entities with this type can use
+
+[[types]]
+name = "melee"
+stats = { speed = 2, attack_damage = 10, attack_range = 3 }
+commands = ["attack"]
+
+[[types]]
+name = "skeleton_ai"
+brain = true                         # Brain types drive entity execution via .gs files
+commands = ["move", "attack", "flee"]
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | yes | — | Unique type tag name |
+| `brain` | no | `false` | If true, this type drives entity execution via a `.gs` script |
+| `stats` | no | `{}` | Stats provided by this type (merged in type order) |
+| `commands` | no | `[]` | Commands entities with this type can use |
+| `script` | no | `{name}.gs` | Path to .gs script in `grimscript/` directory |
+
+### Stats Resolution
+
+For an entity with `types = ["undead", "melee"]` and entity-level `stats = { armor = 5 }`:
+
+1. Start with empty stats
+2. Apply `undead` stats: `{ health = 50 }`
+3. Apply `melee` stats: `{ health = 50, speed = 2, attack_damage = 10 }` (speed/attack added, no conflicts)
+4. Apply entity-level stats: `{ health = 50, speed = 2, attack_damage = 10, armor = 5 }` (armor added)
+5. `apply_config()` auto-sets `max_health`/`max_shield` as before
+
+### Type Queries in GrimScript
+
+Entities can be queried by type tag:
+
+```python
+# scan/nearest match by type tag (not just entity def ID)
+minions = scan("undead")          # finds all entities with "undead" type
+closest = nearest("melee")        # finds nearest entity with "melee" type
+
+# Direct type queries
+types = get_types(entity)          # returns list of type tags
+is_undead = has_type(entity, "undead")  # returns bool
+entity_types = entity.types        # attribute access to type list
+```
+
+---
+
 ## Entity Definitions
 
-Entity definitions register types that can be spawned — either at startup via `[[spawn]]` or at runtime by effects (e.g., the `raise` command spawns skeletons).
+Entity definitions register entities that can be spawned — either at startup via `[[spawn]]` or at runtime by effects (e.g., the `raise` command spawns skeletons).
 
 ```toml
 [[entities]]
-type = "golem"
+id = "golem"                        # Unique entity definition ID
+types = ["undead", "melee"]         # Composable type tags (stats merged in order)
 sprite = "sprites/golem_atlas"
 pivot = [24.0, 0.0]
-stats = { health = 200, speed = 1, armor = 5, crit_chance = 10, attack_damage = 25 }
+stats = { armor = 5, crit_chance = 10 }   # Override/extend type stats
 ```
 
-All fields except `type` are optional. Omitted stats default to 0. Omitted `sprite` means the entity has no visible sprite.
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `id` | yes* | from `type` | Unique entity definition ID (for registry lookups) |
+| `type` | no | — | Legacy field, used as `id` if `id` is absent |
+| `types` | no | `[id]` | Composable type tags from `[[types]]` definitions |
+| `sprite` | no | none | Sprite atlas path (no extension; expects .png + .json) |
+| `pivot` | no | `[24, 0]` | Sprite pivot point `[x, y]` |
+| `stats` | no | `{}` | Entity-level stats (override type stats) |
 
-**Note:** The `"summoner"` entity type is defined by the core mod. It is the entity that runs the player's script. Mods can override its stats, sprite, or spawn position by loading before core (via dependency ordering).
+*Either `id` or `type` must be present.
+
+**Backward compatibility:** If `id` is absent, `type` is used as the ID. If `types` is absent, defaults to `[id]`.
+
+**Note:** The `"summoner"` entity is defined by the core mod. Mods can override its stats, sprite, or spawn position by loading before core (via dependency ordering).
 
 ### Auto-Max Behavior
 
 When `health` or `shield` are set and no explicit `max_health`/`max_shield` is provided, the engine automatically sets `max_health`/`max_shield` to the same value.
-
-### Stats Table
-
-All stats are defined in the `stats` table (aliased as `custom_stats` for backward compat):
-
-```toml
-[[entities]]
-type = "warrior"
-stats = { health = 80, speed = 2, armor = 5, crit_chance = 10, rage = 0 }
-```
-
-All stats are accessible in GrimScript via `entity.stat_name` attribute access and `get_stat(entity, "name")`, and in mod effects via `modify_stat`, `use_resource`, and the `stat` condition.
 
 ---
 
@@ -193,17 +270,17 @@ All stats are accessible in GrimScript via `entity.stat_name` attribute access a
 
 ```toml
 [[spawn]]
-entity_type = "skeleton"    # Must match a type from [[entities]] in any loaded mod
+entity_id = "skeleton"      # Must match an id from [[entities]] in any loaded mod
 name = "guard_left"         # Instance name
 position = 200              # 1D integer position on the strip
 
 [[spawn]]
-entity_type = "skeleton"
+entity_id = "skeleton"
 name = "guard_right"
 position = 800
 ```
 
-- `entity_type` — must match a registered entity type (validated at load time)
+- `entity_id` — must match a registered entity definition ID (validated at load time). `entity_type` is accepted as a serde alias for backward compatibility.
 - `name` — instance name for the render unit
 - `position` — 1D integer position on the strip
 
@@ -304,6 +381,8 @@ These are always available regardless of `[initial].commands`:
 | `has_target(entity)` | Query | 1 | Check if target is set (Bool) |
 | `get_resource("name")` | Query | 1 | Get a global resource value |
 | `get_stat(entity, "name")` | Query | 2 | Get any stat from an entity (0 if undefined) |
+| `get_types(entity)` | Query | 1 | Get all type tags as a list of strings |
+| `has_type(entity, "name")` | Query | 2 | Check if entity has a type tag (Bool) |
 | `gain_resource("name", amount)` | Instant | 2 | Add to a global resource (returns new total) |
 | `try_spend_resource("name", amount)` | Instant | 2 | Spend a global resource if sufficient (returns Bool) |
 

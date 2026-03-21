@@ -88,6 +88,7 @@ phases = [
     { type = "animate", target = "self", animation = "cast" }
   ]},
   { ticks = 1, interruptible = false, on_start = [
+    { type = "if", condition = {}, then = {} },
     { type = "use_global_resource", resource = "mana", amount = 20}
   ]},
   { ticks = 18, interruptible = false, on_start = [

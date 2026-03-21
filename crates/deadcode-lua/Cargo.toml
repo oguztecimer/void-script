@@ -1,0 +1,9 @@
+[package]
+name = "deadcode-lua"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+deadcode-sim = { path = "../deadcode-sim" }
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+indexmap = { workspace = true }

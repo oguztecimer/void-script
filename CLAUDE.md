@@ -13,6 +13,7 @@ Hybrid Rust + TypeScript/React desktop app targeting Windows, macOS, and Linux.
 - **Desktop:** winit 0.30 (windowing), wry 0.50 (webview), softbuffer 0.4 + tiny-skia 0.12 (2D CPU rendering)
 - **State:** zustand (frontend), crossbeam-channel (Rust IPC)
 - **Data:** indexmap 2 (deterministic ordered dicts in sim)
+- **Modding:** mlua 0.10 + Lua 5.4 vendored (mod logic scripting)
 - **Platform:** objc2 (macOS), windows crate (Windows), x11rb (Linux)
 
 ## Repository Structure
@@ -22,6 +23,7 @@ crates/
   deadcode-app/        # Entry point — winit event loop, App state machine, sim integration
   deadcode-desktop/    # 2D rendering, window mgmt, units, animations, sprites, save/load
   deadcode-editor/     # WebView editor windows, IPC bridge, tab/script management
+  deadcode-lua/        # Lua 5.4 runtime for mod logic (commands, triggers, buff callbacks)
   grimscript-lang/     # Custom scripting language (lexer → parser → AST → tree-walking interpreter)
   deadcode-sim/        # Deterministic simulation engine + GrimScript→IR compiler
 editor-ui/             # React/TS editor UI — CodeMirror, panels, toolbar, debug UI
@@ -57,12 +59,13 @@ cd editor-ui && npx tsc --noEmit    # TypeScript type check
 
 ## Architecture
 
-**Four layers:**
+**Five layers:**
 
 1. **Desktop** (`deadcode-app` + `deadcode-desktop`) — winit event loop, softbuffer+tiny-skia rendering, sprite-based units on a transparent always-on-top strip window, system tray, per-pixel hit testing, save/load, fullscreen detection
 2. **Editor** (`deadcode-editor` + `editor-ui/`) — wry WebView hosting React UI, JSON IPC between Rust and JS, multi-tab script editing with CodeMirror 6, debug panel
 3. **Language** (`grimscript-lang`) — lexer, Pratt parser, tree-walking interpreter with debugger (breakpoints, step over/into/out), dynamic types (int, float, string, bool, None, list, dict, tuple, entity)
 4. **Simulation** (`deadcode-sim`) — deterministic tick-based engine. GrimScript compiles to stack-based IR; executor steps each unit's program counter until an action yields. 1D integer positions, no floats, seeded RNG for determinism.
+5. **Lua Runtime** (`deadcode-lua`) — Lua 5.4 scripting for mod logic. Implements the `CommandHandler` trait from `deadcode-sim`. Commands use Lua coroutines for multi-tick behavior (`ctx:yield_ticks(N)`). TOML stays for data (types, entities, resources, buffs); Lua handles behavior (commands, triggers, buff callbacks, init). Lua handlers take priority over TOML effects when both exist.
 
 ### Simulation Engine (`deadcode-sim`)
 
@@ -153,6 +156,39 @@ src/
 7. Flush pending spawns/despawns
 8. Process triggers: match events collected during the tick against registered triggers, check filters and conditions, fire effects. Trigger effects do not re-trigger within the same tick.
 
+### Lua Runtime (`deadcode-lua`)
+
+```
+src/
+  lib.rs          — LuaModRuntime struct, CommandHandler impl
+  sandbox.rs      — Strip unsafe globals (os/io/debug/package)
+  api.rs          — ctx userdata methods (damage, heal, spawn, etc.) + mod registration API
+  coroutine.rs    — Coroutine lifecycle: create, resume, cancel
+  convert.rs      — SimValue ↔ mlua::Value bidirectional conversion
+  triggers.rs     — Lua trigger dispatch and buff callbacks
+  error.rs        — Error wrapping with file/line info
+```
+
+**Dependency graph (no cycles):**
+```
+deadcode-sim     — defines CommandHandler trait, stores Option<Box<dyn CommandHandler>>
+deadcode-lua     — depends on deadcode-sim, implements CommandHandler
+deadcode-app     — depends on both, wires LuaModRuntime into SimWorld
+```
+
+**Mod directory structure:**
+```
+mods/core/
+  mod.toml        # Data: metadata, types, entities, resources, buff stats
+  mod.lua         # Logic: commands, triggers, buff callbacks, init
+  grimscript/     # Player brain scripts (unchanged)
+  sprites/        # Assets (unchanged)
+```
+
+**Command coroutine lifecycle:** `mod.command("name", handler)` → handler wrapped in Lua coroutine → `ctx:yield_ticks(N)` yields coroutine → `LuaCoroutineState` stored on entity → sim ticks down `remaining_ticks` → resume coroutine → repeat or complete. Interruptible yields check entity script for interrupting actions.
+
+**TOML fallback:** Lua handlers take priority when both exist. If `CommandHandlerResult::NotHandled` is returned, the sim falls through to TOML effects/phases. This allows gradual migration.
+
 ### IPC
 
 JSON messages as serde-tagged enums in `deadcode-editor/src/ipc.rs` (`JsToRust`/`RustToJs`). JS side types in `editor-ui/src/ipc/types.ts`, handler in `editor-ui/src/ipc/bridge.ts`.
@@ -208,8 +244,12 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 | Editor state | `editor-ui/src/state/` (zustand) |
 | Script storage | `crates/deadcode-editor/src/scripts.rs` |
 | Save/load | `crates/deadcode-desktop/src/save.rs` |
-| Add custom mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, effects or phases |
-| Add phased mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, phases (see `docs/modding.md`) |
+| Add Lua mod command | `mods/<mod>/mod.lua` → `mod.command("name", { description = "..." }, function(ctx) ... end)` |
+| Add Lua trigger | `mods/<mod>/mod.lua` → `mod.on("event", { filter = {...} }, function(ctx, event) ... end)` |
+| Add Lua buff callbacks | `mods/<mod>/mod.lua` → `mod.buff("name", { on_apply = ..., per_tick = ..., on_expire = ... })` |
+| Add Lua init handler | `mods/<mod>/mod.lua` → `mod.on_init(function(ctx) ... end)` |
+| Add custom mod command (TOML) | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, effects or phases |
+| Add phased mod command (TOML) | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, phases (see `docs/modding.md`) |
 | Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + handler in `resolve_effects_inner()` |
 | Add conditional effect logic | `crates/deadcode-sim/src/action.rs` → `Condition` enum + `evaluate_condition_with_ctx()` (target-bearing conditions need args/ctx); update `evaluate_condition()` wrapper if needed |
 | Define mod resources | `mods/<mod>/mod.toml` → `[resources]` table (name = initial_value), `[initial].resources` list for availability |

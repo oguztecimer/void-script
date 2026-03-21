@@ -3,6 +3,7 @@ members = [
     "crates/deadcode-app",
     "crates/deadcode-desktop",
     "crates/deadcode-editor",
+    "crates/deadcode-lua",
     "crates/grimscript-lang",
     "crates/deadcode-sim",
 ]

@@ -20,11 +20,11 @@ pub mod rng;
 pub mod value;
 pub mod world;
 
-pub use action::{BuffDef, CommandDef, CommandEffect, CommandKind, EffectContext, PhaseDef, TriggerDef};
-pub use entity::{EntityId, SimEntity};
+pub use action::{BuffCallbackType, BuffDef, CommandDef, CommandEffect, CommandHandler, CommandHandlerResult, CommandKind, CommandMeta, CoroutineHandle, EffectContext, PhaseDef, TriggerDef};
+pub use entity::{ActiveChannel, EntityId, LuaCoroutineState, SimEntity};
 pub use ir::{CompiledScript, Instruction};
 pub use value::SimValue;
-pub use world::{SimEvent, SimSnapshot, SimWorld};
+pub use world::{SimEvent, SimSnapshot, SimWorld, WorldAccess};
 
 // Re-export indexmap for crates that need to work with SimWorld.resources.
 pub use indexmap::IndexMap;

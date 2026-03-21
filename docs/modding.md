@@ -24,6 +24,7 @@ How to create mods for VOID//SCRIPT. The base game ("Core") is itself a mod — 
 - [Event Triggers](#event-triggers)
 - [Buffs / Modifiers](#buffs--modifiers)
 - [Entity Stats](#entity-stats)
+- [Lua Scripting (mod.lua)](#lua-scripting-modlua)
 - [Library Files](#library-files)
 - [Sprite Format](#sprite-format)
 - [Multiple Mods](#multiple-mods)
@@ -45,13 +46,17 @@ Each mod is a directory inside `mods/` containing a `mod.toml` manifest and any 
 ```
 mods/
   my-mod/
-    mod.toml                # Required: mod manifest
+    mod.toml                # Required: mod manifest (data declarations)
+    mod.lua                 # Optional: Lua logic (commands, triggers, init)
+    grimscript/             # Brain scripts for entity types
     lib/
       utils.grim            # GrimScript library files (optional)
     sprites/
       warrior_atlas.png     # Sprite sheet PNG
       warrior_atlas.json    # Atlas metadata (frame layout)
 ```
+
+**TOML vs Lua:** `mod.toml` declares *what exists* (types, entities, resources, buff definitions). `mod.lua` defines *what happens* (command logic, triggers, buff callbacks, initialization). When both define a command, the Lua handler takes priority.
 
 The game scans `mods/` at startup and loads every directory that contains a valid `mod.toml`. Mods are then reordered by their dependency graph (topological sort via Kahn's algorithm, with alphabetical tie-breaking for determinism). If no mods are found, nothing loads.
 
@@ -1015,6 +1020,218 @@ Entity references support these attribute names via dot notation:
 # Entity attributes are accessed via dot notation on EntityRef values
 # entity.health, entity.armor, entity.position, entity.type, etc.
 ```
+
+---
+
+## Lua Scripting (mod.lua)
+
+Mods can include a `mod.lua` file for defining command logic, triggers, buff callbacks, and initialization. Lua provides loops, variables, and function composition — things that are verbose or impossible in TOML.
+
+### Getting Started
+
+```lua
+local mod = require("void")
+
+mod.on_init(function(ctx)
+  ctx:spawn("summoner", { offset = 0 })
+  ctx:output("Welcome!")
+end)
+
+mod.command("heal_self", { description = "Restore health" }, function(ctx)
+  ctx:heal("self", 10)
+  ctx:output("Healed!")
+end)
+```
+
+### Registering Commands
+
+```lua
+mod.command(name, [opts], handler)
+```
+
+- **`name`** (string): Command name (must be unique across all mods)
+- **`opts`** (table, optional): `{ description = "...", unlisted = true/false, args = {"arg1"} }`
+- **`handler`** (function): Receives a `ctx` object
+
+**Instant command** (no yield — completes in one tick):
+```lua
+mod.command("pact", { description = "Pledge your bones" }, function(ctx)
+  ctx:modify_stat("self", "health", -10)
+  ctx:output("[pact] Power surges through you...")
+end)
+```
+
+**Multi-tick command** (uses `yield_ticks` — coroutine-based):
+```lua
+mod.command("raise", { description = "Raise the dead" }, function(ctx)
+  ctx:animate("self", "cast")
+  ctx:yield_ticks(12, { interruptible = true })
+
+  if not ctx:use_resource("mana", 20) then return end
+  ctx:yield_ticks(1)
+
+  ctx:spawn("skeleton", { offset = ctx:rand(-300, 300) })
+  ctx:yield_ticks(18)
+end)
+```
+
+**Looping command** (runs until interrupted or returns):
+```lua
+mod.command("trance", { description = "Recover mana" }, function(ctx)
+  ctx:output("[trance] Mana flows in.")
+  for i = 1, 200 do
+    ctx:yield_ticks(5, { interruptible = true })
+    ctx:modify_resource("mana", 1)
+  end
+end)
+```
+
+### Initialization
+
+```lua
+mod.on_init(function(ctx)
+  ctx:set_available_resources({"mana", "bones"})
+  ctx:spawn("summoner", { offset = 0 })
+  ctx:output("The dead stir beneath your feet")
+end)
+```
+
+Runs once at game startup. Replaces `[initial].effects` in TOML.
+
+### Event Triggers
+
+```lua
+mod.on(event_name, [opts], handler)
+```
+
+```lua
+mod.on("entity_died", { filter = { entity_type = "skeleton" } }, function(ctx, event)
+  ctx:modify_resource("bones", 1)
+end)
+
+mod.on("entity_spawned", { filter = { entity_type = "warrior" } }, function(ctx, event)
+  ctx:output(event.name .. " has arrived!")
+end)
+```
+
+**Event types:** `entity_died`, `entity_spawned`, `entity_damaged`, `command_used`, `channel_completed`
+
+**Event data fields:** `entity_id`, `name`, `entity_type`, `killer_id`, `owner_id`, `attacker_id`, `command`, `damage`, `new_health`, `position`, `spawner_id` (varies by event type)
+
+### Buff Callbacks
+
+```lua
+mod.buff(name, callbacks)
+```
+
+```lua
+mod.buff("rage", {
+  on_apply = function(ctx, target)
+    ctx:output("[rage] Fury takes hold!")
+  end,
+  per_tick = function(ctx, target)
+    if ctx:get_stat(target, "health") < 10 then
+      ctx:remove_buff(target, "rage")
+    end
+  end,
+  on_expire = function(ctx, target)
+    ctx:output("[rage] The fury subsides.")
+  end,
+})
+```
+
+Buff stat modifiers (`modifiers` field) and duration remain in TOML `[[buffs]]`. Lua callbacks replace the `per_tick`, `on_apply`, and `on_expire` effect lists.
+
+### ctx API Reference
+
+#### Entity Operations
+
+| Method | Description |
+|--------|-------------|
+| `ctx:damage(target, amount)` | Deal damage (shield-first) |
+| `ctx:heal(target, amount)` | Heal (capped at max_health) |
+| `ctx:modify_stat(target, stat, amount)` | Modify any stat |
+| `ctx:get_stat(target, stat)` | Read stat value (0 if unset) |
+| `ctx:spawn(entity_id, opts)` | Spawn entity. `opts = { offset = N }` |
+| `ctx:animate(target, animation)` | Trigger sprite animation |
+| `ctx:apply_buff(target, buff, opts)` | Apply buff. `opts = { duration = N }` |
+| `ctx:remove_buff(target, buff)` | Remove buff |
+
+#### Resource Operations
+
+| Method | Description |
+|--------|-------------|
+| `ctx:use_resource(name, amount)` | Check+deduct. Returns `true`/`false` |
+| `ctx:modify_resource(name, amount)` | Add/subtract (can be negative) |
+| `ctx:get_resource(name)` | Read current value |
+| `ctx:set_available_resources(names)` | Set which resources are available |
+
+#### Output
+
+| Method | Description |
+|--------|-------------|
+| `ctx:output(message)` | Print to console |
+| `ctx:list_commands()` | Show available commands |
+
+#### Queries
+
+| Method | Description |
+|--------|-------------|
+| `ctx:entity_count(type)` | Count alive entities of type |
+| `ctx:is_alive(target)` | Check if entity is alive |
+| `ctx:distance(a, b)` | Absolute distance between entities |
+| `ctx:has_buff(target, buff)` | Check if buff is active |
+| `ctx:has_type(target, type)` | Check type tag |
+| `ctx:position(target)` | Get position |
+| `ctx:owner(target)` | Get owner (integer ID or nil) |
+| `ctx:entities_of_type(type)` | List of entity IDs |
+
+#### Timing / Coroutines
+
+| Method | Description |
+|--------|-------------|
+| `ctx:yield_ticks(n, opts)` | Pause for N ticks. `opts = { interruptible = true }` |
+| `ctx:wait()` | Shorthand for `yield_ticks(1)` |
+
+#### RNG (Deterministic)
+
+| Method | Description |
+|--------|-------------|
+| `ctx:rand(min, max)` | Random integer [min, max] |
+| `ctx:random_chance(percent)` | Returns boolean |
+
+#### Context Properties
+
+| Property | Description |
+|----------|-------------|
+| `ctx.caster` | Entity ID of the caster |
+| `ctx.tick` | Current tick number |
+
+### Target Resolution
+
+Targets accept:
+- `"self"` — the executing entity
+- An integer entity ID (from `ctx:entities_of_type()`, `ctx.caster`, event data, etc.)
+
+### Sandboxing
+
+The Lua environment is sandboxed:
+- **Removed:** `os`, `io`, `debug`, `dofile`, `loadfile`, `package`
+- **Available:** `math`, `string`, `table`, `pairs`, `ipairs`, `type`, `tostring`, `tonumber`, `pcall`, `xpcall`, `error`, `select`, `unpack`, `next`, `coroutine`, `setmetatable`, `getmetatable`
+- **RNG:** Use `ctx:rand()` for deterministic randomness (seeded from tick + entity)
+
+### Hot-Reload
+
+Saving `mod.lua` triggers hot-reload:
+1. All active Lua coroutines for the mod are cancelled
+2. All command/trigger/buff handlers are unregistered
+3. `mod.lua` is re-executed
+4. New handlers are registered
+5. Console: `[reload] core/mod.lua reloaded`
+
+### TOML Fallback
+
+When both TOML effects and a Lua handler exist for a command, the Lua handler takes priority. If the Lua handler returns "not handled," the TOML effects run as fallback. This allows gradual migration from TOML to Lua.
 
 ---
 

@@ -141,6 +141,9 @@ pub struct SimWorld {
     pub main_brain: Option<crate::entity::ScriptState>,
     /// Entity ID for the main brain entity.
     pub main_brain_entity: Option<EntityId>,
+    /// External command handler (Lua runtime). If set, custom commands are
+    /// dispatched here first; falls back to TOML effects if `NotHandled`.
+    pub command_handler: Option<Box<dyn crate::action::CommandHandler>>,
 }
 
 impl SimWorld {
@@ -171,6 +174,7 @@ impl SimWorld {
             buff_registry: IndexMap::new(),
             main_brain: None,
             main_brain_entity: None,
+            command_handler: None,
         }
     }
 
@@ -607,7 +611,143 @@ impl SimWorld {
             let has_channel = self.get_entity(eid).map_or(false, |e| e.active_channel.is_some());
 
             if has_channel {
-                let mut channel = self.get_entity_mut(eid).unwrap().active_channel.take().unwrap();
+                use crate::entity::ActiveChannel;
+                let active = self.get_entity_mut(eid).unwrap().active_channel.take().unwrap();
+
+                match active {
+                    ActiveChannel::Lua(mut lua_ch) => {
+                        // --- Lua coroutine channel processing ---
+                        lua_ch.remaining_ticks -= 1;
+
+                        if lua_ch.interruptible {
+                            // Check if the script wants to interrupt.
+                            let mut interrupted = false;
+                            let mut script_state = self.get_entity_mut(eid)
+                                .and_then(|entity| entity.script_state.take());
+
+                            if let Some(ref mut state) = script_state {
+                                if state.error.take().is_some() {
+                                    // Error recovery during channel: reset, don't interrupt.
+                                    state.pc = 0;
+                                    state.stack.clear();
+                                    state.call_stack.clear();
+                                    state.yielded = false;
+                                    state.step_limit_hit = false;
+                                    let num_vars = state.variables.len();
+                                    state.variables = vec![SimValue::None; num_vars];
+                                    state.variables[0] = SimValue::EntityRef(eid);
+                                } else {
+                                    match executor::execute_unit(eid, state, self) {
+                                        Ok(Some(action)) => {
+                                            match self.try_handle_instant(eid, action, state) {
+                                                None => {
+                                                    let mut instant_count = 0u32;
+                                                    loop {
+                                                        instant_count += 1;
+                                                        if instant_count > 1000 { break; }
+                                                        match executor::execute_unit(eid, state, self) {
+                                                            Ok(Some(action)) => {
+                                                                match self.try_handle_instant(eid, action, state) {
+                                                                    None => {}
+                                                                    Some(UnitAction::Wait) => break,
+                                                                    Some(real_action) => {
+                                                                        interrupted = true;
+                                                                        actions.push((eid, real_action));
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+                                                            Ok(None) => {
+                                                                if state.is_brain { state.reset_for_restart(eid); }
+                                                                break;
+                                                            }
+                                                            Err(err) => {
+                                                                state.error = Some(err.to_string());
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                Some(UnitAction::Wait) => {}
+                                                Some(real_action) => {
+                                                    interrupted = true;
+                                                    actions.push((eid, real_action));
+                                                }
+                                            }
+                                        }
+                                        Ok(None) => {
+                                            if state.is_brain { state.reset_for_restart(eid); }
+                                        }
+                                        Err(err) => { state.error = Some(err.to_string()); }
+                                    }
+                                }
+                            }
+                            if let Some(entity) = self.get_entity_mut(eid) {
+                                entity.script_state = script_state;
+                            }
+
+                            if interrupted {
+                                // Cancel the Lua coroutine.
+                                if let Some(ref mut handler) = self.command_handler {
+                                    handler.cancel_coroutine(lua_ch.handle);
+                                }
+                                self.events.push(SimEvent::ChannelInterrupted {
+                                    entity_id: eid,
+                                    command: lua_ch.command_name.clone(),
+                                });
+                                continue;
+                            }
+                        }
+
+                        if lua_ch.remaining_ticks <= 0 {
+                            // Time to resume the coroutine. Take handler out to avoid borrow conflicts.
+                            if let Some(mut handler) = self.command_handler.take() {
+                                let mut access = WorldAccess::new_from_world_ptr(self, eid);
+                                match handler.resume_coroutine(&mut access, eid, lua_ch.handle) {
+                                    crate::action::CommandHandlerResult::Completed { events } => {
+                                        let lua_events = std::mem::take(&mut access.events);
+                                        self.events.extend(lua_events);
+                                        self.events.extend(events);
+                                        self.events.push(SimEvent::ChannelCompleted {
+                                            entity_id: eid,
+                                            command: lua_ch.command_name,
+                                        });
+                                    }
+                                    crate::action::CommandHandlerResult::Yielded { events, handle, remaining_ticks, interruptible } => {
+                                        let lua_events = std::mem::take(&mut access.events);
+                                        self.events.extend(lua_events);
+                                        self.events.extend(events);
+                                        if let Some(entity) = self.get_entity_mut(eid) {
+                                            entity.active_channel = Some(ActiveChannel::Lua(crate::entity::LuaCoroutineState {
+                                                handle,
+                                                command_name: lua_ch.command_name,
+                                                remaining_ticks,
+                                                interruptible,
+                                            }));
+                                        }
+                                    }
+                                    crate::action::CommandHandlerResult::Error(msg) => {
+                                        self.events.push(SimEvent::ScriptOutput {
+                                            entity_id: eid,
+                                            text: format!("[lua error] {msg}"),
+                                        });
+                                    }
+                                    crate::action::CommandHandlerResult::NotHandled => {}
+                                }
+                                self.command_handler = Some(handler);
+                            }
+                        } else {
+                            // Still waiting — put coroutine state back.
+                            if let Some(entity) = self.get_entity_mut(eid) {
+                                entity.active_channel = Some(ActiveChannel::Lua(lua_ch));
+                            }
+                        }
+
+                        continue;
+                    }
+
+                    ActiveChannel::Toml(mut channel) => {
+                // --- TOML channel processing (legacy) ---
                 let phase = channel.phases[channel.phase_index].clone();
                 let is_interruptible = phase.interruptible;
                 let is_first_tick = channel.ticks_elapsed_in_phase == 0;
@@ -764,7 +904,7 @@ impl SimWorld {
                 // Check if channel is complete.
                 if channel.phase_index < channel.phases.len() {
                     if let Some(entity) = self.get_entity_mut(eid) {
-                        entity.active_channel = Some(channel);
+                        entity.active_channel = Some(ActiveChannel::Toml(channel));
                     }
                 } else {
                     // Channel done — entity resumes normal script execution next tick.
@@ -775,6 +915,8 @@ impl SimWorld {
                 }
 
                 continue;
+                    } // end ActiveChannel::Toml
+                } // end match active
             }
 
             // --- Normal script execution ---
@@ -1198,6 +1340,290 @@ impl SimWorld {
         for (i, entity) in self.entities.iter().enumerate() {
             self.entity_index.insert(entity.id, i);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WorldAccess — safe interface for external command handlers (Lua)
+// ---------------------------------------------------------------------------
+
+/// Controlled access to SimWorld for external command handlers.
+///
+/// Provides the same operations that TOML effects use, but as an explicit API
+/// that Lua can call. The `events` buffer collects SimEvents generated during
+/// the handler invocation.
+pub struct WorldAccess<'a> {
+    world: &'a mut SimWorld,
+    pub caster_id: EntityId,
+    pub events: Vec<SimEvent>,
+    tick_seed: u64,
+}
+
+impl<'a> WorldAccess<'a> {
+    /// Create a WorldAccess from a raw pointer to SimWorld.
+    /// This is used in the tick loop where we already have &mut SimWorld
+    /// but need to pass it through to the command handler.
+    ///
+    /// # Safety
+    /// The caller must ensure that the SimWorld pointer is valid for the
+    /// lifetime of this WorldAccess, and that no other mutable references
+    /// to the SimWorld exist while this WorldAccess is in use (except via
+    /// the command_handler field which is temporarily taken out).
+    pub fn new_from_world_ptr(world: &'a mut SimWorld, caster_id: EntityId) -> Self {
+        let tick_seed = world.tick_seed();
+        Self { world, caster_id, events: Vec::new(), tick_seed }
+    }
+
+    pub fn tick(&self) -> u64 { self.world.tick }
+    pub fn tick_seed(&self) -> u64 { self.tick_seed }
+
+    // --- Entity operations ---
+
+    pub fn get_entity(&self, id: EntityId) -> Option<&SimEntity> {
+        self.world.get_entity(id)
+    }
+
+    pub fn get_entity_mut(&mut self, id: EntityId) -> Option<&mut SimEntity> {
+        self.world.get_entity_mut(id)
+    }
+
+    pub fn entities(&self) -> impl Iterator<Item = &SimEntity> {
+        self.world.entities()
+    }
+
+    pub fn damage(&mut self, caster_id: EntityId, target_id: EntityId, amount: i64) {
+        if let Some(target) = self.world.get_entity_mut(target_id) {
+            let mut remaining = amount;
+            let shield = target.stat("shield");
+            if shield > 0 {
+                let absorbed = remaining.min(shield);
+                target.set_stat("shield", shield - absorbed);
+                remaining -= absorbed;
+            }
+            let new_health = (target.stat("health") - remaining).max(0);
+            target.set_stat("health", new_health);
+            self.events.push(SimEvent::EntityDamaged {
+                entity_id: target_id,
+                damage: amount,
+                new_health,
+                attacker_id: Some(caster_id),
+            });
+            if new_health <= 0 {
+                target.alive = false;
+                let owner_id = target.owner;
+                self.events.push(SimEvent::EntityDied {
+                    entity_id: target_id,
+                    name: target.name.clone(),
+                    killer_id: Some(caster_id),
+                    owner_id,
+                });
+            }
+        }
+    }
+
+    pub fn heal(&mut self, target_id: EntityId, amount: i64) {
+        if let Some(target) = self.world.get_entity_mut(target_id) {
+            let new_health = target.stat("health").saturating_add(amount);
+            target.set_stat("health", new_health);
+            target.clamp_stat("health");
+        }
+    }
+
+    pub fn modify_stat(&mut self, target_id: EntityId, stat: &str, amount: i64) {
+        if let Some(target) = self.world.get_entity_mut(target_id) {
+            let new_val = target.stat(stat).saturating_add(amount);
+            target.set_stat(stat, new_val);
+            target.clamp_stat(stat);
+        }
+    }
+
+    pub fn get_stat(&self, target_id: EntityId, stat: &str) -> i64 {
+        self.world.get_entity(target_id).map_or(0, |e| e.stat(stat))
+    }
+
+    pub fn spawn(&mut self, caster_id: EntityId, entity_type: &str, offset: i64) -> EntityId {
+        let position = self.world.get_entity(caster_id)
+            .map(|e| e.position + offset)
+            .unwrap_or(offset);
+        let id = EntityId(self.world.next_entity_id());
+        let types = self.world.entity_types_registry
+            .get(entity_type)
+            .cloned()
+            .unwrap_or_else(|| vec![entity_type.to_string()]);
+        let mut spawned = SimEntity::new_with_types(
+            id,
+            entity_type.to_string(),
+            types,
+            format!("{}_{}", entity_type, id.0),
+            position,
+        );
+        if let Some(config) = self.world.entity_configs.get(entity_type) {
+            spawned.apply_config(config);
+        }
+        spawned.owner = Some(caster_id);
+        spawned.spawn_ticks_remaining = self.world.spawn_durations
+            .get(entity_type)
+            .copied()
+            .unwrap_or(0);
+        self.world.queue_spawn(spawned);
+        id
+    }
+
+    pub fn animate(&mut self, target_id: EntityId, animation: &str) {
+        self.events.push(SimEvent::PlayAnimation {
+            entity_id: target_id,
+            animation: animation.to_string(),
+        });
+    }
+
+    // --- Resource operations ---
+
+    pub fn get_resource(&self, name: &str) -> i64 {
+        self.world.get_resource(name)
+    }
+
+    pub fn try_spend_resource(&mut self, name: &str, amount: i64) -> bool {
+        self.world.try_spend_resource(name, amount)
+    }
+
+    pub fn gain_resource(&mut self, name: &str, amount: i64) -> i64 {
+        self.world.gain_resource(name, amount)
+    }
+
+    // --- Output ---
+
+    pub fn output(&mut self, entity_id: EntityId, text: &str) {
+        self.events.push(SimEvent::ScriptOutput {
+            entity_id,
+            text: text.to_string(),
+        });
+    }
+
+    /// List commands, matching the TOML ListCommands effect behavior.
+    pub fn list_commands(&mut self, entity_id: EntityId) {
+        let max_width = self.world.command_order.iter()
+            .filter(|n| self.world.custom_command_descriptions.contains_key(*n) && !self.world.unlisted_commands.contains(*n))
+            .map(|n| n.len() + 2)
+            .max()
+            .unwrap_or(0);
+        for name in &self.world.command_order {
+            if self.world.unlisted_commands.contains(name) { continue; }
+            if let Some(description) = self.world.custom_command_descriptions.get(name) {
+                let padded = format!("{name}()");
+                self.events.push(SimEvent::ScriptOutput {
+                    entity_id,
+                    text: format!("{padded:<width$} — {description}", width = max_width + 1),
+                });
+            }
+        }
+    }
+
+    // --- Queries ---
+
+    pub fn entity_count(&self, type_name: &str) -> i64 {
+        self.world.entities()
+            .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.has_type(type_name))
+            .count() as i64
+    }
+
+    pub fn is_alive(&self, target_id: EntityId) -> bool {
+        self.world.get_entity(target_id).map_or(false, |e| e.alive)
+    }
+
+    pub fn distance(&self, a: EntityId, b: EntityId) -> i64 {
+        let a_pos = self.world.get_entity(a).map_or(0, |e| e.position);
+        let b_pos = self.world.get_entity(b).map_or(0, |e| e.position);
+        (a_pos - b_pos).abs()
+    }
+
+    pub fn has_buff(&self, target_id: EntityId, buff: &str) -> bool {
+        self.world.get_entity(target_id)
+            .map_or(false, |e| e.active_buffs.iter().any(|b| b.name == buff))
+    }
+
+    pub fn has_type(&self, target_id: EntityId, type_name: &str) -> bool {
+        self.world.get_entity(target_id).map_or(false, |e| e.has_type(type_name))
+    }
+
+    pub fn position(&self, target_id: EntityId) -> i64 {
+        self.world.get_entity(target_id).map_or(0, |e| e.position)
+    }
+
+    pub fn owner(&self, target_id: EntityId) -> Option<EntityId> {
+        self.world.get_entity(target_id).and_then(|e| e.owner)
+    }
+
+    pub fn entities_of_type(&self, type_name: &str) -> Vec<EntityId> {
+        self.world.entities()
+            .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.has_type(type_name))
+            .map(|e| e.id)
+            .collect()
+    }
+
+    // --- Buff operations ---
+
+    pub fn apply_buff(&mut self, target_id: EntityId, buff_name: &str, duration_override: Option<i64>) {
+        if let Some(buff_def) = self.world.buff_registry.get(buff_name).cloned() {
+            let dur = duration_override.unwrap_or(buff_def.duration);
+            let existing = self.world.get_entity(target_id)
+                .and_then(|e| e.active_buffs.iter().position(|b| b.name == buff_name));
+
+            if let Some(idx) = existing {
+                if buff_def.stackable {
+                    let at_max = buff_def.max_stacks > 0
+                        && self.world.get_entity(target_id).map_or(true, |e| e.active_buffs[idx].stacks >= buff_def.max_stacks);
+                    if !at_max {
+                        crate::action::apply_buff_modifiers(self.world, target_id, &buff_def);
+                        if let Some(entity) = self.world.get_entity_mut(target_id) {
+                            entity.active_buffs[idx].stacks += 1;
+                            entity.active_buffs[idx].remaining_ticks = dur;
+                        }
+                    }
+                } else {
+                    if let Some(entity) = self.world.get_entity_mut(target_id) {
+                        entity.active_buffs[idx].remaining_ticks = dur;
+                    }
+                }
+            } else {
+                crate::action::apply_buff_modifiers(self.world, target_id, &buff_def);
+                if let Some(entity) = self.world.get_entity_mut(target_id) {
+                    entity.active_buffs.push(crate::entity::ActiveBuff {
+                        name: buff_name.to_string(),
+                        remaining_ticks: dur,
+                        stacks: 1,
+                    });
+                }
+            }
+        }
+    }
+
+    pub fn remove_buff(&mut self, target_id: EntityId, buff_name: &str) {
+        if let Some(buff_def) = self.world.buff_registry.get(buff_name).cloned() {
+            let removed = self.world.get_entity(target_id)
+                .and_then(|e| e.active_buffs.iter().position(|b| b.name == buff_name))
+                .map(|idx| {
+                    let stacks = self.world.get_entity(target_id).unwrap().active_buffs[idx].stacks;
+                    (idx, stacks)
+                });
+            if let Some((idx, stacks)) = removed {
+                for _ in 0..stacks {
+                    crate::action::reverse_buff_modifiers(self.world, target_id, &buff_def);
+                }
+                if let Some(entity) = self.world.get_entity_mut(target_id) {
+                    entity.active_buffs.remove(idx);
+                }
+            }
+        }
+    }
+
+    // --- Resource availability ---
+
+    pub fn set_available_resources(&mut self, names: &[String]) {
+        let mut set = std::collections::HashSet::new();
+        for name in names {
+            set.insert(name.clone());
+        }
+        self.world.available_resources = Some(set);
     }
 }
 

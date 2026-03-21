@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Modding System
+
+#### Added
+- **M-01: Lua scripting for mod logic** — New `deadcode-lua` crate provides a Lua 5.4 runtime for mod logic (commands, triggers, buff callbacks, init effects). Mods can now include a `mod.lua` file alongside `mod.toml`. TOML remains for data declarations (types, entities, resources, buffs), while Lua handles behavior. Lua handlers take priority over TOML effects when both exist. The system uses Lua coroutines for multi-tick commands (`ctx:yield_ticks(N, { interruptible = true })`), replacing the verbose TOML `phases` system.
+- **M-02: `CommandHandler` trait** — New trait in `deadcode-sim/src/action.rs` enables external runtimes (Lua) to handle custom commands, triggers, buff callbacks, and init effects. `SimWorld` stores an optional `Box<dyn CommandHandler>`. `resolve_action()` checks the handler before falling back to TOML effects.
+- **M-03: `WorldAccess` API** — New struct in `deadcode-sim/src/world.rs` provides controlled mutable access to `SimWorld` for external handlers. Exposes entity operations (damage, heal, spawn, modify_stat), resource operations (use, modify, get), queries (entity_count, is_alive, distance), buff operations, and output — matching the full TOML effect API surface.
+- **M-04: `ActiveChannel` enum** — Entity's `active_channel` field now supports both TOML-based `ChannelState` and Lua-based `LuaCoroutineState` via `ActiveChannel::Toml(ChannelState) | ActiveChannel::Lua(LuaCoroutineState)`. The tick loop handles both variants.
+- **M-05: Core mod Lua migration** — `mods/core/mod.lua` provides Lua implementations of all core commands (help, trance, raise, harvest, pact), the init handler, and entity_died trigger. The `raise` command is now 8 lines of Lua instead of 30 lines of nested TOML.
+- **M-06: Lua sandbox** — `os`, `io`, `debug`, `dofile`, `loadfile`, `package` stripped from Lua globals. Deterministic RNG via `SimRng`. `require("void")` returns the mod API table.
+- **M-07: Hot-reload support** — `CommandHandler::reload_mod()` cancels active coroutines, unregisters handlers, and re-executes `mod.lua` for live iteration.
+
 ### Simulation Engine / Compiler
 
 #### Changed

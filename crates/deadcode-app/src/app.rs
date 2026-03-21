@@ -21,7 +21,7 @@ use deadcode_desktop::window::{StripInfo, enumerate_monitors};
 
 use deadcode_editor::ipc::{CommandInfo, JsToRust, RustToJs, WindowControlEvent};
 use deadcode_sim::SimWorld;
-use deadcode_sim::action::CommandDef;
+use deadcode_sim::action::{CommandDef, CommandHandler};
 use deadcode_editor::window::{WebViewManager, MaximizedState, open_editor, get_window_geometry};
 use deadcode_editor::scripts::ScriptStore;
 use deadcode_editor::tabs::EditorWindowState;
@@ -638,6 +638,44 @@ impl ApplicationHandler<UserEvent> for App {
 
         // Auto-start simulation — it runs continuously from game open.
         sim.start();
+
+        // --- Lua runtime init ---
+        // Create the Lua mod runtime and load mod.lua files.
+        if let Some(mut lua_runtime) = modding::create_lua_runtime(&mods) {
+            // Register Lua command metadata with the sim for the compiler and list_commands.
+            let lua_meta = lua_runtime.command_metadata();
+            for (name, meta) in &lua_meta {
+                let cmd_def = deadcode_sim::CommandDef {
+                    name: name.clone(),
+                    description: meta.description.clone(),
+                    args: meta.args.clone(),
+                    unlisted: meta.unlisted,
+                    ..Default::default()
+                };
+                sim.register_custom_command(&cmd_def);
+                // Also register in app's command_defs for the compiler.
+                self.command_defs.entry(name.clone()).or_insert(cmd_def);
+            }
+
+            // Run init handlers (replaces [initial].effects for Lua mods).
+            {
+                let caster_id = sim.main_brain_id().unwrap_or(deadcode_sim::EntityId(1));
+                let mut access = deadcode_sim::WorldAccess::new_from_world_ptr(&mut sim, caster_id);
+                let init_events = lua_runtime.run_init(&mut access);
+                let access_events = std::mem::take(&mut access.events);
+                // Apply events from init.
+                for event in access_events.into_iter().chain(init_events.into_iter()) {
+                    match &event {
+                        deadcode_sim::SimEvent::ScriptOutput { text, .. } => {
+                            eprintln!("[lua init] {text}");
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            sim.command_handler = Some(Box::new(lua_runtime));
+        }
 
         self.unit_manager = Some(um);
         self.sim_world = Some(sim);

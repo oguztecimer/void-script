@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::action::PhaseDef;
+use crate::action::{CoroutineHandle, PhaseDef};
 use crate::ir::CompiledScript;
 use crate::value::SimValue;
 
@@ -92,6 +92,24 @@ pub struct ChannelState {
     pub ticks_elapsed_in_phase: i64,
 }
 
+/// Active Lua coroutine state for a yielded command.
+#[derive(Debug, Clone)]
+pub struct LuaCoroutineState {
+    pub handle: CoroutineHandle,
+    pub command_name: String,
+    pub remaining_ticks: i64,
+    pub interruptible: bool,
+}
+
+/// Union of TOML channel and Lua coroutine active states.
+#[derive(Debug, Clone)]
+pub enum ActiveChannel {
+    /// Legacy TOML-based phased command.
+    Toml(ChannelState),
+    /// Lua coroutine-based yielded command.
+    Lua(LuaCoroutineState),
+}
+
 /// Stat overrides applied at spawn time. All stats live in a single HashMap.
 #[derive(Debug, Clone, Default)]
 pub struct EntityConfig {
@@ -127,8 +145,8 @@ pub struct SimEntity {
     // Script (None for non-scriptable entities)
     pub script_state: Option<ScriptState>,
 
-    /// Active channel for a multi-tick phased command (None when idle).
-    pub active_channel: Option<ChannelState>,
+    /// Active channel for a multi-tick phased command or Lua coroutine (None when idle).
+    pub active_channel: Option<ActiveChannel>,
 
     /// Active buffs on this entity.
     pub active_buffs: Vec<ActiveBuff>,

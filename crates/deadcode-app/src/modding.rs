@@ -211,6 +211,8 @@ pub struct SpriteData {
 #[allow(dead_code)]
 pub struct LoadedMod {
     pub manifest: ModManifest,
+    /// Directory containing this mod's files.
+    pub mod_dir: PathBuf,
     /// Entity def ID → sprite data (PNG bytes + JSON string).
     pub sprites: HashMap<String, SpriteData>,
     /// Entity def ID → pivot [x, y].
@@ -417,6 +419,7 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
 
     Some(LoadedMod {
         manifest,
+        mod_dir: mod_dir.to_path_buf(),
         sprites,
         pivots,
         entity_configs,
@@ -625,6 +628,41 @@ fn resolve_mod_dependencies(mut mods: Vec<LoadedMod>) -> Vec<LoadedMod> {
     }
     mods.sort_by_key(|m| *id_to_idx.get(&m.manifest.meta.id).unwrap_or(&usize::MAX));
     mods
+}
+
+/// Create a Lua mod runtime and load all mods' mod.lua files.
+/// Returns `None` if no mods have Lua scripts.
+pub fn create_lua_runtime(mods: &[LoadedMod]) -> Option<deadcode_lua::LuaModRuntime> {
+    let mut runtime = match deadcode_lua::LuaModRuntime::new() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[lua] failed to create runtime: {e}");
+            return None;
+        }
+    };
+
+    let mut any_lua = false;
+    for m in mods {
+        let lua_path = m.mod_dir.join("mod.lua");
+        if lua_path.exists() {
+            match runtime.load_mod(&m.manifest.meta.id, &m.mod_dir) {
+                Ok(()) => {
+                    eprintln!("[lua] loaded: {}/mod.lua", m.manifest.meta.id);
+                    any_lua = true;
+                }
+                Err(e) => {
+                    eprintln!("[lua] error loading {}/mod.lua: {e}", m.manifest.meta.id);
+                }
+            }
+        }
+    }
+
+    if any_lua {
+        // Register Lua command metadata with the sim world.
+        Some(runtime)
+    } else {
+        None
+    }
 }
 
 /// Resolve the mods directory path (next to the executable's working dir).
@@ -1320,6 +1358,7 @@ mod tests {
                 buffs: vec![],
                 types: vec![],
             },
+            mod_dir: PathBuf::new(),
             sprites: HashMap::new(),
             pivots: HashMap::new(),
             entity_configs: HashMap::new(),

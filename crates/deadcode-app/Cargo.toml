@@ -9,6 +9,7 @@ dev-mode = ["deadcode-desktop/dev-mode"]
 [dependencies]
 deadcode-desktop = { path = "../deadcode-desktop" }
 deadcode-editor = { path = "../deadcode-editor" }
+deadcode-lua = { path = "../deadcode-lua" }
 deadcode-sim = { path = "../deadcode-sim", features = ["compiler"] }
 grimscript-lang = { path = "../grimscript-lang" }
 winit = { workspace = true }

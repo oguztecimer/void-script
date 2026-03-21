@@ -32,7 +32,7 @@
 - **S-34: `SimWorld::flush_pending()` public method** — Extracted inline flush logic into a reusable public method for flushing pending spawns/despawns.
 
 #### Changed
-- **S-31: Spawn effect `entity_type` → `entity_id`** — The `CommandEffect::Spawn` field `entity_type` has been renamed to `entity_id` to match entity definition terminology. Serde alias `entity_type` preserved for backward compatibility with existing mod.toml files.
+- **S-31: Spawn effect `entity_type` → `entity_id`** — The `CommandEffect::Spawn` field `entity_type` was renamed to `entity_id` to match entity definition terminology. Note: Both `CommandEffect::Spawn` and the serde alias were subsequently removed as part of M-08/M-09 (TOML effect system and backwards compatibility removal).
 
 #### Fixed
 - **BUG-R6: Scripts not running on startup** — `compile_and_assign_all_brains()` was running before the script store was initialized, so user scripts in `scripts/types/` were not found. Moved to run after script store init and after initial effects flush.

@@ -89,16 +89,15 @@ Per tick, the world:
 | Data structures | No | BuildList, BuildDict, Index, StoreIndex, GetAttr |
 | Stdlib | No | Len, Abs, Range, IntCast, StrCast, TypeOf, Min2, Max2, ListAppend, DictKeys/Values/Items/Get, Percent, Scale |
 | Locals | No | LoadLocal, StoreLocal (function-scoped variables) |
-| **Queries** | **No** | QueryScan, QueryNearest, QueryDistance, QueryGetPos, QueryGetHealth, QueryGetShield, QueryGetTarget, QueryHasTarget, QueryGetType, QueryGetName, QueryGetOwner, QueryGetResource, QueryGetStat |
-| **Actions** | **Yes** | ActionMove, ActionAttack, ActionFlee, ActionWait, ActionSetTarget, ActionCustom(name) |
-| **Instant effects** | **No** | InstantGainResource, InstantTrySpendResource |
+| **Actions** | **Yes** | ActionCustom(name) |
 | Misc | No | Print, Halt |
 
+48 total instruction variants. All hardcoded game builtins (queries, actions, instant effects) were removed in S-36. All game commands now compile to `ActionCustom(name)` and are dispatched to Lua via the `CommandHandler` trait.
+
 **Key distinctions**:
-- Queries read world state instantly and return a value.
-- Actions mutate world state and consume the tick.
-- Instant effects mutate world state without consuming the tick (handled by `try_handle_instant()` in the tick loop).
-- Print emits output without consuming the tick (also handled as an instant action).
+- `ActionCustom` is the only action instruction — it consumes the tick and dispatches to Lua.
+- Print emits output without consuming the tick (handled as an instant action by `try_handle_instant()` in the tick loop).
+- Stdlib instructions (Len, Abs, etc.) execute inline without consuming the tick.
 
 ## Variable Model
 
@@ -115,32 +114,27 @@ Per tick, the world:
 
 ## Available Commands Gating
 
-Not every GrimScript builtin is available from the start. The game progressively unlocks commands.
+Command availability is controlled by type capability gating.
 
-**Three-tier classification** (`grimscript-lang/src/builtins.rs`):
-- `is_stdlib(name)` — 12 stdlib functions: `print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`. Always available, bypass the gate entirely.
-- `is_game_builtin(name)` — all builtins that aren't stdlib: `move`, `scan`, `attack`, etc. Subject to gating.
-- `is_builtin(name)` — both stdlib + game builtins.
+**Stdlib classification** (`grimscript-lang/src/builtins.rs`):
+- `is_stdlib(name)` — 12 stdlib functions: `print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`. Always available, bypass the gate entirely. Note: `float()` is classified as stdlib but deliberately produces a compile error in the sim.
 
-**Gating mechanism**: Both the interpreter and compiler accept `available_commands: Option<HashSet<String>>`:
+**All non-stdlib commands** are defined in Lua via `mod.command()` in `mod.lua`. All hardcoded game builtins (queries, actions, instant effects) have been removed (S-36).
+
+**Gating mechanism**: The compiler accepts `available_commands: Option<HashSet<String>>`:
 - `None` → all commands available (used in dev mode and tests)
-- `Some(set)` → only game builtins in the set are allowed; others produce `"'name' is not available yet"` error
+- `Some(set)` → only commands in the set are allowed; others produce `"'name' is not available yet"` error
 
-This applies to both hardcoded game builtins and custom mod-defined commands. Custom commands not in the `initial` set cannot be used until unlocked at runtime.
+**Type-based gating**: Command availability is determined solely by type capability (`commands` on `[[types]]` in `mod.toml`). An entity's effective commands = union of all its types' `commands` lists. If no types define `commands`, all commands are available (`compute_effective_commands()` returns `None`). Computed via `modding::compute_effective_commands()`.
 
-**Initial available set**: Defined in the mod's `[initial].commands` field (see `mods/core/mod.toml`). The base game starts with `help`, `trance`, `raise`, `harvest`, `pact`. Multiple mods' command sets are merged.
+**Dev mode**: When compiled with `--features dev-mode`, the gate is bypassed entirely (`None` passed to compiler, all commands sent to frontend as available).
 
-**Dev mode**: When compiled with `--features dev-mode`, the gate is bypassed entirely (`None` passed to interpreter/compiler, all game builtins + custom commands sent to frontend as available).
-
-**Frontend integration**: Rust sends `AvailableCommands { commands, resources, command_info, dev_mode }` via IPC on EditorReady. `command_info` includes metadata (name, description, args) for custom mod commands. The frontend uses this to:
-- Filter autocomplete: show available game commands + build dynamic entries for custom commands from `command_info` (`grimscript-completion.ts`)
-- Filter syntax highlighting: highlight available game functions + custom command names (`grimscript-lang.ts`)
+**Frontend integration**: Rust sends `AvailableCommands { commands, resources, command_info, dev_mode }` via IPC on EditorReady. `command_info` includes metadata (name, description, args) for Lua-defined commands. The frontend uses this to:
+- Filter autocomplete: show available commands + build dynamic entries from `command_info` (`grimscript-completion.ts`)
+- Filter syntax highlighting: highlight available command names (`grimscript-lang.ts`)
 
 **Where the gate is checked**:
-- Interpreter: before `call_builtin()` and before entity method dispatch (`interpreter.rs`)
-- Compiler: before emitting Query/Action/CustomAction instructions and before method call fallback (`emit.rs`). The compiler uses `classify_with_custom()` which checks both static builtins and the `custom_commands` map.
-
-**Unlocking commands at runtime**: `App::available_commands` is a `Vec<String>` in `deadcode-app` (preserves insertion order), initially populated from mod manifests (`[initial].commands`). Push a command name, then call `send_available_commands()` to push the updated set to the frontend and `execution_manager.set_available_commands()` to update the interpreter gate. The `help()` command lists commands in this insertion order.
+- Compiler: before emitting `ActionCustom` instructions (`emit.rs`). The compiler checks the `custom_commands` map for known commands.
 
 ## Value Types (SimValue)
 
@@ -158,164 +152,57 @@ This applies to both hardcoded game builtins and custom mod-defined commands. Cu
 
 # How to Add New Things
 
-## Adding a New Command via Modding (Recommended)
+## Adding a New Command via Lua (Recommended)
 
-The simplest way to add a new command is via `[[commands.definitions]]` in `mod.toml`. No Rust code needed:
+The simplest way to add a new command is in `mod.lua`. No Rust code needed:
 
-```toml
-[[commands.definitions]]
-name = "summon"
-description = "Summon a skeleton at your position"
-args = []
-effects = [
-  { type = "spawn", entity_id = "skeleton", offset = 1 },
-  { type = "output", message = "[summon] A skeleton rises!" },
-]
+```lua
+local mod = require("void")
 
-[initial]
-commands = ["summon"]   # Make it available at game start
+mod.command("summon", { description = "Summon a skeleton", args = {} }, function(ctx)
+  ctx:spawn("skeleton", { offset = ctx:rand(-300, 300) })
+  ctx:output("[summon] A skeleton rises!")
+end)
 ```
 
 This creates a command that:
 - Is recognized by the compiler and emits `ActionCustom("summon")` IR
-- Consumes a tick when executed (it's an action)
-- Resolves effects against the world (spawns a skeleton, prints output)
+- Consumes a tick when executed (dispatched to Lua via CommandHandler)
+- Executes the Lua handler which mutates world state (spawns a skeleton, prints output)
 - Shows up in editor autocomplete with the description and args from IPC
 - Is syntax-highlighted when available
 
-See [Custom Command Definitions](modding.md#custom-command-definitions) for the full effect type reference.
+For multi-tick commands, use `ctx:yield_ticks()`:
 
-## Adding a New Builtin Function (Rust)
-
-For behavior that can't be expressed as data-driven effects, add a new builtin in Rust. There are two paths depending on where the function should work.
-
-### Interpreter-only (terminal one-liners, no sim)
-
-Two files:
-
-1. **`crates/grimscript-lang/src/builtins.rs`**
-   - Add the name to `is_builtin()` match list
-   - Add an arm in `call_builtin()` that receives `args: Vec<Value>` and returns `Result<Value, GrimScriptError>`
-
-### Sim builtin (full pipeline)
-
-Five files for a query, five for an action:
-
-#### Step 1: IR instruction — `crates/deadcode-sim/src/ir.rs`
-
-Add a variant to the `Instruction` enum:
-```rust
-// Query (instant):
-QueryMyThing,
-// Action (yields):
-ActionMyThing,
+```lua
+mod.command("channel", { description = "Channel power" }, function(ctx)
+  ctx:output("Channeling...")
+  ctx:yield_ticks(10, { interruptible = true })
+  ctx:output("Power released!")
+end)
 ```
 
-#### Step 2: Executor — `crates/deadcode-sim/src/executor.rs`
+See [Lua Scripting (mod.lua)](modding.md#lua-scripting-modlua) for the full API reference.
 
-Add a match arm in the main `execute_unit()` loop:
-```rust
-// Query example:
-Instruction::QueryMyThing => {
-    let target = pop_entity_ref(&mut state.stack)?;
-    let result = query::my_thing(world, target)?;
-    state.stack.push(result);
-}
+## Adding a New Lua ctx Method (Rust)
 
-// Action example:
-Instruction::ActionMyThing => {
-    let arg = pop_int(&mut state.stack)?;
-    state.yielded = true;
-    return Ok(Some(UnitAction::MyThing { arg }));
-}
-```
+To add a new operation available to Lua command handlers:
 
-For actions, also add the variant to `UnitAction` in `action.rs` and implement `resolve_action()`.
+1. **`crates/deadcode-lua/src/api.rs`** — add a method on `CtxUserData`
+2. Update the `__void_cmd_wrapper` method list in the same file
+3. Use it in `mod.lua`: `ctx:my_method(args)`
 
-#### Step 3: Compiler builtin mapping — `crates/deadcode-sim/src/compiler/builtins.rs`
+## Adding a New Stdlib Builtin (Rust, Advanced)
 
-- Add variant to `QueryBuiltin` or `ActionBuiltin` enum
-- Add `"my_thing"` arm in `classify()`
-- Add mapping in `query_instruction()` or `action_instruction()`
-- Set expected arg count in `query_expected_args()` or `action_expected_args()`
-- For 0-arg queries that should auto-push `self`, add to `query_takes_implicit_self()`
+For new functions callable directly from GrimScript (not Lua commands):
 
-#### Step 4: Interpreter stub — `crates/grimscript-lang/src/builtins.rs`
+1. **`crates/deadcode-sim/src/ir.rs`** — add `Instruction` variant
+2. **`crates/deadcode-sim/src/executor.rs`** — execute the instruction
+3. **`crates/deadcode-sim/src/compiler/builtins.rs`** — add mapping so the compiler emits the new instruction
+4. **`crates/grimscript-lang/src/builtins.rs`** — add to `is_builtin()` and `call_builtin()` for interpreter path
+5. **`editor-ui/src/codemirror/`** — add to autocomplete and highlighting
 
-Add to `is_builtin()` and `call_builtin()` with a stub return value so the editor's Run button works without the sim.
-
-#### Step 5: Editor autocomplete + highlighting — `editor-ui/src/codemirror/`
-
-- `grimscript-completion.ts` — add `{ label, detail, info }` to `gameCommandCompletions` (filtered by available commands) or `stdlibCompletions` (always shown)
-- `grimscript-lang.ts` — add the name to `allGameFunctions` set (highlighted only when available) or `stdlibFunctions` set (always highlighted)
-
-### Concrete example: adding `summon(type_str)` as a hardcoded Rust action
-
-> **Note**: For simple cases, prefer defining custom commands in `mod.toml` instead. This Rust approach is only needed for behavior that can't be expressed as data-driven effects.
-
-```rust
-// 1. ir.rs — add instruction
-ActionSummon,
-
-// 2a. action.rs — add action variant
-pub enum UnitAction {
-    // ...existing...
-    Summon { unit_type: String },
-}
-
-// 2b. action.rs — implement resolution
-UnitAction::Summon { unit_type } => {
-    if let Some(entity) = world.get_entity(entity_id) {
-        let pos = entity.position;
-        let new_id = world.spawn_entity(unit_type.clone(), unit_type.clone(), pos + 1);
-        events.push(SimEvent::EntitySpawned {
-            entity_id: new_id,
-            entity_type: unit_type,
-            name: format!("{}_{}", unit_type, new_id),
-            position: pos + 1,
-            spawner_id: Some(entity_id),
-        });
-    }
-}
-
-// 2c. executor.rs — handle instruction
-Instruction::ActionSummon => {
-    let unit_type = pop_str(&mut state.stack)?;
-    state.yielded = true;
-    return Ok(Some(UnitAction::Summon { unit_type }));
-}
-
-// 3. compiler/builtins.rs
-// In ActionBuiltin enum:
-Summon,
-// In classify():
-"summon" => BuiltinKind::Action(ActionBuiltin::Summon),
-// In action_instruction():
-ActionBuiltin::Summon => Instruction::ActionSummon,
-// In action_expected_args():
-ActionBuiltin::Summon => 1,
-
-// 4. grimscript-lang/builtins.rs
-// In is_builtin():
-| "summon"
-// In call_builtin():
-"summon" => {
-    send_output(output_tx, "[summon] Summoning...");
-    Ok(Value::None)
-}
-```
-
-```typescript
-// 5. editor-ui/src/codemirror/grimscript-completion.ts
-// Add to gameCommandCompletions (shown only when available):
-{ label: 'summon', detail: '(type)', info: 'Summon a new unit' },
-
-// 5. editor-ui/src/codemirror/grimscript-lang.ts
-// Add to allGameFunctions set (highlighted only when available):
-'summon',
-```
-
-To make the command initially available, add `"summon"` to the `[initial].commands` list in the mod's `mod.toml` (e.g., `mods/core/mod.toml`). Or at runtime: insert it into `App::available_commands` and call `send_available_commands()`.
+Note: All hardcoded game builtins (queries, actions, instant effects) were removed in S-36. Currently only stdlib functions and `ActionCustom` exist as IR instructions. New game commands should be Lua-based, not IR builtins.
 
 ## Adding a New Entity Attribute
 
@@ -356,29 +243,33 @@ Events are how the sim communicates state changes to the rendering layer.
 
 | Area | File | Purpose |
 |------|------|---------|
-| Language | `crates/grimscript-lang/src/builtins.rs` | Interpreter builtin functions, `is_stdlib()` / `is_game_builtin()` classification |
-| Language | `crates/grimscript-lang/src/interpreter.rs` | Tree-walking interpreter, available commands gate |
+| Language | `crates/grimscript-lang/src/builtins.rs` | Interpreter builtin functions, `is_stdlib()` classification |
+| Language | `crates/grimscript-lang/src/interpreter.rs` | Tree-walking interpreter |
 | Language | `crates/grimscript-lang/src/ast.rs` | AST node types |
 | Language | `crates/grimscript-lang/src/parser.rs` | Pratt parser |
-| Sim IR | `crates/deadcode-sim/src/ir.rs` | Instruction enum, CompiledScript |
+| Sim IR | `crates/deadcode-sim/src/ir.rs` | 48 Instruction variants, CompiledScript |
 | Sim exec | `crates/deadcode-sim/src/executor.rs` | Stack machine execution |
 | Sim world | `crates/deadcode-sim/src/world.rs` | SimWorld, tick loop, events, trigger processing |
-| Sim actions | `crates/deadcode-sim/src/action.rs` | UnitAction enum, resolution, CommandDef/CommandEffect/Condition/DynInt/TriggerDef/BuffDef types |
-| Sim queries | `crates/deadcode-sim/src/query.rs` | Entity queries, attribute access |
-| Sim entities | `crates/deadcode-sim/src/entity.rs` | SimEntity, EntityConfig, ScriptState, ChannelState, ActiveBuff |
-| Compiler | `crates/deadcode-sim/src/compiler/builtins.rs` | Builtin → IR mapping |
+| Sim actions | `crates/deadcode-sim/src/action.rs` | UnitAction enum (Wait/Print/Custom), resolve_action(), CommandDef, BuffDef, CommandHandler trait |
+| Sim queries | `crates/deadcode-sim/src/query.rs` | Entity attribute access (GetAttr instruction) |
+| Sim entities | `crates/deadcode-sim/src/entity.rs` | SimEntity, EntityConfig, ScriptState, ActiveBuff |
+| Compiler | `crates/deadcode-sim/src/compiler/builtins.rs` | CommandMeta, stdlib classification |
 | Compiler | `crates/deadcode-sim/src/compiler/emit.rs` | AST → IR emission, available commands gate |
 | Compiler | `crates/deadcode-sim/src/compiler/symbol_table.rs` | Variable scope tracking |
-| App | `crates/deadcode-app/src/app.rs` | Game loop, sim integration, IPC dispatch, available commands state, RunScript→sim compile+assign |
-| Modding | `crates/deadcode-app/src/modding.rs` | Mod manifest types, loading, sprite/command registries, embedded fallback |
-| Mod manifest | `mods/core/mod.toml` | Base game mod: entity defs, spawns, initial commands, command definitions with effects |
+| Lua runtime | `crates/deadcode-lua/src/lib.rs` | LuaModRuntime, CommandHandler impl |
+| Lua runtime | `crates/deadcode-lua/src/api.rs` | ctx methods (damage, heal, spawn, etc.) + mod registration API |
+| Lua runtime | `crates/deadcode-lua/src/coroutine.rs` | Coroutine lifecycle (create, resume, cancel) |
+| App | `crates/deadcode-app/src/app.rs` | Game loop, sim integration, IPC dispatch |
+| Modding | `crates/deadcode-app/src/modding.rs` | Mod manifest types, loading, sprite registries |
+| Mod data | `mods/core/mod.toml` | Base game mod: types, entities, resources, buff stats |
+| Mod logic | `mods/core/mod.lua` | Base game mod: commands, triggers, init, buff callbacks |
 | Entity config | `crates/deadcode-sim/src/entity.rs` | `EntityConfig` for stat overrides at spawn |
-| Execution | `crates/deadcode-editor/src/execution.rs` | Script execution manager, threads available commands to interpreter |
+| Execution | `crates/deadcode-editor/src/execution.rs` | Script execution manager |
 | IPC | `crates/deadcode-editor/src/ipc.rs` | Rust-side message enums |
 | IPC | `editor-ui/src/ipc/types.ts` | TypeScript message types |
 | IPC | `editor-ui/src/ipc/bridge.ts` | JS-side message handler |
-| Editor | `editor-ui/src/codemirror/grimscript-completion.ts` | Autocomplete (stdlib always, game commands + custom commands filtered by available set) |
-| Editor | `editor-ui/src/codemirror/grimscript-lang.ts` | Syntax highlighting (stdlib always, game + custom functions filtered by available set) |
+| Editor | `editor-ui/src/codemirror/grimscript-completion.ts` | Autocomplete (stdlib + Lua commands filtered by available set) |
+| Editor | `editor-ui/src/codemirror/grimscript-lang.ts` | Syntax highlighting (stdlib + commands filtered by available set) |
 | Editor state | `editor-ui/src/state/store.ts` | `availableCommands` + `commandInfo` state (set via IPC) |
 | Scripts | `crates/deadcode-editor/src/scripts.rs` | Script types, file storage |
 | Parity tests | `crates/deadcode-app/tests/interpreter_compiler_parity.rs` | Interpreter vs compiler output comparison (36 tests) |

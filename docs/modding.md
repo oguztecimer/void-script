@@ -62,7 +62,7 @@ Circular dependencies are detected and logged as an error. The affected mods fal
 
 ## mod.toml Reference
 
-A complete `mod.toml` with all sections:
+A complete `mod.toml` with all sections. Note: `mod.toml` is **data-only**. All behavior (commands, triggers, buff callbacks, init) is defined in `mod.lua`.
 
 ```toml
 # --- Mod Metadata ---
@@ -95,7 +95,6 @@ sprite = "sprites/warrior_atlas"    # Path to sprite files (no extension; expect
 pivot = [24.0, 0.0]                 # Sprite pivot point [x, y]
 stats = { armor = 5, crit = 10 }   # Entity-level stats (override type stats)
 
-# Backward compat: if `id` is absent, `type` is used as the ID.
 # If `types` is absent, defaults to `[id]`.
 
 # --- Global Resources ---
@@ -107,45 +106,12 @@ gold = 100                          # Capless resource
 # --- Initial State ---
 [initial]
 resources = ["souls", "mana"]       # Resources available at game start (omit = all available)
-effects = [                         # Effects that run on first game open
-  { type = "output", message = "Welcome to the void..." },
-]
 
-# --- Custom Commands ---
+# --- GrimScript Libraries ---
 [commands]
 libraries = ["lib/utils.grim"]      # GrimScript library files to prepend to player scripts
 
-[[commands.definitions]]
-name = "smite"
-description = "Strike with dark power"
-unlisted = false                    # If true, hidden from list_commands (default: false)
-args = ["target"]                   # Positional argument names
-effects = [                         # Instant effects (mutually exclusive with phases)
-  { type = "damage", target = "arg:target", amount = 30 },
-]
-
-[[commands.definitions]]
-name = "channel_fire"
-description = "Channel flames"
-args = []
-phases = [                          # Multi-tick phases (mutually exclusive with effects)
-  { ticks = 10, interruptible = true, on_start = [
-    { type = "output", message = "Channeling..." }
-  ]},
-]
-
-# --- Event Triggers ---
-[[triggers]]
-event = "entity_died"
-filter = { entity_type = "skeleton" }
-conditions = [
-  { type = "entity_count", entity_type = "skeleton", compare = "eq", amount = 0 },
-]
-effects = [
-  { type = "output", message = "All skeletons have fallen!" },
-]
-
-# --- Buff Definitions ---
+# --- Buff Stat Definitions ---
 [[buffs]]
 name = "rage"
 duration = 60
@@ -155,6 +121,8 @@ max_stacks = 3
 attack_damage = 5
 speed = 2
 ```
+
+Commands, triggers, and init effects are defined in `mod.lua` — see [Lua Scripting](#lua-scripting-modlua).
 
 ---
 
@@ -696,9 +664,9 @@ Multiple mods can be active simultaneously. Content from all mods is merged:
 - **Commands**: Merged into a shared registry. First-loaded-wins with warning on duplicates.
 - **Resources**: Merged. First-defined-wins with warning on duplicates.
 - **Buffs**: Merged. First-defined-wins with warning on duplicates.
-- **Triggers**: All triggers from all mods are collected in load order.
+- **Triggers**: Defined in Lua via `mod.on()`. Collected from all mods' `mod.lua` files.
 - **Initial resources**: Merged from all mods' `[initial]` sections.
-- **Initial effects**: Merged in load order.
+- **Init handlers**: Defined in Lua via `mod.on_init()`. Run in mod load order.
 - **Library files**: Concatenated in load order.
 
 Load order is determined by the dependency graph (topological sort, alphabetical tie-breaking).
@@ -709,37 +677,20 @@ Load order is determined by the dependency graph (topological sort, alphabetical
 
 After all mods are loaded, the engine validates:
 
-### Entity/Spawn Validation
-- `spawn` effect entity types must match registered entity types
-- `spawn` effect entity types are checked against known types (recursively through `if` branches and `start_channel` phases)
+### Type Validation (`validate_type_defs()`)
+- Type names must be non-empty
+- Duplicate type names across mods produce a warning
+
+### Entity Validation (`validate_entity_defs()`)
+- Entity IDs must be non-empty and unique
+- Unknown type references produce a warning
+- Duplicate types per entity produce a warning
 - Entities with multiple brain types are **rejected** and removed from all registries (configs, types, sprites, pivots) — they will not load or spawn
 
-### Command Validation
-- `effects` and `phases` are mutually exclusive (warning; `phases` takes precedence)
-- Phase `ticks` must be > 0
-- Phase `update_interval` must be > 0
-- `use_resource` amounts (fixed values) must be positive
-
-### Target Validation
-- `target` fields must be `"self"`, `"arg:<name>"` (matching a declared arg), `"arg:<index>"` (within args bounds), or a scoped target in trigger contexts
-- Invalid targets produce a warning
-
-### Condition Validation
-- Resource name, entity_type, stat, buff names must be non-empty
-- `random_chance` percent must be 1–100
-- `is_alive` and `distance` targets must be non-empty
-- Compound conditions (`and`/`or`) are validated recursively
-
-### Trigger Validation
-- Event names must be one of the 8 supported types
-- `tick_interval` must have a positive `interval` filter
-- Conditions and effects are validated with the same checks as command conditions/effects
-
-### Buff Validation
-- Buff names must be non-empty
-- Buff duration must be > 0
-- Modifier stat names are checked against known stats from entity configs
-- `per_tick`, `on_apply`, `on_expire` effects are validated
+### Dependency Validation (`validate_dependencies()`)
+- Missing dependencies cause the mod (and dependants) to be skipped with a warning
+- Conflicting mods: second-loaded mod is skipped
+- Circular dependencies are detected and logged as an error
 
 ### Library Validation
 - `.grim` files are syntax-checked (lex + parse) at load time
@@ -750,11 +701,13 @@ After all mods are loaded, the engine validates:
 
 All validation failures produce warnings (not errors) — the mod still loads with best-effort behavior.
 
+Note: Command logic, triggers, and buff callbacks are defined in Lua (`mod.lua`) and are not validated at TOML load time. Lua errors are caught at runtime and logged.
+
 ---
 
 ## Runtime Entity Spawning
 
-When the simulation spawns entities at runtime (via `spawn` effects), the engine:
+When the simulation spawns entities at runtime (via Lua `ctx:spawn()`), the engine:
 
 1. Looks up the entity type in the sprite registry to create a render unit
 2. Applies `EntityConfig` (stats) from the entity type definition
@@ -779,7 +732,9 @@ If `mods/` doesn't exist or contains no valid mods, nothing loads — no entitie
 
 ```
 mods/core/
-  mod.toml
+  mod.toml          # Data: types, entities, resources, buff stats
+  mod.lua           # Logic: commands, triggers, init, buff callbacks
+  grimscript/       # Brain scripts for entity types
   sprites/
     summoner_atlas.png
     summoner_atlas.json
@@ -790,11 +745,14 @@ mods/core/
 Its `mod.toml` defines:
 - The `summoner` entity type (100 HP, speed 1) — the player-controlled entity that runs scripts
 - The `skeleton` entity type (5 HP, inherits speed from `unit` type)
-- The summoner spawn at position 500
 - Global resources: `mana` (50/100 capped), `bones` (0, capless)
 - Initial resources: `mana`, `bones`
-- Startup messages via initial effects
+- Buff stat definitions
+
+Its `mod.lua` defines:
+- Initialization handler (spawns summoner, outputs startup messages)
 - Custom commands (`help`, `trance`, `raise`, `harvest`, `pact`)
+- Event triggers (e.g., `entity_died` for bone harvesting)
 
 ---
 
@@ -818,11 +776,11 @@ Its `mod.toml` defines:
    - Write the JSON metadata describing frame layout
    - Reference them in `[[entities]]`
 
-4. (Optional) Add spawn effects in `[initial].effects` for entities present at game start.
+4. (Optional) Add a `mod.lua` with `mod.on_init()` to spawn entities at game start and define commands/triggers.
 
-5. (Optional) Add resources, commands, triggers, buffs.
+5. (Optional) Add resources (in `mod.toml`) and commands/triggers/buffs (in `mod.lua`).
 
-6. (Optional) Add `[initial]` to control which resources are unlocked at game start.
+6. (Optional) Add `[initial]` in `mod.toml` to control which resources are unlocked at game start.
 
 7. Run the game — your mod is loaded automatically.
 
@@ -962,51 +920,29 @@ my_armor = self.armor
 
 ---
 
-## Adding New Effects (Developer Guide)
+## Adding New Capabilities (Developer Guide)
 
-### Effects vs Builtins
+### Lua ctx Method vs IR Builtin
 
-| | Effect path | Builtin path |
+| | Lua ctx method | IR builtin |
 |---|---|---|
-| **What** | New `CommandEffect` variant for `mod.toml` | New function scripts call directly |
-| **Files** | 1–2 Rust files | 5 files |
-| **Use when** | Mechanic modifies world state as part of a command | Mechanic returns a value to the script or needs computed arguments |
-| **Examples** | `damage`, `heal`, `spawn`, `modify_stat` | *(none currently — all game builtins removed)* |
+| **What** | New method on the `ctx` object in Lua | New IR instruction in the sim executor |
+| **Files** | 1 Rust file (`deadcode-lua/src/api.rs`) | 4–5 Rust files |
+| **Use when** | New world-mutating operation for Lua command handlers | New function callable directly from GrimScript |
+| **Examples** | `ctx:damage()`, `ctx:heal()`, `ctx:spawn()` | `print()`, `len()`, `percent()` |
 
-**Rule of thumb:** If a modder can express it as static TOML values, use the effect system. If the script needs runtime computation or a return value, use a builtin.
+**Rule of thumb:** Most new game mechanics should be Lua ctx methods. IR builtins are only needed for operations that GrimScript code calls directly (stdlib-level functions).
 
-### Adding a New Effect
+### Adding a New Lua ctx Method
 
-1. Add a variant to `CommandEffect` in `crates/deadcode-sim/src/action.rs`:
-   ```rust
-   #[serde(rename = "teleport")]
-   Teleport { target: String, position: i64 },
-   ```
+1. Add a method on `CtxUserData` in `crates/deadcode-lua/src/api.rs`
+2. Add the method name to the `__void_cmd_wrapper` method list in the same file
+3. Use it in `mod.lua`: `ctx:my_method(args)`
+4. Update this document
 
-2. Add a match arm in `resolve_effects_inner()` in the same file:
-   ```rust
-   CommandEffect::Teleport { target, position } => {
-       let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
-       if let Some(tid) = target_id {
-           if let Some(entity) = world.get_entity_mut(tid) {
-               entity.position = *position;
-           }
-       }
-   }
-   ```
+### Adding a New IR Builtin (Advanced)
 
-3. (Optional) Add validation in `modding.rs` if the effect has `target`, `stat`, or other fields that can reference invalid things.
-
-4. Use it in `mod.toml`:
-   ```toml
-   effects = [{ type = "teleport", target = "self", position = 100 }]
-   ```
-
-5. Update this document.
-
-### Adding a New Builtin
-
-All hardcoded game builtins (IR instructions for queries, actions, instant effects) have been removed. Currently all commands compile to `ActionCustom`. To add a new builtin with a dedicated IR instruction:
+All hardcoded game builtins (queries, actions, instant effects) have been removed. Currently all commands compile to `ActionCustom` and are handled by Lua. To add a new builtin with a dedicated IR instruction:
 
 1. `crates/deadcode-sim/src/ir.rs` — add `Instruction` variant
 2. `crates/deadcode-sim/src/executor.rs` — execute the instruction
@@ -1024,52 +960,47 @@ All hardcoded game builtins (IR instructions for queries, actions, instant effec
 |------|----------|---------|
 | `ModManifest` | `deadcode-app/modding.rs` | Deserialized `mod.toml` |
 | `ModMeta` | `deadcode-app/modding.rs` | Mod metadata (id, name, version, depends_on, conflicts_with) |
-| `EntityDef` | `deadcode-app/modding.rs` | Entity type definition (type, sprite, pivot, stats) |
-| `InitialDef` | `deadcode-app/modding.rs` | Initial resources, startup effects |
+| `TypeDef` | `deadcode-app/modding.rs` | Type definition (name, brain, stats, commands, script) |
+| `EntityDef` | `deadcode-app/modding.rs` | Entity definition (id, types, sprite, pivot, stats) |
+| `InitialDef` | `deadcode-app/modding.rs` | Initially available resource names |
 | `ResourceDef` | `deadcode-app/modding.rs` | Resource definition (value, optional max) |
-| `CommandsDef` | `deadcode-app/modding.rs` | Command definitions + library paths |
-| `LoadedMod` | `deadcode-app/modding.rs` | Fully resolved mod (sprites, configs, commands, library source) |
-| `CommandDef` | `deadcode-sim/action.rs` | Command definition (name, description, args, effects/phases, unlisted) |
-| `PhaseDef` | `deadcode-sim/action.rs` | Phase in a multi-tick command |
-| `CommandEffect` | `deadcode-sim/action.rs` | Effect type enum (16 variants) |
-| `Condition` | `deadcode-sim/action.rs` | Condition enum (9 variants) |
-| `CompareOp` | `deadcode-sim/action.rs` | Comparison operators (eq, ne, gt, gte, lt, lte) |
-| `DynInt` | `deadcode-sim/action.rs` | Computed integer (fixed, rand, entity_count, resource, stat) |
-| `TriggerDef` | `deadcode-sim/action.rs` | Trigger (event, filter, conditions, effects) |
-| `TriggerFilter` | `deadcode-sim/action.rs` | Filter fields (entity_type, resource, command, interval) |
-| `BuffDef` | `deadcode-sim/action.rs` | Buff definition (name, duration, modifiers, effects, stacking) |
-| `EffectContext` | `deadcode-sim/action.rs` | Scoped target context (source, owner, attacker, killer) |
-| `EffectOutcome` | `deadcode-sim/action.rs` | Effect resolution result (Complete, Aborted, StartChannel) |
+| `CommandsDef` | `deadcode-app/modding.rs` | Library file paths |
+| `LoadedMod` | `deadcode-app/modding.rs` | Fully resolved mod (sprites, configs, library source) |
+| `CommandDef` | `deadcode-sim/action.rs` | Command metadata (name, description, args, unlisted, kind, implicit_self) |
+| `CommandKind` | `deadcode-sim/action.rs` | Command kind enum (Query, Action, Instant, Custom) |
+| `CommandMeta` | `deadcode-sim/action.rs` | Compiler-facing command metadata (num_args) |
+| `UnitAction` | `deadcode-sim/action.rs` | Action enum (Wait, Print, Custom) |
+| `BuffDef` | `deadcode-sim/action.rs` | Buff definition (name, duration, modifiers, stacking) |
+| `CommandHandler` | `deadcode-sim/action.rs` | Trait for external runtimes (Lua) to handle commands/triggers/buffs |
+| `CommandHandlerResult` | `deadcode-sim/action.rs` | Handler result enum (Handled, Yielded, NotHandled) |
+| `BuffCallbackType` | `deadcode-sim/action.rs` | Buff callback enum (OnApply, PerTick, OnExpire) |
 | `EntityConfig` | `deadcode-sim/entity.rs` | Stat overrides applied at spawn |
-| `SimEntity` | `deadcode-sim/entity.rs` | Game entity (stats map, owner, position, buffs, channel) |
-| `ChannelState` | `deadcode-sim/entity.rs` | Active phased channel state |
+| `SimEntity` | `deadcode-sim/entity.rs` | Game entity (stats map, types, owner, position, buffs) |
 | `ActiveBuff` | `deadcode-sim/entity.rs` | Tracked buff on an entity |
+| `LuaModRuntime` | `deadcode-lua/lib.rs` | Lua runtime, implements CommandHandler |
 
 ### Loading Flow
 
 1. `load_mods()` scans `mods/` for directories with `mod.toml`, sorted alphabetically
 2. Each manifest is parsed; sprite files, library files are read from disk
 3. `resolve_mod_dependencies()` reorders mods by dependency graph
-4. Registries (sprites, pivots, entity configs, commands) are merged into `App`, with collision warnings
-5. `validate_spawns()` checks spawn entity types in effects
-6. `validate_command_defs()` checks targets, stat names, amounts, phases, conditions
-7. `validate_triggers()` checks event names, intervals, conditions, effects
-8. `validate_buffs()` checks buff names, durations, modifier stats, effect lists
-9. `collect_initial_resources()` merges resources; `collect_available_resources()` determines which are unlocked
-10. `collect_triggers()` and `collect_buffs()` gather all triggers/buffs from all mods
-11. `collect_library_source()` concatenates library source in load order
-12. `[initial].effects` spawn entries create sim entities and render units
-13. `[initial].effects` run against the summoner
-14. Commands, triggers, buffs, resources are registered with `SimWorld`
+4. `validate_type_defs()` and `validate_entity_defs()` check types and entities
+5. Registries (sprites, pivots, entity configs) are merged into `App`, with collision warnings
+6. `collect_initial_resources()` merges resources; `collect_available_resources()` determines which are unlocked
+7. `collect_buffs()` gathers buff definitions from all mods
+8. `collect_library_source()` concatenates GrimScript library source in load order
+9. Lua runtime loads `mod.lua` for each mod (registers commands, triggers, buff callbacks, init handlers)
+10. Init handlers run in load order (spawn entities, set up initial state)
+11. Command metadata, resources, and buffs are registered with `SimWorld`
 
 ### Custom Command Flow
 
-1. `CommandDef` is parsed from TOML and collected
-2. At sim init, registered via `SimWorld::register_custom_command()` (effects, arg counts, phases)
+1. Commands are defined in Lua via `mod.command(name, opts, handler)` in `mod.lua`
+2. Command metadata (`CommandDef`) is registered with `SimWorld` for compiler access
 3. Compiler receives `HashMap<String, CommandMeta>` (num_args). All commands compile to `ActionCustom(name)`.
 4. Executor pops args and yields `UnitAction::Custom { name, args }`
-5. `resolve_action()` checks phases → if yes, creates `ChannelState`; if no, resolves instant effects
-6. Phased: tick loop processes channels before script execution — runs effects, handles interruption
+5. `resolve_action()` dispatches to Lua `CommandHandler` which wraps the handler in a coroutine
+6. Multi-tick commands use `ctx:yield_ticks(N)` — coroutine yields, `LuaCoroutineState` stored on entity, resumed after N ticks
 7. Command metadata sent to frontend via `AvailableCommands` IPC for autocomplete/highlighting
 
 ### Tick Loop

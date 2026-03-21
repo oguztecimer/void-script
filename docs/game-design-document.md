@@ -36,7 +36,7 @@ The simulation is fully deterministic — same code produces the same result eve
 1. **Desktop integration** — The game renders transparently above your taskbar. Units walk across your screen while you work.
 2. **Custom scripting language** — GrimScript is Python-like and designed for approachability. No boilerplate, no imports — just logic.
 3. **Deterministic simulation** — Fixed 30 TPS tick-based engine with seeded RNG. Same script, same outcome.
-4. **Fully moddable** — TOML manifests define entities, commands, triggers, buffs, and resources. No Rust knowledge needed to create content.
+4. **Fully moddable** — TOML manifests define entities, types, resources, and buff stats; Lua scripts define commands, triggers, buff callbacks, and initialization. No Rust knowledge needed to create content.
 5. **Necromancer theme** — Dark, atmospheric pixel art. Raise skeletons, harvest bones, channel forbidden spells.
 6. **Built-in IDE** — Integrated editor with syntax highlighting, autocompletion, breakpoint debugging, and a console.
 
@@ -73,10 +73,11 @@ A custom Python-like language with:
 
 Commands are the verbs of the game — everything a script can do:
 
-- **Queries** (instant, don't consume a tick): `scan()`, `nearest()`, `get_health()`, `get_pos()`, `get_resource()`, `get_stat()`
-- **Actions** (consume one tick): `move()`, `attack()`, `flee()`, `wait()`
-- **Custom commands** (mod-defined): `trance()`, `raise()`, `harvest()`, `pact()`, `help()`
-- **Phased abilities** (multi-tick channels): Commands can define multiple phases with interruptible/non-interruptible segments, per-tick effects, and resource gates
+- **Stdlib** (always available, don't consume a tick): `print()`, `len()`, `range()`, `abs()`, `min()`, `max()`, `percent()`, `scale()`
+- **Custom commands** (mod-defined in Lua, consume one tick): `trance()`, `raise()`, `harvest()`, `pact()`, `help()`
+- **Multi-tick commands** (Lua coroutines with `ctx:yield_ticks()`): Commands can span multiple ticks with interruptible/non-interruptible segments and resource gates
+
+All game commands are defined in Lua via `mod.command()`. There are no hardcoded game builtins — the sim compiles all non-stdlib commands to `ActionCustom` and dispatches them to the Lua runtime.
 
 ### Entity System
 
@@ -109,9 +110,11 @@ Event-driven reactive rules:
 
 ### Command Gating
 
-Two-layer progression system:
-1. **Global unlock** — Commands must be unlocked via `[initial].commands` (progression gate)
-2. **Type capability** — Entity types define which commands their entities can use
+Type-based capability system:
+- **Type capability** — Entity types define which commands their entities can use via `commands` on `[[types]]` in `mod.toml`
+- An entity's effective commands = union of all its types' `commands` lists
+- If no types define `commands`, all commands are available (backward compat)
+- In dev mode, all commands are available (gate bypassed)
 
 ---
 
@@ -142,18 +145,23 @@ Two-layer progression system:
 
 ## Modding System
 
-The entire game content layer is defined through TOML mod manifests:
+The game content layer is split between TOML data declarations and Lua behavior scripts:
 
+**TOML (`mod.toml`) — data declarations:**
+- **Types** — Composable type tags with stats, commands, and brain scripts
 - **Entities** — Define new entity types with stats, sprites, and composable type tags
-- **Commands** — Create custom commands with data-driven effects (damage, heal, spawn, buffs, resource costs, conditional logic)
-- **Phased abilities** — Multi-tick channeled abilities with interruptible/non-interruptible phases
-- **Triggers** — Event-driven rules that fire effects when game events occur
-- **Buffs** — Temporary stat modifiers with lifecycle effects
 - **Resources** — World-level integer resources with availability gating
+- **Buffs** — Temporary stat modifier definitions (duration, modifiers, stacking)
 - **Libraries** — Shared `.grim` files automatically prepended to player scripts
 - **Dependencies** — Mods declare dependencies and conflicts; load order is topologically sorted
 
-No Rust or TypeScript knowledge required to create mods. See `docs/modding.md` for the full reference.
+**Lua (`mod.lua`) — behavior:**
+- **Commands** — Custom commands with full programmatic control (damage, heal, spawn, resource costs, multi-tick coroutines)
+- **Triggers** — Event-driven reactive rules (entity_died, entity_spawned, etc.)
+- **Buff callbacks** — on_apply, per_tick, on_expire lifecycle hooks
+- **Initialization** — Spawn entities, set up initial state at game start
+
+No Rust or TypeScript knowledge required to create mods — only TOML and Lua. See `docs/modding.md` for the full reference.
 
 ---
 

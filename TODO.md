@@ -1,6 +1,6 @@
 # TODO
 
-> **Resolved items** are tracked in `CHANGELOG.md`. Completed: S-01 (parity tests), S-02 (IndexMap), S-03 (print tick — already correct), S-04 (error recovery — implicit fallback), S-05 (step limit warning), S-06 (hot-reload surface), S-09 (percent/scale), M-01 (deterministic load order), M-02 (collision warnings + reserved fields), M-03 (command def validation), M-04 (spawn validation), M-05 (mod dependencies + library system), M-06 (conditional effects — `if` effect type with conditions). Modding extended conditions (Phase 2 of modding roadmap) and scoped targets are complete. S-07 Phase 1 (variable dump on error) complete.
+> **Resolved items** are tracked in `CHANGELOG.md`. Completed: S-01 (parity tests), S-02 (IndexMap), S-03 (print tick — already correct), S-04 (error recovery — implicit fallback), S-05 (step limit warning), S-06 (hot-reload surface), S-09 (percent/scale), M-01 (deterministic load order), M-02 (collision warnings + reserved fields), M-03 (command def validation), M-04 (spawn validation), M-05 (mod dependencies + library system), M-06 (conditional effects — `if` effect type with conditions). Modding extended conditions (Phase 2 of modding roadmap) and scoped targets are complete. S-07 Phase 1 (variable dump on error) complete. **MOD-02 (Lua Scripting Layer)** fully implemented — see CHANGELOG M-01 through M-10.
 
 ## S-07: No Debugging Tools Beyond Run (Phase 1 Complete)
 
@@ -62,25 +62,12 @@ Entities now have brain scripts (type `.gs` files) that give them autonomous beh
 
 ## MOD-02: Lua Scripting Layer
 
-**Priority: Low — Future**
+**Priority: N/A — Resolved**
+**Status: Complete** — See CHANGELOG entries M-01 through M-10.
 
-Advanced modding for mechanics that are awkward in TOML. Build after entity behaviors — TOML features become the Lua API surface.
+The `deadcode-lua` crate provides a full Lua 5.4 runtime (mlua 0.10) for mod logic. All command logic, triggers, buff callbacks, and init effects are now Lua-only. TOML is data-only (types, entities, resources, buff stats). The old TOML effect system was completely removed (M-08, M-09).
 
-Strategy: Extend TOML with reactive/autonomous features first. Add Lua scripting later as an advanced modding layer. Compared against: Factorio (Lua), CK3/Stellaris (Paradox script), Rimworld (XML+C#), Don't Starve (Lua), Noita (Lua), Balatro (Lua).
-
-### Planned work
-
-- Embed mlua crate with LuaJIT or Lua 5.4
-- Sandbox: disable os, io, loadfile, debug, require (whitelist only)
-- Deterministic RNG wrapper — replace math.random with seeded game RNG
-- Lua API surface (mirrors TOML effects): damage, heal, spawn, modify_stat, get_resource, gain_resource, try_spend_resource, get_entity_count, scan, nearest, apply_buff, remove_buff
-- Event hooks in Lua — on_entity_died(fn), on_tick(fn), on_command_used(fn)
-- Custom entity behaviors in Lua — behavior functions called per tick
-- Custom conditions in Lua — return bool, usable in TOML if effects
-- Per-mod Lua state isolation — each mod gets its own Lua VM or sandbox
-- Lua error handling — catch + log without crashing sim
-- Lua mod loading — mods/mymod/scripts/*.lua loaded after mod.toml
-- Hybrid: TOML structure + Lua logic coexist (simple mods stay TOML-only)
+Implemented: sandbox (os/io/debug stripped), deterministic RNG via SimRng, full ctx API (damage, heal, spawn, modify_stat, resources, buffs, queries), event triggers (`mod.on()`), multi-tick coroutines (`ctx:yield_ticks()`), hot-reload (`mod.lua` re-execution), error wrapping with file/line info.
 
 ---
 

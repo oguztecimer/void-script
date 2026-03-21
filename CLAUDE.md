@@ -50,7 +50,7 @@ Editor UI is embedded into the Rust binary via `rust-embed` in `deadcode-editor/
 ## Testing
 
 ```bash
-cargo test                          # All Rust tests (203 tests)
+cargo test                          # All Rust tests (177 tests)
 cargo test -p deadcode-sim          # Sim engine + compiler tests
 cargo test -p grimscript-lang       # Language crate only
 cargo test -p deadcode-app --test interpreter_compiler_parity  # Parity tests
@@ -65,7 +65,7 @@ cd editor-ui && npx tsc --noEmit    # TypeScript type check
 2. **Editor** (`deadcode-editor` + `editor-ui/`) — wry WebView hosting React UI, JSON IPC between Rust and JS, multi-tab script editing with CodeMirror 6, debug panel
 3. **Language** (`grimscript-lang`) — lexer, Pratt parser, tree-walking interpreter with debugger (breakpoints, step over/into/out), dynamic types (int, float, string, bool, None, list, dict, tuple, entity)
 4. **Simulation** (`deadcode-sim`) — deterministic tick-based engine. GrimScript compiles to stack-based IR; executor steps each unit's program counter until an action yields. 1D integer positions, no floats, seeded RNG for determinism.
-5. **Lua Runtime** (`deadcode-lua`) — Lua 5.4 scripting for mod logic. Implements the `CommandHandler` trait from `deadcode-sim`. Commands use Lua coroutines for multi-tick behavior (`ctx:yield_ticks(N)`). TOML stays for data (types, entities, resources, buffs); Lua handles behavior (commands, triggers, buff callbacks, init). Lua handlers take priority over TOML effects when both exist.
+5. **Lua Runtime** (`deadcode-lua`) — Lua 5.4 scripting for mod logic. Implements the `CommandHandler` trait from `deadcode-sim`. Commands use Lua coroutines for multi-tick behavior (`ctx:yield_ticks(N)`). TOML is data-only (types, entities, resources, buff stats); Lua handles all behavior (commands, triggers, buff callbacks, init).
 
 ### Simulation Engine (`deadcode-sim`)
 
@@ -76,7 +76,7 @@ src/
   value.rs        — SimValue: Int, Bool, Str, None, List, Dict(IndexMap), EntityRef (no floats)
   error.rs        — SimError types (SimErrorKind: TypeError, DivisionByZero, IndexOutOfBounds, KeyNotFound, EntityNotFound, StackUnderflow, InvalidVariable, StackOverflow, Overflow, StepLimitExceeded, Runtime)
   entity.rs       — SimEntity (unified stats HashMap, types: Vec<String>, owner: Option<EntityId>), EntityId, EntityConfig, ScriptState (incl. step_limit_hit, error recovery), CallFrame, spawn_ticks_remaining
-  ir.rs           — ~30 stack-based Instruction variants, CompiledScript, FunctionEntry
+  ir.rs           — 48 stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
   world.rs        — SimWorld: entity storage, tick() loop (main brain + entity shuffle), event collection, snapshots, global resources, WorldAccess API, entity_types_registry
   action.rs       — UnitAction enum, resolve_action(), CommandDef, BuffDef, CommandHandler trait, CommandHandlerResult, CoroutineHandle, BuffCallbackType
@@ -104,7 +104,7 @@ src/
 
 **Library files:** Mods can provide `.grim` files via `commands.libraries` in `mod.toml`. Library source is loaded at mod time, concatenated across mods (in load order), and prepended to player scripts before compilation. Functions defined in libraries are available in player scripts as if defined at the top. Subject to the same command gating. Flat namespace, first-loaded-wins.
 
-**Available commands:** Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available. All other commands are defined in Lua via `mod.command()` in `mod.lua`. The compiler receives command metadata via `HashMap<String, CommandMeta>` and an `available_commands: Option<HashSet<String>>` for type-based gating. In **dev mode**, all commands are available (gate bypassed).
+**Available commands:** Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `str`, `type`, `percent`, `scale`) are always available. Note: `float()` is classified as stdlib but deliberately produces a compile error in the sim ("float() is not supported in simulation mode"). All other commands are defined in Lua via `mod.command()` in `mod.lua`. The compiler receives command metadata via `HashMap<String, CommandMeta>` and an `available_commands: Option<HashSet<String>>` for type-based gating. In **dev mode**, all commands are available (gate bypassed).
 
 **Custom commands:** Mods define commands in Lua via `mod.command(name, opts, handler)`. Commands compile to `ActionCustom(name)` IR instructions. At runtime, `resolve_action()` dispatches to the Lua `CommandHandler`. Multi-tick commands use `ctx:yield_ticks(N)` which suspends the Lua coroutine; a `LuaCoroutineState` is stored on the entity and resumed after N ticks. See `docs/modding.md` for the full Lua API reference.
 
@@ -159,6 +159,7 @@ src/
   convert.rs      — SimValue ↔ mlua::Value bidirectional conversion
   triggers.rs     — Lua trigger dispatch and buff callbacks
   error.rs        — Error wrapping with file/line info
+  tests.rs        — Integration tests for Lua runtime
 ```
 
 **Dependency graph (no cycles):**
@@ -218,7 +219,7 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 - Division/modulo use Python-style floor semantics in both executor and interpreter: `-7 // 2 = -4`, `-7 % 2 = 1` (not C truncating or Euclidean)
 - `Lexer::tokenize()` returns `Result<Vec<SpannedToken>, GrimScriptError>` — callers must handle lex errors
 - Compiler is feature-gated: `deadcode-sim` stays independent without `grimscript-lang`
-- The summoner is defined by the core mod (`mods/core/mod.toml`) like any other entity — entity type, stats, sprite, and pivot are in the mod manifest; initial spawning is handled via `[initial].effects` with a `spawn` effect. If no mods are found, nothing loads (no fallback). Script execution methods find the summoner by entity type `"summoner"`.
+- The summoner is defined by the core mod (`mods/core/mod.toml`) like any other entity — entity type, stats, sprite, and pivot are in the mod manifest; initial spawning is handled via `mod.on_init()` in `mod.lua`. If no mods are found, nothing loads (no fallback). Script execution methods find the summoner by entity type `"summoner"`.
 - Theme-agnostic sim: no baked-in entity type constants, entity types are runtime strings
 
 ## Common Tasks

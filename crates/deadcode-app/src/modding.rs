@@ -164,16 +164,15 @@ pub struct EntityDef {
 
 impl EntityDef {
     /// Resolve the entity definition ID (prefers `id`, falls back to `entity_type`).
-    pub fn resolved_id(&self) -> String {
-        self.id.clone()
-            .or_else(|| self.entity_type.clone())
-            .expect("entity must have either 'id' or 'type'")
+    /// Returns `None` if neither `id` nor `type` is set.
+    pub fn resolved_id(&self) -> Option<String> {
+        self.id.clone().or_else(|| self.entity_type.clone())
     }
 
     /// Resolve the types list (defaults to `[resolved_id()]` if empty).
     pub fn resolved_types(&self) -> Vec<String> {
         if self.types.is_empty() {
-            vec![self.resolved_id()]
+            self.resolved_id().into_iter().collect()
         } else {
             self.types.clone()
         }
@@ -238,8 +237,13 @@ pub struct LoadedMod {
 fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
     let manifest_path = mod_dir.join("mod.toml");
     let toml_str = std::fs::read_to_string(&manifest_path).ok()?;
-    let manifest: ModManifest = toml::from_str(&toml_str)
-        .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", manifest_path.display()));
+    let manifest: ModManifest = match toml::from_str(&toml_str) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("[mod] error: failed to parse {}: {e}", manifest_path.display());
+            return None;
+        }
+    };
 
     let mut sprites = HashMap::new();
     let mut pivots = HashMap::new();
@@ -304,7 +308,16 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
     }
 
     for entity_def in &manifest.entities {
-        let def_id = entity_def.resolved_id();
+        let def_id = match entity_def.resolved_id() {
+            Some(id) => id,
+            None => {
+                eprintln!(
+                    "[mod:{}] warning: entity has neither 'id' nor 'type' — skipping",
+                    manifest.meta.id
+                );
+                continue;
+            }
+        };
         let resolved_types = entity_def.resolved_types();
 
         // Build merged config: type stats (in order) then entity-level overrides.
@@ -327,11 +340,23 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
             let json_path = mod_dir.join(format!("{sprite_path}.json"));
 
             if png_path.exists() && json_path.exists() {
-                let png = std::fs::read(&png_path)
-                    .unwrap_or_else(|e| panic!("Failed to read {}: {e}", png_path.display()));
-                let json = std::fs::read_to_string(&json_path)
-                    .unwrap_or_else(|e| panic!("Failed to read {}: {e}", json_path.display()));
-                sprites.insert(def_id.clone(), SpriteData { png, json });
+                match (std::fs::read(&png_path), std::fs::read_to_string(&json_path)) {
+                    (Ok(png), Ok(json)) => {
+                        sprites.insert(def_id.clone(), SpriteData { png, json });
+                    }
+                    (Err(e), _) => {
+                        eprintln!(
+                            "[mod:{}] warning: failed to read sprite {}: {e}",
+                            manifest.meta.id, png_path.display()
+                        );
+                    }
+                    (_, Err(e)) => {
+                        eprintln!(
+                            "[mod:{}] warning: failed to read sprite {}: {e}",
+                            manifest.meta.id, json_path.display()
+                        );
+                    }
+                }
             } else {
                 eprintln!(
                     "[mod] warning: sprite files not found for '{}': {} / {}",
@@ -1142,11 +1167,13 @@ pub fn validate_entity_defs(mods: &[LoadedMod], all_type_defs: &HashMap<String, 
     for m in mods {
         let mod_id = &m.manifest.meta.id;
         for edef in &m.manifest.entities {
-            let def_id = edef.resolved_id();
-            if def_id.is_empty() {
-                eprintln!("[mod:{mod_id}] warning: entity has empty id");
-                continue;
-            }
+            let def_id = match edef.resolved_id() {
+                Some(id) if !id.is_empty() => id,
+                _ => {
+                    eprintln!("[mod:{mod_id}] warning: entity has no id — skipping");
+                    continue;
+                }
+            };
             if seen_ids.contains(&def_id) {
                 eprintln!(
                     "[mod:{mod_id}] warning: entity id '{}' already defined — skipping",

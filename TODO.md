@@ -45,12 +45,12 @@ Several compiler scaffolding items were removed to eliminate warnings. Re-add th
 
 **Priority: Medium**
 
-Spawned entities are inert targets — they have stats and can be affected by effects, but they don't act on their own. A behavior system would make them feel alive.
+Entities now have brain scripts (type `.gs` files) that give them autonomous behavior. The remaining work is adding data-driven behaviors in `mod.toml` for modders who want simple AI without writing GrimScript.
 
 ### Planned work
 
-- Behavior system in SimWorld — per-entity-type behaviors processed each tick
-- `[[entities.behaviors]]` section in mod.toml
+- Data-driven behavior system in `mod.toml` as an alternative to brain scripts
+- `[[entities.behaviors]]` section in mod.toml for simple AI patterns
 - Built-in behaviors: attack_nearest, flee_when_low, move_toward, idle
 - Data-driven periodic behaviors — interval + effects (reuse effect engine)
 - Behavior cooldowns — per-entity cooldown tracking

@@ -53,7 +53,7 @@ mods/
       warrior_atlas.json    # Atlas metadata (frame layout)
 ```
 
-The game scans `mods/` at startup and loads every directory that contains a valid `mod.toml`. Mods are then reordered by their dependency graph (topological sort via Kahn's algorithm, with alphabetical tie-breaking for determinism). If no mods are found, the game falls back to embedded assets.
+The game scans `mods/` at startup and loads every directory that contains a valid `mod.toml`. Mods are then reordered by their dependency graph (topological sort via Kahn's algorithm, with alphabetical tie-breaking for determinism). If no mods are found, nothing loads.
 
 ### Dependencies and Conflicts
 
@@ -249,7 +249,7 @@ stats = { armor = 5, crit_chance = 10 }   # Override/extend type stats
 
 **Backward compatibility:** If `id` is absent, `type` is used as the ID. If `types` is absent, defaults to `[id]`.
 
-**Note:** The `"summoner"` entity is defined by the core mod. Mods can override its stats, sprite, or spawn position by loading before core (via dependency ordering).
+**Note:** The `"summoner"` entity is defined by the core mod. Custom mods can define their own entities but cannot redefine the summoner — it is always provided by core.
 
 ### Auto-Max Behavior
 
@@ -1332,7 +1332,7 @@ Runtime-spawned entities use `"{type}_{entity_id}"` as their name (guaranteed un
 
 ## Fallback Behavior
 
-If `mods/` doesn't exist or contains no valid mods, the game falls back to compile-time embedded assets. This ensures `cargo run` works without a `mods/` directory. The fallback provides the same content as the `core` mod.
+If `mods/` doesn't exist or contains no valid mods, nothing loads — no entities, commands, or resources will be available.
 
 ---
 
@@ -1352,7 +1352,7 @@ mods/core/
 
 Its `mod.toml` defines:
 - The `summoner` entity type (100 HP, speed 1) — the player-controlled entity that runs scripts
-- The `skeleton` entity type (50 HP, speed 2)
+- The `skeleton` entity type (5 HP, inherits speed from `unit` type)
 - The summoner spawn at position 500
 - Global resources: `mana` (50/100 capped), `bones` (0, capless)
 - Initial commands: `help`, `trance`, `raise`, `harvest`, `pact`
@@ -1382,7 +1382,7 @@ Its `mod.toml` defines:
    - Write the JSON metadata describing frame layout
    - Reference them in `[[entities]]`
 
-4. (Optional) Add `[[spawn]]` entries for entities present at game start.
+4. (Optional) Add spawn effects in `[initial].effects` for entities present at game start.
 
 5. (Optional) Add resources, commands, triggers, buffs.
 
@@ -1509,7 +1509,7 @@ for key in my_dict:
 
 ### `self` Variable
 
-In scripts, `self` is pre-allocated at variable slot 0 as an `EntityRef` for the executing entity (the summoner):
+In scripts, `self` is pre-allocated at variable slot 0 as an `EntityRef` for the executing entity (the entity running the script):
 
 ```python
 my_pos = get_pos(self)
@@ -1629,7 +1629,7 @@ my_hp = self.health
 9. `collect_initial_resources()` merges resources; `collect_available_resources()` determines which are unlocked
 10. `collect_triggers()` and `collect_buffs()` gather all triggers/buffs from all mods
 11. `collect_library_source()` concatenates library source in load order
-12. `[[spawn]]` entries create sim entities and render units
+12. `[initial].effects` spawn entries create sim entities and render units
 13. `[initial].commands` populate available commands; `[initial].effects` run against the summoner
 14. Commands, triggers, buffs, resources are registered with `SimWorld`
 

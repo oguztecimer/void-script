@@ -177,13 +177,23 @@ impl ScriptStore {
     }
 
     pub fn get_script_infos(&self) -> Vec<crate::ipc::ScriptInfo> {
-        self.scripts
+        let mut infos: Vec<crate::ipc::ScriptInfo> = self.scripts
             .values()
             .map(|s| crate::ipc::ScriptInfo {
                 id: s.id.clone(),
                 name: s.name.clone(),
                 script_type: s.script_type.as_str().to_string(),
             })
-            .collect()
+            .collect();
+        infos.sort_by(|a, b| {
+            let a_main = a.name == "main";
+            let b_main = b.name == "main";
+            match (a_main, b_main) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.script_type.cmp(&b.script_type).then(a.name.cmp(&b.name)),
+            }
+        });
+        infos
     }
 }

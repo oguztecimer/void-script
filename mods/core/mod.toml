@@ -34,13 +34,6 @@ types = ["undead", "melee"]
 sprite = "sprites/skeleton_atlas"
 pivot = [24.0, 0.0]
 
-# --- Spawns ---
-
-[[spawn]]
-entity_id = "summoner"
-name = "summoner"
-position = 500
-
 # --- Resources ---
 
 [resources]
@@ -53,6 +46,7 @@ bones = 0
 commands = ["help","trance","raise","harvest","pact"]
 resources = ["mana", "bones"]
 effects = [
+  { type = "spawn", entity_type = "summoner", offset=0},
   { type = "output", message = "The dead stir beneath your feet" },
   { type = "output", message = "Call for <hl>help()</hl> to hear them speak" },
 ]

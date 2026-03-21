@@ -33,8 +33,8 @@ pub struct Compiler<'a> {
     func_defs: Vec<FuncDef<'a>>,
     /// Temp variable counter for compiler-generated temporaries.
     temp_counter: usize,
-    /// Pending call patches: (instruction_index, function_name).
-    pending_calls: Vec<(usize, String)>,
+    /// Pending call patches: (instruction_index, function_name, source_line).
+    pending_calls: Vec<(usize, String, u32)>,
     /// If Some, only these game commands are available. Stdlib is always allowed.
     available_commands: Option<HashSet<String>>,
     /// Custom command name → arg count (from mod definitions).
@@ -154,13 +154,14 @@ impl<'a> Compiler<'a> {
         }
 
         // Fixup pass: resolve pending function calls.
-        for (idx, func_name) in &self.pending_calls {
+        for (idx, func_name, line) in &self.pending_calls {
             if let Some(entry) = self.functions.iter().find(|f| f.name == *func_name) {
                 if let Instruction::Call(target, _) = &mut self.instructions[*idx] {
                     *target = entry.pc;
                 }
+            } else {
+                return Err(CompileError::new(*line, format!("undefined function: {func_name}")));
             }
-            // If not found, leave as usize::MAX — will be a runtime error.
         }
 
         let num_variables = self.symbols.num_globals();
@@ -625,7 +626,7 @@ impl<'a> Compiler<'a> {
                             None => {
                                 let idx = self.instructions.len();
                                 self.emit(Instruction::Call(usize::MAX, args.len()));
-                                self.pending_calls.push((idx, name.clone()));
+                                self.pending_calls.push((idx, name.clone(), line));
                             }
                         }
                     }

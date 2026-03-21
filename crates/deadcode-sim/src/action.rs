@@ -58,14 +58,14 @@ impl DynInt {
                 let count = world.entities()
                     .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.has_type(entity_type))
                     .count() as i64;
-                count * multiplier
+                count.saturating_mul(*multiplier)
             }
             DynInt::ResourceValue { resource, multiplier } => {
-                world.get_resource(resource) * multiplier
+                world.get_resource(resource).saturating_mul(*multiplier)
             }
             DynInt::CasterStat { stat, multiplier } => {
                 let value = world.get_entity(entity_id).map_or(0, |e| e.stat(stat));
-                value * multiplier
+                value.saturating_mul(*multiplier)
             }
         }
     }
@@ -802,7 +802,7 @@ fn resolve_effects_inner(
                 let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
-                        let new_health = target_entity.stat("health") + amount;
+                        let new_health = target_entity.stat("health").saturating_add(amount);
                         target_entity.set_stat("health", new_health);
                         target_entity.clamp_stat("health");
                     }
@@ -845,7 +845,7 @@ fn resolve_effects_inner(
                 let target_id = resolve_target_from_args(entity_id, target, args, ctx, Some(world));
                 if let Some(tid) = target_id {
                     if let Some(target_entity) = world.get_entity_mut(tid) {
-                        let new_val = target_entity.stat(stat) + amount;
+                        let new_val = target_entity.stat(stat).saturating_add(amount);
                         target_entity.set_stat(stat, new_val);
                         target_entity.clamp_stat(stat);
                     }
@@ -1059,19 +1059,19 @@ pub(crate) fn apply_buff_modifiers(world: &mut SimWorld, entity_id: EntityId, bu
         for (stat, amount) in &buff_def.modifiers {
             match stat.as_str() {
                 "health" => {
-                    let new_max = (entity.stat("max_health") + amount).max(1);
+                    let new_max = entity.stat("max_health").saturating_add(*amount).max(1);
                     entity.set_stat("max_health", new_max);
-                    let new_health = (entity.stat("health") + amount).max(1).min(new_max);
+                    let new_health = entity.stat("health").saturating_add(*amount).max(1).min(new_max);
                     entity.set_stat("health", new_health);
                 }
                 "shield" => {
-                    let new_max = (entity.stat("max_shield") + amount).max(0);
+                    let new_max = entity.stat("max_shield").saturating_add(*amount).max(0);
                     entity.set_stat("max_shield", new_max);
-                    let new_shield = (entity.stat("shield") + amount).max(0).min(new_max);
+                    let new_shield = entity.stat("shield").saturating_add(*amount).max(0).min(new_max);
                     entity.set_stat("shield", new_shield);
                 }
                 _ => {
-                    let new_val = (entity.stat(stat) + amount).max(0);
+                    let new_val = entity.stat(stat).saturating_add(*amount).max(0);
                     entity.set_stat(stat, new_val);
                 }
             }
@@ -1085,19 +1085,19 @@ pub(crate) fn reverse_buff_modifiers(world: &mut SimWorld, entity_id: EntityId, 
         for (stat, amount) in &buff_def.modifiers {
             match stat.as_str() {
                 "health" => {
-                    let new_max = (entity.stat("max_health") - amount).max(1);
+                    let new_max = entity.stat("max_health").saturating_sub(*amount).max(1);
                     entity.set_stat("max_health", new_max);
                     let clamped = entity.stat("health").min(new_max).max(1);
                     entity.set_stat("health", clamped);
                 }
                 "shield" => {
-                    let new_max = (entity.stat("max_shield") - amount).max(0);
+                    let new_max = entity.stat("max_shield").saturating_sub(*amount).max(0);
                     entity.set_stat("max_shield", new_max);
                     let clamped = entity.stat("shield").min(new_max).max(0);
                     entity.set_stat("shield", clamped);
                 }
                 _ => {
-                    let new_val = (entity.stat(stat) - amount).max(0);
+                    let new_val = entity.stat(stat).saturating_sub(*amount).max(0);
                     entity.set_stat(stat, new_val);
                 }
             }

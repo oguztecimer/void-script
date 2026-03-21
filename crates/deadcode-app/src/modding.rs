@@ -1016,14 +1016,14 @@ pub fn collect_initial_commands(mods: &[LoadedMod]) -> Vec<String> {
 /// Collected resource definitions: values and optional caps.
 pub struct CollectedResources {
     pub values: deadcode_sim::IndexMap<String, i64>,
-    pub caps: std::collections::HashMap<String, i64>,
+    pub caps: deadcode_sim::IndexMap<String, i64>,
 }
 
 /// Collect global resources from all loaded mods, merging them.
 /// Duplicate resource names: first-defined wins (with a warning).
 pub fn collect_initial_resources(mods: &[LoadedMod]) -> CollectedResources {
     let mut values = deadcode_sim::IndexMap::new();
-    let mut caps = std::collections::HashMap::new();
+    let mut caps = deadcode_sim::IndexMap::new();
     for m in mods {
         for (name, def) in &m.manifest.resources {
             if values.contains_key(name) {

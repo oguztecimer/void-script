@@ -72,6 +72,15 @@ pub enum RustToJs {
     ScriptReloaded {
         type_name: String,
     },
+    /// Detailed error state for debugging (variable dump on script error).
+    #[serde(rename = "script_error_detail")]
+    ScriptErrorDetail {
+        entity_id: u64,
+        error: String,
+        variables: Vec<(String, String)>,
+        stack: Vec<String>,
+        pc: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]

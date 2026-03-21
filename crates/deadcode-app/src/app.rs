@@ -1035,10 +1035,17 @@ impl App {
                     level: "info".to_string(),
                 });
             }
-            deadcode_sim::SimEvent::ScriptError { error, .. } => {
+            deadcode_sim::SimEvent::ScriptError { entity_id, error, variables, stack, pc } => {
                 self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
                     text: format!("[sim error] {error}"),
                     level: "error".to_string(),
+                });
+                self.webview_manager.send_to_all(&RustToJs::ScriptErrorDetail {
+                    entity_id: entity_id.0,
+                    error: error.clone(),
+                    variables: variables.clone(),
+                    stack: stack.clone(),
+                    pc: *pc,
                 });
             }
             _ => {}

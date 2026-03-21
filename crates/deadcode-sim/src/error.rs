@@ -20,6 +20,8 @@ pub enum SimErrorKind {
     StackOverflow,
     /// Exceeded per-tick instruction limit.
     StepLimitExceeded,
+    /// Arithmetic overflow.
+    Overflow,
     /// Generic runtime error.
     Runtime,
 }
@@ -84,6 +86,10 @@ impl SimError {
             SimErrorKind::StepLimitExceeded,
             "exceeded per-tick instruction limit",
         )
+    }
+
+    pub fn overflow(msg: impl Into<String>) -> Self {
+        Self::new(SimErrorKind::Overflow, msg)
     }
 }
 

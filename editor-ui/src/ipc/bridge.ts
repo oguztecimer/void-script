@@ -69,6 +69,18 @@ export function initIpcBridge(): void {
         store.setCommandInfo(msg.command_info || []);
         store.setDevMode(msg.dev_mode);
         break;
+      case 'script_reloaded':
+        store.addTerminalOutput(`[reload] Script "${msg.type_name}" reloaded`, 'info');
+        break;
+      case 'script_error_detail': {
+        const varLines = msg.variables.map(([name, val]: [string, string]) => `  ${name} = ${val}`).join('\n');
+        const stackLines = msg.stack.length > 0 ? `  Stack: [${msg.stack.join(', ')}]` : '  Stack: (empty)';
+        store.addTerminalOutput(
+          `[error detail] Entity ${msg.entity_id} at PC ${msg.pc}:\n${varLines}\n${stackLines}`,
+          'error'
+        );
+        break;
+      }
       default:
         console.warn('[IPC] Unknown message type:', (msg as { type: string }).type, msg);
         break;

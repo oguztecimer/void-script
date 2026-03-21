@@ -36,6 +36,7 @@
 
 #### Removed
 - **M-11: `[[spawn]]` removed** — `[[spawn]]` blocks in `mod.toml` are no longer supported. Use `[initial].effects` with `{ type = "spawn", entity_type = "...", offset = 0 }` instead. The `SpawnDef` struct and spawn processing loop have been removed. Validation of entity type references in spawn/sacrifice effects is now handled by `validate_spawn_effects()`.
+- **M-12: Embedded fallback removed** — If no mods are found in the `mods/` directory, nothing loads. The hardcoded `embedded_fallback()` function and its compile-time asset references have been removed.
 
 ### Simulation Engine (continued)
 
@@ -64,7 +65,7 @@
 #### Changed
 - **E-05: Pause/Resume simulation** — Former no-op simulation controls now actually pause/resume the sim. Toolbar shows a pause button when running, resume button when paused.
 - **M-01: Removed entity convenience stat fields** — `[[entities]]` no longer supports top-level `health`, `speed`, `attack_damage`, `attack_range`, `attack_cooldown`, and `shield` fields. All stats are now defined exclusively in the `stats` table (e.g., `stats = { health = 50, speed = 2 }`). Auto-max behavior (`max_health`/`max_shield`) is preserved via `apply_config()`. The `custom_stats` alias still works.
-- **M-02: Summoner defined by core mod** — The summoner entity is no longer hardcoded in `app.rs`. It is now defined in `mods/core/mod.toml` as a normal `[[entities]]` entry, spawned via `[initial].effects`. Entity type, stats, sprite, and pivot are all moddable. The embedded fallback mirrors this. Script execution still finds the summoner by entity type `"summoner"`.
+- **M-02: Summoner defined by core mod** — The summoner entity is no longer hardcoded in `app.rs`. It is now defined in `mods/core/mod.toml` as a normal `[[entities]]` entry, spawned via `[initial].effects`. Entity type, stats, sprite, and pivot are all moddable. No embedded fallback — if no mods found, nothing loads. Script execution still finds the summoner by entity type `"summoner"`.
 
 ### Simulation Engine
 

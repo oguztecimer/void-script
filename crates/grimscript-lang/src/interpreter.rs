@@ -26,6 +26,7 @@ pub struct Interpreter {
     step_count: u64,
     max_steps: u64,
     functions: HashMap<String, (Vec<String>, Vec<Statement>)>,
+    enums: HashMap<String, HashMap<String, i64>>,
     call_stack: Vec<String>,
     stopped: bool,
     available_commands: Option<HashSet<String>>,
@@ -64,6 +65,7 @@ impl Interpreter {
             step_count: 0,
             max_steps: 100_000,
             functions: HashMap::new(),
+            enums: HashMap::new(),
             call_stack: vec!["<module>".to_string()],
             stopped: false,
             available_commands: None,
@@ -102,17 +104,38 @@ impl Interpreter {
     }
 
     pub fn execute(&mut self, program: &Program) -> Result<(), GrimScriptError> {
-        // First pass: collect top-level function definitions
+        // First pass: collect top-level function definitions and enum definitions
         for stmt in &program.statements {
             if let StmtKind::FunctionDef { name, params, body } = &stmt.kind {
                 self.functions
                     .insert(name.clone(), (params.clone(), body.clone()));
             }
+            if let StmtKind::EnumDef { name, members } = &stmt.kind {
+                let mut enum_map = HashMap::new();
+                let mut next_val: i64 = 0;
+                for (member_name, value_expr) in members {
+                    let val = match value_expr {
+                        Some(expr) => match self.eval_expr(expr)? {
+                            Value::Int(n) => n,
+                            _ => {
+                                return Err(GrimScriptError::type_error(
+                                    stmt.line,
+                                    "enum member value must be an integer",
+                                ))
+                            }
+                        },
+                        None => next_val,
+                    };
+                    enum_map.insert(member_name.clone(), val);
+                    next_val = val + 1;
+                }
+                self.enums.insert(name.clone(), enum_map);
+            }
         }
 
         // Second pass: execute top-level statements
         for stmt in &program.statements {
-            if matches!(stmt.kind, StmtKind::FunctionDef { .. }) {
+            if matches!(stmt.kind, StmtKind::FunctionDef { .. } | StmtKind::EnumDef { .. }) {
                 continue; // Already collected
             }
             match self.execute_statement(stmt)? {
@@ -363,6 +386,40 @@ impl Interpreter {
                 };
                 Ok(ControlFlow::Return(val))
             }
+            StmtKind::EnumDef { name, members } => {
+                // Handle enum defs encountered inside functions/blocks (not just top-level)
+                if !self.enums.contains_key(name) {
+                    let mut enum_map = HashMap::new();
+                    let mut next_val: i64 = 0;
+                    for (member_name, value_expr) in members {
+                        let val = match value_expr {
+                            Some(expr) => match self.eval_expr(expr)? {
+                                Value::Int(n) => n,
+                                _ => {
+                                    return Err(GrimScriptError::type_error(
+                                        stmt.line,
+                                        "enum member value must be an integer",
+                                    ))
+                                }
+                            },
+                            None => next_val,
+                        };
+                        enum_map.insert(member_name.clone(), val);
+                        next_val = val + 1;
+                    }
+                    self.enums.insert(name.clone(), enum_map);
+                }
+                Ok(ControlFlow::None)
+            }
+            StmtKind::Match { subject, cases } => {
+                let subject_val = self.eval_expr(subject)?;
+                for case in cases {
+                    if self.pattern_matches(&subject_val, &case.pattern, stmt.line)? {
+                        return self.execute_block(&case.body);
+                    }
+                }
+                Ok(ControlFlow::None)
+            }
             StmtKind::Break => Ok(ControlFlow::Break),
             StmtKind::Continue => Ok(ControlFlow::Continue),
             StmtKind::Pass => Ok(ControlFlow::None),
@@ -377,6 +434,44 @@ impl Interpreter {
             }
         }
         Ok(ControlFlow::None)
+    }
+
+    fn pattern_matches(
+        &mut self,
+        subject: &Value,
+        pattern: &Pattern,
+        line: u32,
+    ) -> Result<bool, GrimScriptError> {
+        match pattern {
+            Pattern::Wildcard => Ok(true),
+            Pattern::Literal(expr) => {
+                let val = self.eval_expr(expr)?;
+                Ok(*subject == val)
+            }
+            Pattern::EnumMember { enum_name, member } => {
+                let enum_map = self.enums.get(enum_name).ok_or_else(|| {
+                    GrimScriptError::name_error(
+                        line,
+                        format!("undefined enum '{enum_name}'"),
+                    )
+                })?;
+                let member_val = enum_map.get(member).ok_or_else(|| {
+                    GrimScriptError::name_error(
+                        line,
+                        format!("'{enum_name}' has no member '{member}'"),
+                    )
+                })?;
+                Ok(*subject == Value::Int(*member_val))
+            }
+            Pattern::Or(patterns) => {
+                for p in patterns {
+                    if self.pattern_matches(subject, p, line)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+        }
     }
 
     fn assign_target(
@@ -688,6 +783,18 @@ impl Interpreter {
             }
 
             ExprKind::Attribute { object, attr } => {
+                // Check if this is an enum member access (e.g. State.IDLE)
+                if let ExprKind::Name(name) = &object.kind {
+                    if let Some(enum_map) = self.enums.get(name) {
+                        if let Some(&val) = enum_map.get(attr) {
+                            return Ok(Value::Int(val));
+                        }
+                        return Err(GrimScriptError::name_error(
+                            expr.line,
+                            format!("'{name}' has no member '{attr}'"),
+                        ));
+                    }
+                }
                 let obj = self.eval_expr(object)?;
                 self.get_attribute(&obj, attr, expr.line)
             }

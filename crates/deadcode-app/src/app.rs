@@ -848,8 +848,10 @@ impl ApplicationHandler<UserEvent> for App {
         self.do_tick();
 
         // --- Dynamic FPS ---
-        let redraw_interval = if self.active_until.map(|t| Instant::now() < t).unwrap_or(false) {
-            Duration::from_millis(33) // ~30 FPS when active
+        let is_active = self.active_until.map(|t| Instant::now() < t).unwrap_or(false);
+        let has_pending_ipc = !self.ipc_receiver.is_empty();
+        let redraw_interval = if is_active || has_pending_ipc {
+            Duration::from_millis(33) // ~30 FPS when active or IPC pending
         } else {
             Duration::from_millis(100) // 10 FPS when idle
         };

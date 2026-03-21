@@ -27,6 +27,9 @@ pub enum Token {
     Break,
     Continue,
     Pass,
+    Enum,
+    Match,
+    Case,
 
     // Operators
     Plus,
@@ -42,6 +45,7 @@ pub enum Token {
     LtEq,
     GtEq,
     Assign,
+    Pipe,
     PlusAssign,
     MinusAssign,
     StarAssign,

@@ -63,7 +63,7 @@ cd editor-ui && npx tsc --noEmit    # TypeScript type check
 
 1. **Desktop** (`deadcode-app` + `deadcode-desktop`) — winit event loop, softbuffer+tiny-skia rendering, sprite-based units on a transparent always-on-top strip window, system tray, per-pixel hit testing, save/load, fullscreen detection
 2. **Editor** (`deadcode-editor` + `editor-ui/`) — wry WebView hosting React UI, JSON IPC between Rust and JS, multi-tab script editing with CodeMirror 6, debug panel
-3. **Language** (`grimscript-lang`) — lexer, Pratt parser, tree-walking interpreter with debugger (breakpoints, step over/into/out), dynamic types (int, float, string, bool, None, list, dict, tuple, entity)
+3. **Language** (`grimscript-lang`) — lexer, Pratt parser, tree-walking interpreter with debugger (breakpoints, step over/into/out), dynamic types (int, float, string, bool, None, list, dict, tuple, entity), enum definitions (auto-incrementing integer members), match/case statements (literal, enum member, wildcard, OR patterns)
 4. **Simulation** (`deadcode-sim`) — deterministic tick-based engine. GrimScript compiles to stack-based IR; executor steps each unit's program counter until an action yields. 1D integer positions, no floats, seeded RNG for determinism.
 5. **Lua Runtime** (`deadcode-lua`) — Lua 5.4 scripting for mod logic. Implements the `CommandHandler` trait from `deadcode-sim`. Commands use Lua coroutines for multi-tick behavior (`ctx:yield_ticks(N)`). TOML is data-only (types, entities, resources, buff stats); Lua handles all behavior (commands, triggers, buff callbacks, init).
 

@@ -4,6 +4,7 @@ import { useStore } from '../state/store';
 const keywords = new Set([
   'while', 'if', 'else', 'elif', 'for', 'in', 'def', 'return',
   'and', 'or', 'not', 'break', 'continue', 'pass', 'import', 'from',
+  'enum', 'match', 'case',
 ]);
 
 const booleans = new Set(['True', 'False', 'None']);

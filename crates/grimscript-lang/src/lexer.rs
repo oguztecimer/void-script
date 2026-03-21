@@ -202,6 +202,9 @@ impl Lexer {
                     "break" => Token::Break,
                     "continue" => Token::Continue,
                     "pass" => Token::Pass,
+                    "enum" => Token::Enum,
+                    "match" => Token::Match,
+                    "case" => Token::Case,
                     _ => Token::Identifier(word),
                 };
                 tokens.push(SpannedToken {
@@ -287,6 +290,7 @@ impl Lexer {
                 ':' => Token::Colon,
                 ',' => Token::Comma,
                 '.' => Token::Dot,
+                '|' => Token::Pipe,
                 _ => {
                     // Unknown character, skip
                     i += 1;

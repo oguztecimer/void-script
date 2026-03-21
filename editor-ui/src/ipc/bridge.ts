@@ -8,6 +8,29 @@ declare global {
   }
 }
 
+// Batch console outputs to avoid per-message React re-renders.
+let pendingConsole: { text: string; level: 'info' | 'warn' | 'error' }[] = [];
+let pendingTerminal: { text: string; level: 'info' | 'warn' | 'error' }[] = [];
+let flushScheduled = false;
+
+function scheduleFlush() {
+  if (!flushScheduled) {
+    flushScheduled = true;
+    requestAnimationFrame(() => {
+      flushScheduled = false;
+      const store = useStore.getState();
+      if (pendingConsole.length > 0) {
+        store.addConsoleOutputBatch(pendingConsole);
+        pendingConsole = [];
+      }
+      if (pendingTerminal.length > 0) {
+        store.addTerminalOutputBatch(pendingTerminal);
+        pendingTerminal = [];
+      }
+    });
+  }
+}
+
 export function sendToRust(msg: JsToRustMessage): void {
   if (window.ipc) {
     window.ipc.postMessage(JSON.stringify(msg));
@@ -34,7 +57,8 @@ export function initIpcBridge(): void {
         store.closeTab(msg.script_id);
         break;
       case 'console_output':
-        store.addTerminalOutput(msg.text, msg.level);
+        pendingTerminal.push({ text: msg.text, level: msg.level });
+        scheduleFlush();
         break;
       case 'debug_paused':
         store.setPaused(true);

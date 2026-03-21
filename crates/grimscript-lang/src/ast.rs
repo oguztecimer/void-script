@@ -10,6 +10,20 @@ pub struct Statement {
 }
 
 #[derive(Debug, Clone)]
+pub enum Pattern {
+    Literal(Expr),
+    EnumMember { enum_name: String, member: String },
+    Wildcard,
+    Or(Vec<Pattern>),
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchCase {
+    pub pattern: Pattern,
+    pub body: Vec<Statement>,
+}
+
+#[derive(Debug, Clone)]
 pub enum StmtKind {
     FunctionDef {
         name: String,
@@ -42,6 +56,14 @@ pub enum StmtKind {
     },
     Return {
         value: Option<Expr>,
+    },
+    EnumDef {
+        name: String,
+        members: Vec<(String, Option<Expr>)>,
+    },
+    Match {
+        subject: Expr,
+        cases: Vec<MatchCase>,
     },
     Break,
     Continue,

@@ -335,6 +335,54 @@ fn parity_for_continue() {
 // Known divergences (documented, not asserted for parity)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Enum and Match parity tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parity_enum_basic() {
+    assert_parity("enum Color:\n    RED\n    GREEN\n    BLUE\nprint(Color.RED)\nprint(Color.GREEN)\nprint(Color.BLUE)");
+}
+
+#[test]
+fn parity_enum_explicit_values() {
+    assert_parity("enum State:\n    IDLE\n    DEAD = 10\n    BURIED\nprint(State.IDLE)\nprint(State.DEAD)\nprint(State.BURIED)");
+}
+
+#[test]
+fn parity_match_literal() {
+    assert_parity("x = 2\nmatch x:\n    case 1:\n        print(\"one\")\n    case 2:\n        print(\"two\")\n    case 3:\n        print(\"three\")");
+}
+
+#[test]
+fn parity_match_enum() {
+    assert_parity("enum State:\n    IDLE\n    MOVING\ns = State.MOVING\nmatch s:\n    case State.IDLE:\n        print(\"idle\")\n    case State.MOVING:\n        print(\"moving\")");
+}
+
+#[test]
+fn parity_match_or() {
+    assert_parity("x = 2\nmatch x:\n    case 1 | 2:\n        print(\"low\")\n    case 3:\n        print(\"three\")");
+}
+
+#[test]
+fn parity_match_wildcard() {
+    assert_parity("x = 99\nmatch x:\n    case 1:\n        print(\"one\")\n    case _:\n        print(\"default\")");
+}
+
+#[test]
+fn parity_match_no_match() {
+    assert_parity("x = 99\nmatch x:\n    case 1:\n        print(\"one\")\n    case 2:\n        print(\"two\")");
+}
+
+#[test]
+fn parity_match_in_function() {
+    assert_parity("enum Dir:\n    LEFT\n    RIGHT\ndef describe(d):\n    match d:\n        case Dir.LEFT:\n            return \"left\"\n        case Dir.RIGHT:\n            return \"right\"\n        case _:\n            return \"unknown\"\nprint(describe(Dir.LEFT))\nprint(describe(Dir.RIGHT))\nprint(describe(99))");
+}
+
+// ---------------------------------------------------------------------------
+// Known divergences (documented, not asserted for parity)
+// ---------------------------------------------------------------------------
+
 #[test]
 fn divergence_float_not_supported_in_compiler() {
     let interp = interpreter_outputs("print(float(42))");

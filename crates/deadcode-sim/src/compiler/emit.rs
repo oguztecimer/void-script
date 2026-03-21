@@ -36,6 +36,8 @@ pub struct Compiler<'a> {
     temp_counter: usize,
     /// Pending call patches: (instruction_index, function_name, source_line).
     pending_calls: Vec<(usize, String, u32)>,
+    /// Enum definitions collected in pass 1: enum_name → { member_name → i64 }.
+    enum_defs: HashMap<String, HashMap<String, i64>>,
     /// If Some, only these commands are available. Stdlib is always allowed.
     available_commands: Option<HashSet<String>>,
     /// Command name → metadata (from mod definitions — includes all game builtins and custom commands).
@@ -50,6 +52,7 @@ impl<'a> Compiler<'a> {
             symbols: SymbolTable::new(),
             loop_stack: Vec::new(),
             func_defs: Vec::new(),
+            enum_defs: HashMap::new(),
             temp_counter: 0,
             pending_calls: Vec::new(),
             available_commands,
@@ -75,7 +78,7 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn compile(mut self, program: &'a Program) -> Result<CompiledScript, CompileError> {
-        // Pass 1: collect function definitions.
+        // Pass 1: collect function definitions and enum definitions.
         for stmt in &program.statements {
             if let StmtKind::FunctionDef { name, params, body } = &stmt.kind {
                 self.func_defs.push(FuncDef {
@@ -84,11 +87,42 @@ impl<'a> Compiler<'a> {
                     body,
                 });
             }
+            if let StmtKind::EnumDef { name, members } = &stmt.kind {
+                let mut enum_map = HashMap::new();
+                let mut next_val: i64 = 0;
+                for (member_name, value_expr) in members {
+                    let val = match value_expr {
+                        Some(expr) => match &expr.kind {
+                            ExprKind::Integer(n) => *n,
+                            ExprKind::UnaryOp { op: UnaryOp::Neg, operand } => {
+                                if let ExprKind::Integer(n) = &operand.kind {
+                                    -n
+                                } else {
+                                    return Err(CompileError::new(
+                                        stmt.line,
+                                        "enum member value must be an integer literal",
+                                    ));
+                                }
+                            }
+                            _ => {
+                                return Err(CompileError::new(
+                                    stmt.line,
+                                    "enum member value must be an integer literal",
+                                ));
+                            }
+                        },
+                        None => next_val,
+                    };
+                    enum_map.insert(member_name.clone(), val);
+                    next_val = val + 1;
+                }
+                self.enum_defs.insert(name.clone(), enum_map);
+            }
         }
 
-        // Pass 2: emit global code (non-FunctionDef statements).
+        // Pass 2: emit global code (non-FunctionDef/EnumDef statements).
         for stmt in &program.statements {
-            if matches!(stmt.kind, StmtKind::FunctionDef { .. }) {
+            if matches!(stmt.kind, StmtKind::FunctionDef { .. } | StmtKind::EnumDef { .. }) {
                 continue;
             }
             self.compile_stmt(stmt)?;
@@ -411,6 +445,110 @@ impl<'a> Compiler<'a> {
                 Ok(())
             }
 
+            StmtKind::EnumDef { .. } => {
+                // Already handled in pass 1.
+                Ok(())
+            }
+
+            StmtKind::Match { subject, cases } => {
+                // Compile subject, store in a temp variable.
+                let temp_name = self.temp_name("__match_subject");
+                self.compile_expr(subject)?;
+                let temp_loc = self.symbols.resolve_or_declare(&temp_name);
+                self.emit_store(temp_loc);
+
+                let mut end_patches = Vec::new();
+
+                for case in cases {
+                    match &case.pattern {
+                        Pattern::Wildcard => {
+                            // Always matches — just compile body.
+                            for s in &case.body {
+                                self.compile_stmt(s)?;
+                            }
+                            // No need to check further cases after wildcard.
+                            break;
+                        }
+                        Pattern::Literal(expr) => {
+                            self.emit_load(temp_loc);
+                            self.compile_expr(expr)?;
+                            self.emit(Instruction::CmpEq);
+                            let next_case = self.emit_placeholder(Instruction::JumpIfFalse(0));
+                            for s in &case.body {
+                                self.compile_stmt(s)?;
+                            }
+                            end_patches.push(self.emit_placeholder(Instruction::Jump(0)));
+                            self.patch_jump(next_case);
+                        }
+                        Pattern::EnumMember { enum_name, member } => {
+                            let val = self.resolve_enum_member(enum_name, member, stmt.line)?;
+                            self.emit_load(temp_loc);
+                            self.emit(Instruction::LoadConst(SimValue::Int(val)));
+                            self.emit(Instruction::CmpEq);
+                            let next_case = self.emit_placeholder(Instruction::JumpIfFalse(0));
+                            for s in &case.body {
+                                self.compile_stmt(s)?;
+                            }
+                            end_patches.push(self.emit_placeholder(Instruction::Jump(0)));
+                            self.patch_jump(next_case);
+                        }
+                        Pattern::Or(patterns) => {
+                            // For each sub-pattern, check if it matches.
+                            // If any matches, jump to body. If none match, jump to next case.
+                            let mut true_patches = Vec::new();
+                            let last_idx = patterns.len() - 1;
+                            for (i, pat) in patterns.iter().enumerate() {
+                                self.emit_load(temp_loc);
+                                match pat {
+                                    Pattern::Literal(expr) => {
+                                        self.compile_expr(expr)?;
+                                        self.emit(Instruction::CmpEq);
+                                    }
+                                    Pattern::EnumMember { enum_name, member } => {
+                                        let val = self.resolve_enum_member(enum_name, member, stmt.line)?;
+                                        self.emit(Instruction::LoadConst(SimValue::Int(val)));
+                                        self.emit(Instruction::CmpEq);
+                                    }
+                                    Pattern::Wildcard => {
+                                        self.emit(Instruction::Pop);
+                                        self.emit(Instruction::LoadConst(SimValue::Bool(true)));
+                                    }
+                                    Pattern::Or(_) => {
+                                        return Err(CompileError::new(
+                                            stmt.line,
+                                            "nested OR patterns not supported",
+                                        ));
+                                    }
+                                }
+                                if i < last_idx {
+                                    true_patches.push(self.emit_placeholder(Instruction::JumpIfTrue(0)));
+                                }
+                            }
+                            // Last pattern result is on stack: if false, jump to next case.
+                            let next_case = self.emit_placeholder(Instruction::JumpIfFalse(0));
+                            // Patch all true jumps to body start.
+                            let body_start = self.instructions.len();
+                            for tp in true_patches {
+                                self.patch_jump_to(tp, body_start);
+                            }
+                            for s in &case.body {
+                                self.compile_stmt(s)?;
+                            }
+                            end_patches.push(self.emit_placeholder(Instruction::Jump(0)));
+                            self.patch_jump(next_case);
+                        }
+                    }
+                }
+
+                // Patch all end jumps.
+                let end = self.instructions.len();
+                for patch in end_patches {
+                    self.patch_jump_to(patch, end);
+                }
+
+                Ok(())
+            }
+
             StmtKind::Pass => Ok(()),
 
             StmtKind::Expr(expr) => {
@@ -539,6 +677,19 @@ impl<'a> Compiler<'a> {
             }
 
             ExprKind::Attribute { object, attr } => {
+                // Check if this is an enum member access (e.g. State.IDLE)
+                if let ExprKind::Name(name) = &object.kind {
+                    if let Some(enum_map) = self.enum_defs.get(name) {
+                        let val = *enum_map.get(attr).ok_or_else(|| {
+                            CompileError::new(
+                                expr.line,
+                                format!("'{name}' has no member '{attr}'"),
+                            )
+                        })?;
+                        self.emit(Instruction::LoadConst(SimValue::Int(val)));
+                        return Ok(());
+                    }
+                }
                 self.compile_expr(object)?;
                 self.emit(Instruction::LoadConst(SimValue::Str(attr.clone())));
                 self.emit(Instruction::GetAttr);
@@ -957,6 +1108,20 @@ impl<'a> Compiler<'a> {
             }
             _ => false,
         }
+    }
+
+    fn resolve_enum_member(
+        &self,
+        enum_name: &str,
+        member: &str,
+        line: u32,
+    ) -> Result<i64, CompileError> {
+        let enum_map = self.enum_defs.get(enum_name).ok_or_else(|| {
+            CompileError::new(line, format!("undefined enum '{enum_name}'"))
+        })?;
+        enum_map.get(member).copied().ok_or_else(|| {
+            CompileError::new(line, format!("'{enum_name}' has no member '{member}'"))
+        })
     }
 
     fn temp_name(&mut self, prefix: &str) -> String {

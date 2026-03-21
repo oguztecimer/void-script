@@ -319,3 +319,109 @@ fn percent_overflow_error() {
     let events = run("print(percent(9223372036854775807, 2))");
     assert!(failed(&events));
 }
+
+// ── Enum and Match ─────────────────────────────────────────────────────
+
+#[test]
+fn enum_basic() {
+    let events = run("enum Color:\n    RED\n    GREEN\n    BLUE\nprint(Color.RED)\nprint(Color.GREEN)\nprint(Color.BLUE)");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["0", "1", "2"]);
+}
+
+#[test]
+fn enum_auto_increment() {
+    let events = run("enum State:\n    IDLE\n    MOVING\n    ATTACKING\nprint(State.IDLE)\nprint(State.MOVING)\nprint(State.ATTACKING)");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["0", "1", "2"]);
+}
+
+#[test]
+fn enum_explicit_values() {
+    let events = run("enum State:\n    IDLE\n    DEAD = 10\n    BURIED\nprint(State.IDLE)\nprint(State.DEAD)\nprint(State.BURIED)");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["0", "10", "11"]);
+}
+
+#[test]
+fn match_literal() {
+    let events = run("x = 2\nmatch x:\n    case 1:\n        print(\"one\")\n    case 2:\n        print(\"two\")\n    case 3:\n        print(\"three\")");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["two"]);
+}
+
+#[test]
+fn match_string_literal() {
+    let events = run("x = \"hello\"\nmatch x:\n    case \"hello\":\n        print(\"greeting\")\n    case \"bye\":\n        print(\"farewell\")");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["greeting"]);
+}
+
+#[test]
+fn match_enum() {
+    let events = run("enum State:\n    IDLE\n    MOVING\ns = State.MOVING\nmatch s:\n    case State.IDLE:\n        print(\"idle\")\n    case State.MOVING:\n        print(\"moving\")");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["moving"]);
+}
+
+#[test]
+fn match_wildcard() {
+    let events = run("x = 99\nmatch x:\n    case 1:\n        print(\"one\")\n    case _:\n        print(\"default\")");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["default"]);
+}
+
+#[test]
+fn match_or_pattern() {
+    let events = run("x = 2\nmatch x:\n    case 1 | 2:\n        print(\"low\")\n    case 3:\n        print(\"three\")");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["low"]);
+}
+
+#[test]
+fn match_no_match() {
+    let events = run("x = 99\nmatch x:\n    case 1:\n        print(\"one\")\n    case 2:\n        print(\"two\")");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), Vec::<&str>::new());
+}
+
+#[test]
+fn match_first_wins() {
+    let events = run("x = 1\nmatch x:\n    case 1:\n        print(\"first\")\n    case 1:\n        print(\"second\")");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["first"]);
+}
+
+#[test]
+fn enum_undefined_error() {
+    let events = run("x = Bogus.THING");
+    assert!(failed(&events));
+}
+
+#[test]
+fn match_in_function() {
+    let events = run("enum Dir:\n    LEFT\n    RIGHT\ndef describe(d):\n    match d:\n        case Dir.LEFT:\n            return \"left\"\n        case Dir.RIGHT:\n            return \"right\"\n        case _:\n            return \"unknown\"\nprint(describe(Dir.LEFT))\nprint(describe(Dir.RIGHT))\nprint(describe(99))");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["left", "right", "unknown"]);
+}
+
+#[test]
+fn match_negative_literal() {
+    let events = run("x = -1\nmatch x:\n    case -1:\n        print(\"neg one\")\n    case 0:\n        print(\"zero\")");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["neg one"]);
+}
+
+#[test]
+fn match_bool_none() {
+    let events = run("x = None\nmatch x:\n    case True:\n        print(\"true\")\n    case None:\n        print(\"none\")");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["none"]);
+}
+
+#[test]
+fn match_or_with_enum() {
+    let events = run("enum State:\n    IDLE\n    MOVING\n    ATTACKING\ns = State.ATTACKING\nmatch s:\n    case State.MOVING | State.ATTACKING:\n        print(\"active\")\n    case _:\n        print(\"other\")");
+    assert!(succeeded(&events));
+    assert_eq!(outputs(&events), vec!["active"]);
+}

@@ -40,23 +40,24 @@ pub fn execute_unit(
             return Ok(Some(UnitAction::Wait));
         }
 
-        let inst = state.program.instructions[state.pc].clone();
+        let inst = &state.program.instructions[state.pc];
         state.pc += 1;
 
         match inst {
             // --- Stack ops ---
             Instruction::LoadConst(val) => {
-                state.stack.push(val);
+                state.stack.push(val.clone());
             }
             Instruction::LoadVar(slot) => {
                 let val = state
                     .variables
-                    .get(slot)
+                    .get(*slot)
                     .cloned()
-                    .ok_or_else(|| SimError::invalid_variable(slot))?;
+                    .ok_or_else(|| SimError::invalid_variable(*slot))?;
                 state.stack.push(val);
             }
             Instruction::StoreVar(slot) => {
+                let slot = *slot;
                 let val = pop(&mut state.stack)?;
                 if slot >= state.variables.len() {
                     state.variables.resize(slot + 1, SimValue::None);
@@ -156,15 +157,17 @@ pub fn execute_unit(
 
             // --- Control flow ---
             Instruction::Jump(target) => {
-                state.pc = target;
+                state.pc = *target;
             }
             Instruction::JumpIfFalse(target) => {
+                let target = *target;
                 let val = pop(&mut state.stack)?;
                 if !val.is_truthy() {
                     state.pc = target;
                 }
             }
             Instruction::JumpIfTrue(target) => {
+                let target = *target;
                 let val = pop(&mut state.stack)?;
                 if val.is_truthy() {
                     state.pc = target;
@@ -173,6 +176,8 @@ pub fn execute_unit(
 
             // --- Functions ---
             Instruction::Call(target_pc, num_args) => {
+                let target_pc = *target_pc;
+                let num_args = *num_args;
                 if state.call_stack.len() >= MAX_CALL_DEPTH {
                     return Err(SimError::stack_overflow());
                 }
@@ -218,11 +223,13 @@ pub fn execute_unit(
 
             // --- Data structures ---
             Instruction::BuildList(count) => {
+                let count = *count;
                 let start = state.stack.len().saturating_sub(count);
                 let items: Vec<SimValue> = state.stack.drain(start..).collect();
                 state.stack.push(SimValue::List(items));
             }
             Instruction::BuildDict(count) => {
+                let count = *count;
                 let start = state.stack.len().saturating_sub(count * 2);
                 let pairs_flat: Vec<SimValue> = state.stack.drain(start..).collect();
                 let mut map = indexmap::IndexMap::with_capacity(count);
@@ -324,7 +331,7 @@ pub fn execute_unit(
             // --- Local variable access ---
             Instruction::LoadLocal(offset) => {
                 let var_base = state.call_stack.last().map_or(0, |f| f.var_base);
-                let slot = var_base + offset;
+                let slot = var_base + *offset;
                 let val = state
                     .variables
                     .get(slot)
@@ -334,7 +341,7 @@ pub fn execute_unit(
             }
             Instruction::StoreLocal(offset) => {
                 let var_base = state.call_stack.last().map_or(0, |f| f.var_base);
-                let slot = var_base + offset;
+                let slot = var_base + *offset;
                 let val = pop(&mut state.stack)?;
                 if slot >= state.variables.len() {
                     state.variables.resize(slot + 1, SimValue::None);
@@ -388,7 +395,7 @@ pub fn execute_unit(
                 state.stack.push(SimValue::Str(val.type_name().to_string()));
             }
             Instruction::Range(nargs) => {
-                let (start, end, step) = match nargs {
+                let (start, end, step) = match *nargs {
                     1 => {
                         let end = pop_int(&mut state.stack)?;
                         (0i64, end, 1i64)
@@ -547,6 +554,7 @@ pub fn execute_unit(
 
             // --- Action instructions (consume tick) ---
             Instruction::ActionCustom(name) => {
+                let name = name.clone();
                 // Pop N args from stack (N from custom command registry).
                 let num_args = world.custom_command_arg_counts
                     .get(&name)

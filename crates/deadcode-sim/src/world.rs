@@ -903,25 +903,16 @@ impl SimWorld {
         }
     }
 
-    /// Handle an instant action (Print).
-    /// Returns `None` if the action was handled (instant), `Some(action)` if it
-    /// should be collected as a tick-consuming action.
+    /// Returns `None` if the action was handled as instant (no tick consumed),
+    /// `Some(action)` if it should be collected as a tick-consuming action.
     fn try_handle_instant(
         &mut self,
-        eid: EntityId,
+        _eid: EntityId,
         action: UnitAction,
         _script_state: &mut crate::entity::ScriptState,
     ) -> Option<UnitAction> {
-        match action {
-            UnitAction::Print { text } => {
-                self.events.push(SimEvent::ScriptOutput {
-                    entity_id: eid,
-                    text,
-                });
-                None
-            }
-            other => Some(other),
-        }
+        // All actions currently consume the tick.
+        Some(action)
     }
 
     /// Rebuild the entity index after removals.

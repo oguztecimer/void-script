@@ -7,6 +7,8 @@ interface ConsoleEntry {
   level: 'info' | 'warn' | 'error';
 }
 
+const MAX_CONSOLE_LINES = 500;
+
 export interface Tab {
   scriptId: string;
   name: string;
@@ -55,8 +57,10 @@ interface EditorState {
   setScriptList: (scripts: ScriptInfo[]) => void;
   setCursor: (line: number, col: number) => void;
   addConsoleOutput: (text: string, level: 'info' | 'warn' | 'error') => void;
+  addConsoleOutputBatch: (entries: { text: string; level: 'info' | 'warn' | 'error' }[]) => void;
   clearConsole: () => void;
   addTerminalOutput: (text: string, level: 'info' | 'warn' | 'error') => void;
+  addTerminalOutputBatch: (entries: { text: string; level: 'info' | 'warn' | 'error' }[]) => void;
   clearTerminal: () => void;
   setTerminalBusy: (busy: boolean) => void;
   toggleLeftPanel: () => void;
@@ -164,16 +168,32 @@ export const useStore = create<EditorState>()(persist((set, get) => ({
   setCursor: (line, col) => set({ cursorLine: line, cursorCol: col }),
 
   addConsoleOutput: (text, level) =>
-    set((state) => ({
-      consoleOutput: [...state.consoleOutput, { text, level }],
-    })),
+    set((state) => {
+      const next = state.consoleOutput.concat({ text, level });
+      return { consoleOutput: next.length > MAX_CONSOLE_LINES ? next.slice(-MAX_CONSOLE_LINES) : next };
+    }),
+
+  addConsoleOutputBatch: (entries) =>
+    set((state) => {
+      if (entries.length === 0) return state;
+      const next = state.consoleOutput.concat(entries);
+      return { consoleOutput: next.length > MAX_CONSOLE_LINES ? next.slice(-MAX_CONSOLE_LINES) : next };
+    }),
 
   clearConsole: () => set({ consoleOutput: [] }),
 
   addTerminalOutput: (text, level) =>
-    set((state) => ({
-      terminalOutput: [...state.terminalOutput, { text, level }],
-    })),
+    set((state) => {
+      const next = state.terminalOutput.concat({ text, level });
+      return { terminalOutput: next.length > MAX_CONSOLE_LINES ? next.slice(-MAX_CONSOLE_LINES) : next };
+    }),
+
+  addTerminalOutputBatch: (entries) =>
+    set((state) => {
+      if (entries.length === 0) return state;
+      const next = state.terminalOutput.concat(entries);
+      return { terminalOutput: next.length > MAX_CONSOLE_LINES ? next.slice(-MAX_CONSOLE_LINES) : next };
+    }),
 
   clearTerminal: () => set({ terminalOutput: [] }),
 

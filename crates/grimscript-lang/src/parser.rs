@@ -116,6 +116,8 @@ impl Parser {
                 self.skip_newlines();
                 StmtKind::Pass
             }
+            Token::Enum => self.parse_enum_def()?,
+            Token::Match => self.parse_match()?,
             _ => self.parse_expr_or_assignment()?,
         };
         Ok(Statement {
@@ -243,6 +245,157 @@ impl Parser {
             Some(self.parse_expression()?)
         };
         Ok(StmtKind::Return { value })
+    }
+
+    fn parse_enum_def(&mut self) -> Result<StmtKind, GrimScriptError> {
+        self.advance(); // skip 'enum'
+        let name = match self.current().clone() {
+            Token::Identifier(n) => {
+                self.advance();
+                n
+            }
+            _ => {
+                return Err(GrimScriptError::syntax(
+                    self.current_line(),
+                    "Expected enum name",
+                ))
+            }
+        };
+        self.expect(&Token::Colon)?;
+        self.skip_newlines();
+        self.expect(&Token::Indent)?;
+
+        let mut members = Vec::new();
+        self.skip_newlines();
+        while self.current() != &Token::Dedent && self.current() != &Token::Eof {
+            let member_name = match self.current().clone() {
+                Token::Identifier(n) => {
+                    self.advance();
+                    n
+                }
+                _ => {
+                    return Err(GrimScriptError::syntax(
+                        self.current_line(),
+                        "Expected enum member name",
+                    ))
+                }
+            };
+            let value_expr = if self.current() == &Token::Assign {
+                self.advance();
+                Some(self.parse_expression()?)
+            } else {
+                None
+            };
+            members.push((member_name, value_expr));
+            self.skip_newlines();
+        }
+        if self.current() == &Token::Dedent {
+            self.advance();
+        }
+        Ok(StmtKind::EnumDef { name, members })
+    }
+
+    fn parse_match(&mut self) -> Result<StmtKind, GrimScriptError> {
+        self.advance(); // skip 'match'
+        let subject = self.parse_expression()?;
+        self.expect(&Token::Colon)?;
+        self.skip_newlines();
+        self.expect(&Token::Indent)?;
+
+        let mut cases = Vec::new();
+        self.skip_newlines();
+        while self.current() != &Token::Dedent && self.current() != &Token::Eof {
+            self.expect(&Token::Case)?;
+            let pattern = self.parse_pattern()?;
+            self.expect(&Token::Colon)?;
+            self.skip_newlines();
+            let body = self.parse_block()?;
+            cases.push(MatchCase { pattern, body });
+            self.skip_newlines();
+        }
+        if self.current() == &Token::Dedent {
+            self.advance();
+        }
+        Ok(StmtKind::Match { subject, cases })
+    }
+
+    fn parse_pattern(&mut self) -> Result<Pattern, GrimScriptError> {
+        let first = self.parse_single_pattern()?;
+        if self.current() == &Token::Pipe {
+            let mut patterns = vec![first];
+            while self.current() == &Token::Pipe {
+                self.advance();
+                patterns.push(self.parse_single_pattern()?);
+            }
+            Ok(Pattern::Or(patterns))
+        } else {
+            Ok(first)
+        }
+    }
+
+    fn parse_single_pattern(&mut self) -> Result<Pattern, GrimScriptError> {
+        let line = self.current_line();
+        match self.current().clone() {
+            Token::Identifier(name) if name == "_" => {
+                self.advance();
+                Ok(Pattern::Wildcard)
+            }
+            Token::Identifier(name) => {
+                self.advance();
+                if self.current() == &Token::Dot {
+                    self.advance();
+                    match self.current().clone() {
+                        Token::Identifier(member) => {
+                            self.advance();
+                            Ok(Pattern::EnumMember { enum_name: name, member })
+                        }
+                        _ => Err(GrimScriptError::syntax(
+                            self.current_line(),
+                            "Expected enum member name after '.'",
+                        )),
+                    }
+                } else {
+                    Err(GrimScriptError::syntax(
+                        line,
+                        format!("Bare name '{name}' not allowed in pattern; use {name}.MEMBER for enum or a literal value"),
+                    ))
+                }
+            }
+            Token::Integer(n) => {
+                self.advance();
+                Ok(Pattern::Literal(Expr { kind: ExprKind::Integer(n), line }))
+            }
+            Token::StringLit(s) => {
+                self.advance();
+                Ok(Pattern::Literal(Expr { kind: ExprKind::StringLit(s), line }))
+            }
+            Token::True => {
+                self.advance();
+                Ok(Pattern::Literal(Expr { kind: ExprKind::Bool(true), line }))
+            }
+            Token::False => {
+                self.advance();
+                Ok(Pattern::Literal(Expr { kind: ExprKind::Bool(false), line }))
+            }
+            Token::None => {
+                self.advance();
+                Ok(Pattern::Literal(Expr { kind: ExprKind::NoneLit, line }))
+            }
+            Token::Minus => {
+                self.advance();
+                match self.current().clone() {
+                    Token::Integer(n) => {
+                        self.advance();
+                        Ok(Pattern::Literal(Expr { kind: ExprKind::Integer(-n), line }))
+                    }
+                    _ => Err(GrimScriptError::syntax(line, "Expected integer after '-' in pattern")),
+                }
+            }
+            _ => Err(GrimScriptError::syntax(
+                line,
+                format!("Unexpected token in pattern: {:?}", self.current()),
+            )),
+        }
     }
 
     fn parse_expr_or_assignment(&mut self) -> Result<StmtKind, GrimScriptError> {

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### GrimScript Language
+
+#### Added
+- **L-01: Enum definitions** — New `enum Name:` block syntax for defining named integer enumerations. Members auto-increment from 0; explicit values supported (`DEAD = 10`). Enum members accessed via `Name.MEMBER` syntax, resolving to `Int` values. Enums are collected in a first pass (like functions) so they're available everywhere in the script.
+- **L-02: Match/case statements** — New `match subject:` / `case pattern:` syntax for value-based dispatching. Supported patterns: literals (int, string, bool, None, negative int), enum members (`State.IDLE`), wildcard (`_`), and OR patterns (`case 1 | 2 | State.DEAD:`). First-match-wins semantics, no fall-through. Compiles to comparison+jump chains (no new IR instructions needed). Bare name capture patterns are intentionally not supported in v1.
+
 ### Simulation Engine
 
 #### Added

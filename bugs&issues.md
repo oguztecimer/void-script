@@ -131,9 +131,9 @@ Executor used C-style truncating division (`wrapping_div`/`wrapping_rem`), inter
 ## BUG-008: percent/scale Integer Overflow
 
 **Severity: Medium**
-**Status: Resolved**
+**Status: Resolved (re-fixed)**
 
-`wrapping_mul` in `percent()` and `scale()` silently wrapped on overflow. Fixed with `checked_mul` that returns a runtime error.
+`wrapping_mul` in `percent()` and `scale()` silently wrapped on overflow. Originally marked resolved but regressed — `wrapping_mul` was still present in executor.rs. Re-fixed with `checked_mul` that returns `SimError::Overflow`.
 
 ---
 

@@ -12,7 +12,9 @@ export type RustToJsMessage =
   | { type: 'simulation_stopped' }
   | { type: 'simulation_tick'; tick: number }
   | { type: 'available_commands'; commands: string[]; dev_mode: boolean; command_info: CommandInfo[]; resources: string[] }
-  | { type: 'resource_update'; resources: ResourceValue[] };
+  | { type: 'resource_update'; resources: ResourceValue[] }
+  | { type: 'script_reloaded'; type_name: string }
+  | { type: 'script_error_detail'; entity_id: number; error: string; variables: [string, string][]; stack: string[]; pc: number };
 
 // Messages from JS to Rust
 export type JsToRustMessage =

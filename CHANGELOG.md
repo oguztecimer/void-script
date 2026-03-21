@@ -4,6 +4,25 @@
 
 ### Simulation Engine
 
+#### Fixed
+- **BUG-R1: percent/scale overflow** — `wrapping_mul` in `Percent` and `Scale` executor instructions replaced with `checked_mul` that returns `SimError::Overflow`. New `SimErrorKind::Overflow` variant and `SimError::overflow()` constructor added.
+- **BUG-R2: Negative resources** — `gain_resource()` now clamps to `[0, cap]` instead of just `[_, cap]`, preventing resources from going negative via negative `gain_resource()` amounts.
+- **BUG-R3: Integer overflow in DynInt and stat effects** — `DynInt` multipliers use `saturating_mul()`. `Heal`, `ModifyStat` effects and buff modifier application/reversal use `saturating_add()`/`saturating_sub()` to prevent overflow.
+- **BUG-R4: Unresolved function calls** — Forward-referenced function calls that are never defined now produce a compile-time error (`undefined function: <name>`) instead of silently leaving `usize::MAX` as the call target for a runtime error.
+- **BUG-R5: SimWorld HashMap→IndexMap** — Converted 9 `HashMap` fields in `SimWorld` to `IndexMap` for deterministic iteration order: `entity_index`, `custom_commands`, `custom_command_arg_counts`, `custom_command_descriptions`, `custom_command_phases`, `entity_configs`, `entity_types_registry`, `spawn_durations`, `resource_caps`, `buff_registry`.
+
+#### Added
+- **S-04: Error recovery** — Scripts that hit runtime errors now automatically recover on the next tick: error is cleared, script state is reset (PC, stack, call stack, variables), entity yields `wait()` for one tick, then re-executes from the beginning. A `[error recovery]` message is emitted to the console. Applies to entity scripts, main brain, and channel interruptible scripts.
+- **S-07 Phase 1: Variable state dump on error** — `SimEvent::ScriptError` now includes variable state snapshot, stack contents, and program counter at the time of error. New `ScriptErrorDetail` IPC message forwards this data to the editor UI, which displays it in the terminal panel for debugging.
+
+### Editor
+
+#### Added
+- **E-06: ScriptReloaded IPC handler** — Frontend now handles the `script_reloaded` IPC message and displays a `[reload]` notification in the terminal panel.
+- **E-07: ScriptErrorDetail IPC handler** — Frontend now handles the `script_error_detail` IPC message and displays variable state, stack contents, and PC in the terminal panel when a script error occurs.
+
+### Simulation Engine (previous)
+
 #### Added
 - **S-21: Multi-type entity system** — Entities now support composable type tags via a `types: Vec<String>` field on `SimEntity`. Query functions `scan()` and `nearest()` filter by `has_type()` instead of exact `entity_type` match, so `scan("undead")` matches any entity with the "undead" type tag. New `has_type(entity, name)` and `get_types(entity)` GrimScript builtins added (mapped to `QueryHasType` and `QueryGetTypes` IR instructions). Entity attribute access via `entity.types` returns the type list. `DynInt::EntityCount`, `Condition::EntityCount`, and `Sacrifice` effects all use `has_type()` for matching. Trigger filter matching uses the types list instead of the single entity_type. `SimWorld` gains `entity_types_registry` for spawn effect type resolution and `spawn_entity_with_types()` for creating entities with explicit type tags. `EntitySnapshot` includes `types` field.
 - **S-22: Entity definition IDs** — `SimEntity.entity_type` now serves as the unique entity definition ID for registry lookups (sprites, configs), while `SimEntity.types` provides composable tags for queries and filtering. `SimEntity::new()` auto-populates `types = [entity_type]` for backward compatibility. `SimEntity::new_with_types()` allows explicit type tag specification.

@@ -395,6 +395,19 @@ Some queries accept implicit `self` when called with 0 args: `get_pos()`, `get_h
 
 Custom commands defined via `[[commands.definitions]]` are also gated by `[initial].commands`. In dev mode (`--features dev-mode`), all commands are available.
 
+### Command Capability Gating
+
+Commands are gated on **two levels**:
+
+1. **Global Unlock** (`[initial].commands`) — Progression gate. A command must be in the global unlock list to be usable by any entity.
+2. **Type Capability** (`commands` on `[[types]]`) — Per-entity gate. If a type defines `commands`, its entities can only use those commands.
+
+An entity's effective commands = union of all its types' `commands` lists ∩ globally unlocked commands.
+
+If no types define `commands`, all globally unlocked commands are available (backward compatibility).
+
+In dev mode (`--features dev-mode`), both gates are bypassed — all commands are available to all entities.
+
 ---
 
 ## Initial Effects

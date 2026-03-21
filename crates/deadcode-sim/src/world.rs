@@ -7,6 +7,7 @@ use crate::action::{BuffDef, CommandDef, CommandEffect, EffectContext, EffectOut
 use crate::entity::{EntityConfig, EntityId, SimEntity};
 use crate::executor;
 use crate::rng::SimRng;
+use crate::value::SimValue;
 
 /// Events emitted during a tick — consumed by rendering/UI layer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +46,12 @@ pub enum SimEvent {
     ScriptError {
         entity_id: EntityId,
         error: String,
+        /// Variable state at the time of error (name, value as string).
+        variables: Vec<(String, String)>,
+        /// Stack state at the time of error (values as strings).
+        stack: Vec<String>,
+        /// Program counter at the time of error.
+        pc: usize,
     },
     ScriptFinished {
         entity_id: EntityId,
@@ -96,32 +103,32 @@ pub struct SimWorld {
     pub tick: u64,
     seed: u64,
     entities: Vec<SimEntity>,
-    entity_index: HashMap<EntityId, usize>,
+    entity_index: IndexMap<EntityId, usize>,
     next_entity_id: u64,
     pending_spawns: Vec<SimEntity>,
     pending_despawns: Vec<EntityId>,
     events: Vec<SimEvent>,
     running: bool,
     /// Custom command name → effects (populated from mod definitions).
-    pub custom_commands: HashMap<String, Vec<CommandEffect>>,
+    pub custom_commands: IndexMap<String, Vec<CommandEffect>>,
     /// Custom command name → arg count (for the executor to know how many args to pop).
-    pub custom_command_arg_counts: HashMap<String, usize>,
+    pub custom_command_arg_counts: IndexMap<String, usize>,
     /// Custom command name → description (for list_commands effect).
-    pub custom_command_descriptions: HashMap<String, String>,
+    pub custom_command_descriptions: IndexMap<String, String>,
     /// Custom command name → phases (for phased/channeled commands).
-    pub custom_command_phases: HashMap<String, Vec<PhaseDef>>,
+    pub custom_command_phases: IndexMap<String, Vec<PhaseDef>>,
     /// Entity type → stat overrides (for spawning from effects).
-    pub entity_configs: HashMap<String, EntityConfig>,
+    pub entity_configs: IndexMap<String, EntityConfig>,
     /// Entity def ID → resolved type tags (for spawning from effects).
-    pub entity_types_registry: HashMap<String, Vec<String>>,
+    pub entity_types_registry: IndexMap<String, Vec<String>>,
     /// Entity type → spawn animation duration in ticks (0 = no spawn animation).
-    pub spawn_durations: HashMap<String, i64>,
+    pub spawn_durations: IndexMap<String, i64>,
     /// Command display order (from available_commands insertion order).
     pub command_order: Vec<String>,
     /// Global resources shared across all entities.
     pub resources: IndexMap<String, i64>,
     /// Optional max values for resources. Absent = capless.
-    pub resource_caps: HashMap<String, i64>,
+    pub resource_caps: IndexMap<String, i64>,
     /// Available resource names. None = all available (dev mode).
     pub available_resources: Option<HashSet<String>>,
     /// Commands hidden from `list_commands` output.
@@ -129,7 +136,7 @@ pub struct SimWorld {
     /// Registered triggers — fire effects when game events match.
     pub triggers: Vec<TriggerDef>,
     /// Buff name → buff definition registry.
-    pub buff_registry: HashMap<String, BuffDef>,
+    pub buff_registry: IndexMap<String, BuffDef>,
     /// Main brain script state — entity-less, runs first each tick.
     pub main_brain: Option<crate::entity::ScriptState>,
 }
@@ -140,26 +147,26 @@ impl SimWorld {
             tick: 0,
             seed,
             entities: Vec::new(),
-            entity_index: HashMap::new(),
+            entity_index: IndexMap::new(),
             next_entity_id: 1,
             pending_spawns: Vec::new(),
             pending_despawns: Vec::new(),
             events: Vec::new(),
             running: false,
-            custom_commands: HashMap::new(),
-            custom_command_arg_counts: HashMap::new(),
-            custom_command_descriptions: HashMap::new(),
-            custom_command_phases: HashMap::new(),
-            entity_configs: HashMap::new(),
-            entity_types_registry: HashMap::new(),
-            spawn_durations: HashMap::new(),
+            custom_commands: IndexMap::new(),
+            custom_command_arg_counts: IndexMap::new(),
+            custom_command_descriptions: IndexMap::new(),
+            custom_command_phases: IndexMap::new(),
+            entity_configs: IndexMap::new(),
+            entity_types_registry: IndexMap::new(),
+            spawn_durations: IndexMap::new(),
             command_order: Vec::new(),
             resources: IndexMap::new(),
-            resource_caps: HashMap::new(),
+            resource_caps: IndexMap::new(),
             available_resources: None,
             unlisted_commands: HashSet::new(),
             triggers: Vec::new(),
-            buff_registry: HashMap::new(),
+            buff_registry: IndexMap::new(),
             main_brain: None,
         }
     }
@@ -182,13 +189,14 @@ impl SimWorld {
         self.resources.get(name).copied().unwrap_or(0)
     }
 
-    /// Add to a global resource, returning the new total. Clamped to max if capped.
+    /// Add to a global resource, returning the new total. Clamped to [0, cap].
     pub fn gain_resource(&mut self, name: &str, amount: i64) -> i64 {
         let entry = self.resources.entry(name.to_string()).or_insert(0);
         *entry += amount;
         if let Some(&cap) = self.resource_caps.get(name) {
             *entry = (*entry).min(cap);
         }
+        *entry = (*entry).max(0);
         *entry
     }
 
@@ -351,6 +359,29 @@ impl SimWorld {
         std::mem::take(&mut self.events)
     }
 
+    /// Build a ScriptError event with variable/stack snapshots from a ScriptState.
+    fn script_error_event(entity_id: EntityId, error: &str, state: &crate::entity::ScriptState) -> SimEvent {
+        let variables: Vec<(String, String)> = state.variables.iter()
+            .enumerate()
+            .map(|(i, v)| {
+                let name = state.program.functions.iter()
+                    .find(|f| f.pc == 0)
+                    .map_or_else(|| format!("var_{i}"), |_| format!("var_{i}"));
+                (name, format!("{v}"))
+            })
+            .collect();
+        let stack: Vec<String> = state.stack.iter()
+            .map(|v| format!("{v}"))
+            .collect();
+        SimEvent::ScriptError {
+            entity_id,
+            error: error.to_string(),
+            variables,
+            stack,
+            pc: state.pc,
+        }
+    }
+
     /// Create a snapshot of current state for the rendering layer.
     pub fn snapshot(&self) -> SimSnapshot {
         SimSnapshot {
@@ -404,7 +435,20 @@ impl SimWorld {
         // 2c. Execute main brain (entity-less, runs first before entity shuffle).
         let mut brain_state = self.main_brain.take();
         if let Some(ref mut state) = brain_state {
-            if state.error.is_none() && state.pc < state.program.instructions.len() {
+            // Error recovery: clear error, reset script, yield wait this tick.
+            if let Some(err_msg) = state.error.take() {
+                state.pc = 0;
+                state.stack.clear();
+                state.call_stack.clear();
+                state.yielded = false;
+                state.step_limit_hit = false;
+                let num_vars = state.variables.len();
+                state.variables = vec![SimValue::None; num_vars];
+                self.events.push(SimEvent::ScriptOutput {
+                    entity_id: EntityId(0),
+                    text: format!("[error recovery] Previous error: {err_msg} — script restarted"),
+                });
+            } else if state.pc < state.program.instructions.len() {
                 let brain_eid = EntityId(0); // sentinel — no entity
                 match executor::execute_unit(brain_eid, state, self) {
                     Ok(Some(action)) => {
@@ -416,10 +460,7 @@ impl SimWorld {
                                     instant_count += 1;
                                     if instant_count > 1000 {
                                         state.error = Some("main brain: too many instant actions".to_string());
-                                        self.events.push(SimEvent::ScriptError {
-                                            entity_id: brain_eid,
-                                            error: "main brain: too many instant actions".to_string(),
-                                        });
+                                        self.events.push(Self::script_error_event(brain_eid, "main brain: too many instant actions", state));
                                         break;
                                     }
                                     match executor::execute_unit(brain_eid, state, self) {
@@ -433,10 +474,7 @@ impl SimWorld {
                                         Ok(None) => break,
                                         Err(err) => {
                                             state.error = Some(err.to_string());
-                                            self.events.push(SimEvent::ScriptError {
-                                                entity_id: brain_eid,
-                                                error: err.to_string(),
-                                            });
+                                            self.events.push(Self::script_error_event(brain_eid, &err.to_string(), state));
                                             break;
                                         }
                                     }
@@ -451,10 +489,7 @@ impl SimWorld {
                     }
                     Err(err) => {
                         state.error = Some(err.to_string());
-                        self.events.push(SimEvent::ScriptError {
-                            entity_id: brain_eid,
-                            error: err.to_string(),
-                        });
+                        self.events.push(Self::script_error_event(brain_eid, &err.to_string(), state));
                     }
                 }
                 if state.step_limit_hit {
@@ -497,6 +532,21 @@ impl SimWorld {
                         .and_then(|entity| entity.script_state.take());
 
                     if let Some(ref mut state) = script_state {
+                        // Error recovery during channel: reset script, don't interrupt.
+                        if let Some(err_msg) = state.error.take() {
+                            state.pc = 0;
+                            state.stack.clear();
+                            state.call_stack.clear();
+                            state.yielded = false;
+                            state.step_limit_hit = false;
+                            let num_vars = state.variables.len();
+                            state.variables = vec![SimValue::None; num_vars];
+                            state.variables[0] = SimValue::EntityRef(eid);
+                            self.events.push(SimEvent::ScriptOutput {
+                                entity_id: eid,
+                                text: format!("[error recovery] Previous error: {err_msg} — script restarted"),
+                            });
+                        } else {
                         match executor::execute_unit(eid, state, self) {
                             Ok(Some(action)) => {
                                 // Instant actions don't interrupt — handle and keep going.
@@ -508,10 +558,7 @@ impl SimWorld {
                                             instant_count += 1;
                                             if instant_count > 1000 {
                                                 state.error = Some("too many instant actions in one tick (infinite loop?)".to_string());
-                                                self.events.push(SimEvent::ScriptError {
-                                                    entity_id: eid,
-                                                    error: "too many instant actions in one tick (infinite loop?)".to_string(),
-                                                });
+                                                self.events.push(Self::script_error_event(eid, "too many instant actions in one tick (infinite loop?)", state));
                                                 break;
                                             }
                                             match executor::execute_unit(eid, state, self) {
@@ -529,10 +576,7 @@ impl SimWorld {
                                                 Ok(None) => break,
                                                 Err(err) => {
                                                     state.error = Some(err.to_string());
-                                                    self.events.push(SimEvent::ScriptError {
-                                                        entity_id: eid,
-                                                        error: err.to_string(),
-                                                    });
+                                                    self.events.push(Self::script_error_event(eid, &err.to_string(), state));
                                                     break;
                                                 }
                                             }
@@ -548,10 +592,7 @@ impl SimWorld {
                             Ok(None) => {} // script halted, no interruption
                             Err(err) => {
                                 state.error = Some(err.to_string());
-                                self.events.push(SimEvent::ScriptError {
-                                    entity_id: eid,
-                                    error: err.to_string(),
-                                });
+                                self.events.push(Self::script_error_event(eid, &err.to_string(), state));
                             }
                         }
 
@@ -561,6 +602,7 @@ impl SimWorld {
                                 text: "[warning] Script exceeded step limit (10000 instructions) — auto-yielded".into(),
                             });
                         }
+                        } // end else (error recovery)
                     }
 
                     // Put script state back.
@@ -653,6 +695,28 @@ impl SimWorld {
                 None => continue,
             };
 
+            // Error recovery: clear error, reset script, yield wait this tick.
+            if let Some(err_msg) = script_state.error.take() {
+                script_state.pc = 0;
+                script_state.stack.clear();
+                script_state.call_stack.clear();
+                script_state.yielded = false;
+                script_state.step_limit_hit = false;
+                let num_vars = script_state.variables.len();
+                script_state.variables = vec![SimValue::None; num_vars];
+                script_state.variables[0] = SimValue::EntityRef(eid);
+
+                self.events.push(SimEvent::ScriptOutput {
+                    entity_id: eid,
+                    text: format!("[error recovery] Previous error: {err_msg} — script restarted"),
+                });
+                if let Some(entity) = self.get_entity_mut(eid) {
+                    entity.script_state = Some(script_state);
+                }
+                actions.push((eid, UnitAction::Wait));
+                continue;
+            }
+
             // Execute until action or halt.
             match executor::execute_unit(eid, &mut script_state, self) {
                 Ok(Some(action)) => {
@@ -667,10 +731,7 @@ impl SimWorld {
                             instant_count += 1;
                             if instant_count > 1000 {
                                 script_state.error = Some("too many instant actions in one tick (infinite loop?)".to_string());
-                                self.events.push(SimEvent::ScriptError {
-                                    entity_id: eid,
-                                    error: "too many instant actions in one tick (infinite loop?)".to_string(),
-                                });
+                                self.events.push(Self::script_error_event(eid, "too many instant actions in one tick (infinite loop?)", &script_state));
                                 break;
                             }
                             match executor::execute_unit(eid, &mut script_state, self) {
@@ -684,10 +745,7 @@ impl SimWorld {
                                 Ok(None) => break,
                                 Err(err) => {
                                     script_state.error = Some(err.to_string());
-                                    self.events.push(SimEvent::ScriptError {
-                                        entity_id: eid,
-                                        error: err.to_string(),
-                                    });
+                                    self.events.push(Self::script_error_event(eid, &err.to_string(), &script_state));
                                     break;
                                 }
                             }
@@ -704,10 +762,7 @@ impl SimWorld {
                 }
                 Err(err) => {
                     script_state.error = Some(err.to_string());
-                    self.events.push(SimEvent::ScriptError {
-                        entity_id: eid,
-                        error: err.to_string(),
-                    });
+                    self.events.push(Self::script_error_event(eid, &err.to_string(), &script_state));
                     self.events.push(SimEvent::ScriptFinished {
                         entity_id: eid,
                         success: false,

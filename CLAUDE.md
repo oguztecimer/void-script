@@ -71,8 +71,8 @@ src/
   lib.rs          — Module declarations, re-exports
   rng.rs          — SplitMix64 PRNG + Fisher-Yates shuffle (deterministic)
   value.rs        — SimValue: Int, Bool, Str, None, List, Dict(IndexMap), EntityRef (no floats)
-  error.rs        — SimError types
-  entity.rs       — SimEntity (unified stats HashMap, types: Vec<String>, owner: Option<EntityId>), EntityId, EntityConfig, ScriptState (incl. step_limit_hit), CallFrame, spawn_ticks_remaining
+  error.rs        — SimError types (SimErrorKind: TypeError, DivisionByZero, IndexOutOfBounds, KeyNotFound, EntityNotFound, StackUnderflow, InvalidVariable, StackOverflow, Overflow, StepLimitExceeded, Runtime)
+  entity.rs       — SimEntity (unified stats HashMap, types: Vec<String>, owner: Option<EntityId>), EntityId, EntityConfig, ScriptState (incl. step_limit_hit, error recovery), CallFrame, spawn_ticks_remaining
   ir.rs           — 60+ stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
   world.rs        — SimWorld: entity storage, tick() loop (main brain + entity shuffle), event collection, snapshots, global resources, trigger processing, entity_types_registry
@@ -128,6 +128,8 @@ src/
 
 **Main brain:** Entity-less script stored as `SimWorld.main_brain: Option<ScriptState>`. Runs first every tick (step 2c, before entity shuffle) using sentinel `EntityId(0)`. Can call resource ops, queries, print, custom commands. Cannot perform entity actions (move, attack, flee — silently ignored). Terminal commands execute against the main brain.
 
+**Error recovery:** When a script hits a runtime error, it stores the error on `ScriptState.error`. On the next tick, error recovery kicks in: the error is cleared, script state is fully reset (PC=0, stack/call stack cleared, variables re-initialized with slot 0 = self EntityRef), the entity yields `wait()` for that tick, and a `[error recovery]` message is emitted. The script re-executes from the beginning on the following tick. This prevents permanent script death from transient errors. Applies to entity scripts, main brain, and channel interruptible scripts.
+
 **Command gating (two layers):** A command must pass both gates: (1) Global unlock (`[initial].commands`) — progression gate; (2) Type capability (`commands` on `[[types]]`) — per-entity capability gate. An entity's effective commands = union of its types' `commands` ∩ globally unlocked. If no types define commands, all globally unlocked commands are available (backward compat). In dev mode, all commands available (gates bypassed). Computed via `modding::compute_effective_commands()`.
 
 **Auto-reload on save:** Saving a type `.gs` file in the editor triggers `handle_type_script_reload()`: brain type changed → recompile all entities with that brain; non-brain type changed → recompile all entities including that type (library changed); `main.gs` changed → recompile main brain. Script composition per entity: non-brain type `.gs` (library) + mod libraries + brain `.gs` (execution logic).
@@ -143,7 +145,7 @@ src/
 2. Decrement spawn timers on spawning entities
 2c. Execute main brain (entity-less, sentinel EntityId(0), instant actions only)
 3. Shuffle ready entity IDs (excludes spawning entities, includes entities with active channels)
-4. For each: process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print, resource ops — re-enter executor), collect tick-consuming action, put state back
+4. For each: check error recovery (if script errored last tick, reset and yield wait), then process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print, resource ops — re-enter executor), collect tick-consuming action, put state back
 5. Resolve all actions against world state
 6. Tick passive systems (cooldowns, behavior cooldowns)
 6b. Tick buffs: run per_tick effects, decrement durations, handle expiry (reverse modifiers, fire on_expire)
@@ -161,6 +163,7 @@ Message categories:
 - **Window:** Minimize, Maximize, Close, DragStart, ResizeStart, Shake, SetSize
 - **Console:** ConsoleOutput, ConsoleCommand
 - **Game state:** AvailableCommands (Rust→JS, sent on EditorReady; includes commands, resources, command_info, dev_mode)
+- **Diagnostics:** ScriptErrorDetail (Rust→JS, variable state dump on script error; entity_id, error, variables, stack, pc)
 
 ### Game Loop
 

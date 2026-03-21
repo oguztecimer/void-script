@@ -527,7 +527,8 @@ pub fn execute_unit(
                 let pct = pop_int(&mut state.stack)?;
                 let value = pop_int(&mut state.stack)?;
                 // value * pct / 100 with banker's rounding (round half to even).
-                let product = value.wrapping_mul(pct);
+                let product = value.checked_mul(pct)
+                    .ok_or_else(|| SimError::overflow(format!("percent overflow: {value} * {pct}")))?;
                 let result = bankers_div(product, 100);
                 state.stack.push(SimValue::Int(result));
             }
@@ -538,7 +539,8 @@ pub fn execute_unit(
                 if den == 0 {
                     return Err(SimError::division_by_zero());
                 }
-                let product = value.wrapping_mul(num);
+                let product = value.checked_mul(num)
+                    .ok_or_else(|| SimError::overflow(format!("scale overflow: {value} * {num}")))?;
                 let result = bankers_div(product, den);
                 state.stack.push(SimValue::Int(result));
             }

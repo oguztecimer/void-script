@@ -326,7 +326,7 @@ pub enum CommandEffect {
     Heal { target: String, amount: DynInt },
     /// Spawn an entity at self.position + offset.
     #[serde(rename = "spawn")]
-    Spawn { entity_type: String, offset: DynInt },
+    Spawn { #[serde(alias = "entity_type")] entity_id: String, offset: DynInt },
     /// Add to a stat. Works for all stats (health, shield, speed, custom stats, etc.).
     #[serde(rename = "modify_stat", alias = "modify_custom_stat")]
     ModifyStat { target: String, stat: String, amount: DynInt },
@@ -339,9 +339,6 @@ pub enum CommandEffect {
     /// Trigger an animation on a target entity.
     #[serde(rename = "animate")]
     Animate { target: String, animation: String },
-    /// Kill all alive, non-spawning entities of a type and gain a resource per kill.
-    #[serde(rename = "sacrifice")]
-    Sacrifice { entity_type: String, resource: String, per_kill: DynInt },
     /// Add to a global resource (clamped to cap if capped). Can be negative.
     #[serde(rename = "modify_resource")]
     ModifyResource { resource: String, amount: DynInt },
@@ -808,32 +805,32 @@ fn resolve_effects_inner(
                     }
                 }
             }
-            CommandEffect::Spawn { entity_type, offset } => {
+            CommandEffect::Spawn { entity_id: spawn_entity_id, offset } => {
                 let offset = offset.resolve_with_world(rng, world, entity_id);
                 let position = world.get_entity(entity_id)
                     .map(|e| e.position + offset)
                     .unwrap_or(offset);
                 let id = EntityId(world.next_entity_id());
                 let types = world.entity_types_registry
-                    .get(entity_type)
+                    .get(spawn_entity_id)
                     .cloned()
-                    .unwrap_or_else(|| vec![entity_type.clone()]);
+                    .unwrap_or_else(|| vec![spawn_entity_id.clone()]);
                 let mut spawned = SimEntity::new_with_types(
                     id,
-                    entity_type.clone(),
+                    spawn_entity_id.clone(),
                     types,
-                    format!("{}_{}", entity_type, id.0),
+                    format!("{}_{}", spawn_entity_id, id.0),
                     position,
                 );
                 // Apply entity config (stats) if defined for this type.
-                if let Some(config) = world.entity_configs.get(entity_type) {
+                if let Some(config) = world.entity_configs.get(spawn_entity_id) {
                     spawned.apply_config(config);
                 }
                 // Set owner to the entity that spawned this one.
                 spawned.owner = Some(entity_id);
                 // Set spawn duration so entity can't act until animation finishes.
                 spawned.spawn_ticks_remaining = world.spawn_durations
-                    .get(entity_type)
+                    .get(spawn_entity_id)
                     .copied()
                     .unwrap_or(0);
                 // EntitySpawned event is emitted by flush_pending() when the
@@ -893,46 +890,6 @@ fn resolve_effects_inner(
                     events.push(SimEvent::PlayAnimation {
                         entity_id: tid,
                         animation: animation.clone(),
-                    });
-                }
-            }
-            CommandEffect::Sacrifice { entity_type, resource, per_kill } => {
-                // Collect IDs, names, and owners of all alive, non-spawning entities matching entity_type.
-                let victims: Vec<(EntityId, String, Option<EntityId>)> = world.entities()
-                    .filter(|e| e.alive && e.spawn_ticks_remaining == 0 && e.has_type(entity_type))
-                    .map(|e| (e.id, e.name.clone(), e.owner))
-                    .collect();
-
-                if victims.is_empty() {
-                    events.push(SimEvent::ScriptOutput {
-                        entity_id,
-                        text: format!("[{cmd_name}] Nothing to sacrifice"),
-                    });
-                } else {
-                    let count = victims.len();
-                    let mut total_gained: i64 = 0;
-
-                    for (vid, vname, vowner) in &victims {
-                        if let Some(victim) = world.get_entity_mut(*vid) {
-                            victim.alive = false;
-                        }
-                        events.push(SimEvent::EntityDied {
-                            entity_id: *vid,
-                            name: vname.clone(),
-                            killer_id: Some(entity_id),
-                            owner_id: *vowner,
-                        });
-                        total_gained += per_kill.resolve_with_world(rng, world, entity_id);
-                    }
-
-                    world.gain_resource(resource, total_gained);
-
-                    events.push(SimEvent::ScriptOutput {
-                        entity_id,
-                        text: format!(
-                            "[{cmd_name}] Sacrificed {count} {entity_type}{}, gained {total_gained} {resource}",
-                            if count != 1 { "s" } else { "" }
-                        ),
                     });
                 }
             }

@@ -4,6 +4,12 @@
 
 ### Simulation Engine
 
+#### Changed
+- **S-31: Spawn effect `entity_type` → `entity_id`** — The `CommandEffect::Spawn` field `entity_type` has been renamed to `entity_id` to match entity definition terminology. Serde alias `entity_type` preserved for backward compatibility with existing mod.toml files.
+
+#### Removed
+- **S-30: `sacrifice` effect removed** — The `CommandEffect::Sacrifice` variant has been removed from the effect system. The `harvest` command in `core` mod no longer uses it (phase left as empty on_start). Validation in `validate_spawn_effects()` no longer checks for sacrifice entity types.
+
 #### Fixed
 - **BUG-R1: percent/scale overflow** — `wrapping_mul` in `Percent` and `Scale` executor instructions replaced with `checked_mul` that returns `SimError::Overflow`. New `SimErrorKind::Overflow` variant and `SimError::overflow()` constructor added.
 - **BUG-R2: Negative resources** — `gain_resource()` now clamps to `[0, cap]` instead of just `[_, cap]`, preventing resources from going negative via negative `gain_resource()` amounts.
@@ -24,7 +30,7 @@
 ### Simulation Engine (previous)
 
 #### Added
-- **S-21: Multi-type entity system** — Entities now support composable type tags via a `types: Vec<String>` field on `SimEntity`. Query functions `scan()` and `nearest()` filter by `has_type()` instead of exact `entity_type` match, so `scan("undead")` matches any entity with the "undead" type tag. New `has_type(entity, name)` and `get_types(entity)` GrimScript builtins added (mapped to `QueryHasType` and `QueryGetTypes` IR instructions). Entity attribute access via `entity.types` returns the type list. `DynInt::EntityCount`, `Condition::EntityCount`, and `Sacrifice` effects all use `has_type()` for matching. Trigger filter matching uses the types list instead of the single entity_type. `SimWorld` gains `entity_types_registry` for spawn effect type resolution and `spawn_entity_with_types()` for creating entities with explicit type tags. `EntitySnapshot` includes `types` field.
+- **S-21: Multi-type entity system** — Entities now support composable type tags via a `types: Vec<String>` field on `SimEntity`. Query functions `scan()` and `nearest()` filter by `has_type()` instead of exact `entity_type` match, so `scan("undead")` matches any entity with the "undead" type tag. New `has_type(entity, name)` and `get_types(entity)` GrimScript builtins added (mapped to `QueryHasType` and `QueryGetTypes` IR instructions). Entity attribute access via `entity.types` returns the type list. `DynInt::EntityCount` and `Condition::EntityCount` use `has_type()` for matching. Trigger filter matching uses the types list instead of the single entity_type. `SimWorld` gains `entity_types_registry` for spawn effect type resolution and `spawn_entity_with_types()` for creating entities with explicit type tags. `EntitySnapshot` includes `types` field.
 - **S-22: Entity definition IDs** — `SimEntity.entity_type` now serves as the unique entity definition ID for registry lookups (sprites, configs), while `SimEntity.types` provides composable tags for queries and filtering. `SimEntity::new()` auto-populates `types = [entity_type]` for backward compatibility. `SimEntity::new_with_types()` allows explicit type tag specification.
 
 ### Modding System
@@ -35,7 +41,7 @@
 - **M-05: Spawn entity_id field** — ~~`[[spawn]]` gains `entity_id` field.~~ Removed — `[[spawn]]` replaced by `[initial].effects` spawn effects.
 
 #### Removed
-- **M-11: `[[spawn]]` removed** — `[[spawn]]` blocks in `mod.toml` are no longer supported. Use `[initial].effects` with `{ type = "spawn", entity_type = "...", offset = 0 }` instead. The `SpawnDef` struct and spawn processing loop have been removed. Validation of entity type references in spawn/sacrifice effects is now handled by `validate_spawn_effects()`.
+- **M-11: `[[spawn]]` removed** — `[[spawn]]` blocks in `mod.toml` are no longer supported. Use `[initial].effects` with `{ type = "spawn", entity_id = "...", offset = 0 }` instead. The `SpawnDef` struct and spawn processing loop have been removed. Validation of entity type references in spawn effects is now handled by `validate_spawn_effects()`.
 - **M-12: Embedded fallback removed** — If no mods are found in the `mods/` directory, nothing loads. The hardcoded `embedded_fallback()` function and its compile-time asset references have been removed.
 
 ### Simulation Engine (continued)
@@ -145,7 +151,7 @@
 - **M-18: Buff/modifier system (Phase 3)** — Mods can define `[[buffs]]` in `mod.toml` — temporary stat modifiers with automatic expiry. Each `BuffDef` has `name`, `duration` (ticks), `modifiers` (stat→amount for health/shield/speed/attack_damage/attack_range), `per_tick`/`on_apply`/`on_expire` effect lists, `stackable` flag, and `max_stacks`. Two new `CommandEffect` variants: `apply_buff` (apply to target with optional duration override) and `remove_buff` (remove from target, reversing modifiers). Active buffs tracked per-entity via `SimEntity.active_buffs`. Modifiers directly modify stats on apply and reverse on expire (health clamped to 1 to prevent buff-expiry death). Stackable buffs accumulate stacks; non-stackable refreshes duration. Buff tick processing (step 6b) runs per_tick effects, decrements durations, and handles expiry. Buff definitions stored in `SimWorld.buff_registry`. Full validation at load time. 7 new tests.
 - **M-16: Event/trigger system** — Mods can now define `[[triggers]]` in `mod.toml` — event-driven rules that fire effects when game events occur. Supports 8 event types: `entity_died`, `entity_spawned`, `entity_damaged`, `resource_changed`, `command_used`, `tick_interval`, `channel_completed`, `channel_interrupted`. Each trigger has type-specific filters (entity_type, resource, command, interval), optional conditions (reuses existing `Condition` system), and effects (reuses existing `CommandEffect` system). Triggers are processed once at the end of each tick — events are matched against registered triggers, filters and conditions gate firing, effects resolve against the first alive entity. Trigger effects do not cascade (no re-triggering within the same tick). `resource_changed` uses snapshot-based detection. `tick_interval` fires when `tick % interval == 0`. Three new `SimEvent` variants added: `CommandUsed`, `ChannelCompleted`, `ChannelInterrupted`. Full validation at load time (event names, interval values, conditions, effects). 7 new tests covering entity death triggers, filters, tick intervals, resource changes, conditions, and command triggers.
 - **M-13: `unlisted` field on command definitions** — Commands can set `unlisted = true` in `mod.toml` to be hidden from `list_commands` output while remaining fully functional. Useful for meta-commands like `help` that trigger `list_commands` themselves.
-- **M-11: `sacrifice` effect type** — New `CommandEffect::Sacrifice` variant that kills all alive, non-spawning entities of a given type and gains a resource per kill. Fields: `entity_type` (which entities to kill), `resource` (which global resource to gain), `per_kill` (DynInt amount gained per kill, supports `rand(min,max)`). Outputs a summary message or "Nothing to sacrifice" if no matching entities exist. The `harvest` command in `mods/core/mod.toml` now uses this effect to sacrifice skeletons for 1-2 bones each, replacing the old +20 energy placeholder. Entity type references in sacrifice effects are validated at mod load time alongside spawn effects.
+- **M-11: `sacrifice` effect type** — ~~Removed in S-30.~~
 
 ### Desktop / Rendering
 

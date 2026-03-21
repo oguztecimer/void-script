@@ -435,7 +435,7 @@ Resource costs are expressed as `use_resource` or `use_global_resource` effects.
 effects = [
   { type = "use_resource", stat = "mana", amount = 30 },   # Entity stat cost
   { type = "use_global_resource", resource = "souls", amount = 5 },  # Global resource cost
-  { type = "spawn", entity_type = "skeleton", offset = 1 },
+  { type = "spawn", entity_id = "skeleton", offset = 1 },
   { type = "output", message = "[raise] A skeleton rises!" },
 ]
 ```
@@ -457,14 +457,13 @@ Effects are resolved in order when a command executes, a trigger fires, or a buf
 | `output` | `message` | Print a message to the console. Supports `<hl>text</hl>` for highlighted text. |
 | `damage` | `target`, `amount` | Deal damage to a target (shield absorbs first). Kills the entity if health reaches 0. |
 | `heal` | `target`, `amount` | Restore health (clamped to `max_health`). |
-| `spawn` | `entity_type`, `offset` | Spawn entity at caster's position + offset. Entity plays spawn animation and can't act until it finishes. Owner is set to the caster. |
+| `spawn` | `entity_id`, `offset` | Spawn entity at caster's position + offset. Entity plays spawn animation and can't act until it finishes. Owner is set to the caster. |
 | `modify_stat` | `target`, `stat`, `amount` | Add to a stat (can be negative). Clamped to `[0, max_{stat}]` if a max exists, else `[0, +inf)`. |
 | `use_resource` | `stat`, `amount` | Check and deduct an entity stat from the caster. **Aborts** remaining effects if insufficient. |
 | `modify_resource` | `resource`, `amount` | Add to a global resource (clamped to cap if capped). Can be negative. |
 | `use_global_resource` | `resource`, `amount` | Check and deduct a global resource. **Aborts** remaining effects if insufficient. |
 | `list_commands` | *(none)* | Emit all registered commands and descriptions (in unlock order, excluding `unlisted` commands). |
 | `animate` | `target`, `animation` | Trigger a sprite animation on the target entity (e.g., `"cast"`, `"attack"`). |
-| `sacrifice` | `entity_type`, `resource`, `per_kill` | Kill all alive, non-spawning entities of a type and gain `per_kill` of `resource` per kill. Outputs summary. |
 | `if` | `condition`, `then`, `else` | Evaluate a [condition](#condition-types) and run one of two effect lists. `else` is optional. Supports nesting. |
 | `start_channel` | `phases` | Start a [phased channel](#conditional-phase-branching-start_channel) from within an effect list. Remaining effects are skipped. |
 | `apply_buff` | `target`, `buff`, `duration` (opt) | Apply a [buff](#buffs--modifiers). Duration overrides the buff's default if specified. |
@@ -513,7 +512,7 @@ Randomness is deterministic — seeded from tick number + entity ID. Same seed a
 { type = "heal", target = "self", amount = "resource(mana)" }
 
 # Spawn offset based on a stat
-{ type = "spawn", entity_type = "skeleton", offset = "stat(summon_power)*10" }
+{ type = "spawn", entity_id = "skeleton", offset = "stat(summon_power)*10" }
 
 # Random damage
 { type = "damage", target = "arg:target", amount = "rand(10,25)" }
@@ -670,7 +669,7 @@ effects = [
   { type = "if",
     condition = { type = "resource", resource = "mana", compare = "gte", amount = 20 },
     then = [
-      { type = "spawn", entity_type = "skeleton", offset = "rand(-100,100)" },
+      { type = "spawn", entity_id = "skeleton", offset = "rand(-100,100)" },
     ],
     else = [
       { type = "output", message = "Not enough mana..." },
@@ -811,7 +810,7 @@ effects = [
       { type = "use_global_resource", resource = "mana", amount = 20 },
       { type = "start_channel", phases = [
         { ticks = 12, on_start = [{ type = "animate", target = "self", animation = "cast" }] },
-        { ticks = 18, on_start = [{ type = "spawn", entity_type = "skeleton", offset = "rand(-300,300)" }] },
+        { ticks = 18, on_start = [{ type = "spawn", entity_id = "skeleton", offset = "rand(-300,300)" }] },
       ]},
     ],
     else = [
@@ -910,7 +909,7 @@ filter = { interval = 300 }
 event = "tick_interval"
 filter = { interval = 300 }
 effects = [
-  { type = "spawn", entity_type = "skeleton", offset = "rand(-200,200)" },
+  { type = "spawn", entity_id = "skeleton", offset = "rand(-200,200)" },
   { type = "output", message = "A new wave approaches!" },
 ]
 
@@ -1275,7 +1274,7 @@ After all mods are loaded, the engine validates:
 
 ### Entity/Spawn Validation
 - `[[spawn]]` entity types must match registered entity types
-- `spawn` and `sacrifice` effect entity types are checked against known types (recursively through `if` branches and `start_channel` phases)
+- `spawn` effect entity types are checked against known types (recursively through `if` branches and `start_channel` phases)
 
 ### Command Validation
 - `effects` and `phases` are mutually exclusive (warning; `phases` takes precedence)
@@ -1358,7 +1357,7 @@ Its `mod.toml` defines:
 - Initial commands: `help`, `trance`, `raise`, `harvest`, `pact`
 - Initial resources: `mana`, `bones`
 - Startup messages via initial effects
-- Five custom commands: `help` (list commands), `trance` (mana regen channel), `raise` (spawn skeleton), `harvest` (sacrifice skeletons for bones), `pact` (self-damage)
+- Five custom commands: `help` (list commands), `trance` (mana regen channel), `raise` (spawn skeleton), `harvest` (phased channel), `pact` (self-damage)
 
 ---
 
@@ -1622,7 +1621,7 @@ my_hp = self.health
 2. Each manifest is parsed; sprite files, library files are read from disk
 3. `resolve_mod_dependencies()` reorders mods by dependency graph
 4. Registries (sprites, pivots, entity configs, commands) are merged into `App`, with collision warnings
-5. `validate_spawns()` checks spawn entity types and spawn/sacrifice effects
+5. `validate_spawns()` checks spawn entity types in effects
 6. `validate_command_defs()` checks targets, stat names, amounts, phases, conditions
 7. `validate_triggers()` checks event names, intervals, conditions, effects
 8. `validate_buffs()` checks buff names, durations, modifier stats, effect lists

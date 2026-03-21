@@ -1852,114 +1852,6 @@ mod tests {
         assert_eq!(world.get_resource("souls"), 2);
     }
 
-    // --- Sacrifice effect tests ---
-
-    #[test]
-    fn sacrifice_effect_kills_matching_entities_and_gains_resource() {
-        use crate::action::{CommandDef, CommandEffect, DynInt};
-
-        let mut world = SimWorld::new(42);
-        world.resources.insert("bones".into(), 0);
-
-        // Spawn a summoner (caster) and 3 skeletons.
-        let caster = spawn_test_entity(&mut world, "summoner", "summoner", 500);
-        let _sk1 = spawn_test_entity(&mut world, "skeleton", "sk1", 100);
-        let _sk2 = spawn_test_entity(&mut world, "skeleton", "sk2", 200);
-        let _sk3 = spawn_test_entity(&mut world, "skeleton", "sk3", 300);
-
-        // Register the harvest command with sacrifice effect.
-        let harvest = CommandDef {
-            name: "harvest".into(),
-            description: "sacrifice skeletons".into(),
-            args: vec![],
-            effects: vec![CommandEffect::Sacrifice {
-                entity_type: "skeleton".into(),
-                resource: "bones".into(),
-                per_kill: DynInt::Fixed(2),
-            }],
-            unlisted: false,
-            phases: vec![],
-        };
-        world.register_custom_command(&harvest);
-
-        // Give the caster a script: harvest(); halt
-        let program = CompiledScript::new(
-            vec![
-                Instruction::ActionCustom("harvest".into()),
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(caster).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let events = world.take_events();
-
-        // All 3 skeletons should have died.
-        let deaths: Vec<_> = events.iter()
-            .filter(|e| matches!(e, SimEvent::EntityDied { .. }))
-            .collect();
-        assert_eq!(deaths.len(), 3, "Expected 3 deaths, got {}", deaths.len());
-
-        // With Fixed(2) per kill and 3 kills, bones should be 6.
-        assert_eq!(world.get_resource("bones"), 6);
-
-        // Should have a summary output.
-        let texts = output_texts(&events);
-        assert!(
-            texts.iter().any(|t| t.contains("Sacrificed 3")),
-            "Expected sacrifice summary, got {:?}", texts
-        );
-    }
-
-    #[test]
-    fn sacrifice_effect_nothing_to_sacrifice() {
-        use crate::action::{CommandDef, CommandEffect, DynInt};
-
-        let mut world = SimWorld::new(42);
-        world.resources.insert("bones".into(), 0);
-
-        let caster = spawn_test_entity(&mut world, "summoner", "summoner", 500);
-
-        let harvest = CommandDef {
-            name: "harvest".into(),
-            description: "sacrifice skeletons".into(),
-            args: vec![],
-            effects: vec![CommandEffect::Sacrifice {
-                entity_type: "skeleton".into(),
-                resource: "bones".into(),
-                per_kill: DynInt::Fixed(1),
-            }],
-            unlisted: false,
-            phases: vec![],
-        };
-        world.register_custom_command(&harvest);
-
-        let program = CompiledScript::new(
-            vec![
-                Instruction::ActionCustom("harvest".into()),
-                Instruction::Halt,
-            ],
-            0,
-        );
-        world.get_entity_mut(caster).unwrap().script_state =
-            Some(ScriptState::new(program, 0));
-
-        world.start();
-        world.tick();
-
-        let events = world.take_events();
-        let texts = output_texts(&events);
-        assert!(
-            texts.iter().any(|t| t.contains("Nothing to sacrifice")),
-            "Expected nothing-to-sacrifice message, got {:?}", texts
-        );
-        assert_eq!(world.get_resource("bones"), 0);
-    }
-
     // --- Resource availability tests ---
 
     #[test]
@@ -2770,7 +2662,7 @@ mod tests {
             },
             conditions: vec![],
             effects: vec![
-                CommandEffect::Spawn { entity_type: "ghost".into(), offset: DynInt::Fixed(0) },
+                CommandEffect::Spawn { entity_id: "ghost".into(), offset: DynInt::Fixed(0) },
             ],
         });
 
@@ -3608,7 +3500,7 @@ mod tests {
             description: "".into(),
             args: vec![],
             effects: vec![CommandEffect::Spawn {
-                entity_type: "skeleton".into(),
+                entity_id: "skeleton".into(),
                 offset: DynInt::Fixed(3),
             }],
             unlisted: false,
@@ -3708,7 +3600,7 @@ mod tests {
             description: "".into(),
             args: vec![],
             effects: vec![CommandEffect::Spawn {
-                entity_type: "skeleton".into(),
+                entity_id: "skeleton".into(),
                 offset: DynInt::Fixed(3),
             }],
             unlisted: false,

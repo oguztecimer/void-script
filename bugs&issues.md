@@ -31,7 +31,7 @@ name = "raise"
 args = []
 cost = [{ type = "energy", amount = 30 }]
 effects = [
-  { type = "spawn", entity_type = "skeleton", offset = 1 },
+  { type = "spawn", entity_id = "skeleton", offset = 1 },
   { type = "output", message = "[raise] A skeleton rises!" },
 ]
 ```

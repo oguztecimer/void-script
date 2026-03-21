@@ -13,28 +13,28 @@ stats = { health = 100, speed = 1 }
 commands = ["help", "trance", "raise", "harvest", "pact"]
 
 [[types]]
+name = "unit"
+stats = { health = 1, speed = 1 }
+
+[[types]]
 name = "summoner"
-stats = { health = 100, speed = 1 }
+stats = { health = 100}
 
 [[types]]
-name = "undead"
-stats = { health = 50 }
-
-[[types]]
-name = "melee"
-stats = { speed = 2 }
+name = "skeleton"
+stats = { health = 5}
 
 # --- Entity Definitions ---
 
 [[entities]]
 id = "summoner"
-types = ["summoner"]
+types = ["unit","summoner"]
 sprite = "sprites/summoner_atlas"
 pivot = [49.0, 2.0]
 
 [[entities]]
 id = "skeleton"
-types = ["undead", "melee"]
+types = ["unit","skeleton"]
 sprite = "sprites/skeleton_atlas"
 pivot = [24.0, 0.0]
 
@@ -50,7 +50,7 @@ bones = 0
 commands = ["help","trance","raise","harvest","pact"]
 resources = ["mana", "bones"]
 effects = [
-  { type = "spawn", entity_type = "summoner", offset=0},
+  { type = "spawn", entity_id = "summoner", offset=0},
   { type = "output", message = "The dead stir beneath your feet" },
   { type = "output", message = "Call for <hl>help()</hl> to hear them speak" },
 ]
@@ -91,7 +91,7 @@ phases = [
     { type = "use_global_resource", resource = "mana", amount = 20}
   ]},
   { ticks = 18, interruptible = false, on_start = [
-    { type = "spawn", entity_type = "skeleton", offset = "rand(-300,300)"}
+    { type = "spawn", entity_id = "skeleton", offset = "rand(-300,300)"}
   ]},
 ]
 
@@ -106,9 +106,7 @@ phases = [
   { ticks = 1, interruptible = false, on_start = [
     { type = "use_global_resource", resource = "mana", amount = 50}
   ]},
-  { ticks = 1, interruptible = false, on_start = [
-    { type = "sacrifice", entity_type = "skeleton", resource = "bones", per_kill = "rand(1,2)" },
-  ]},
+  { ticks = 1, interruptible = false, on_start = []},
   { ticks = 18, interruptible = false, on_start = []},
 ]
 

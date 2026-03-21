@@ -646,7 +646,7 @@ fn collect_all_effects_recursive<'a>(effects: &'a [CommandEffect], out: &mut Vec
     }
 }
 
-/// Validate that spawn/sacrifice effects in commands reference known entity types.
+/// Validate that spawn effects in commands reference known entity types.
 pub fn validate_spawn_effects(mods: &[LoadedMod], known_types: &HashSet<String>) {
     for m in mods {
         // Validate spawn effects in custom command definitions (effects + phases),
@@ -661,8 +661,7 @@ pub fn validate_spawn_effects(mods: &[LoadedMod], known_types: &HashSet<String>)
                 }
                 for effect in all_effects {
                     let referenced_type = match effect {
-                        CommandEffect::Spawn { entity_type, .. }
-                        | CommandEffect::Sacrifice { entity_type, .. } => Some(entity_type.as_str()),
+                        CommandEffect::Spawn { entity_id, .. } => Some(entity_id.as_str()),
                         _ => None,
                     };
                     if let Some(entity_type) = referenced_type {
@@ -682,8 +681,7 @@ pub fn validate_spawn_effects(mods: &[LoadedMod], known_types: &HashSet<String>)
             collect_all_effects_recursive(&initial.effects, &mut all_effects);
             for effect in all_effects {
                 let referenced_type = match effect {
-                    CommandEffect::Spawn { entity_type, .. }
-                    | CommandEffect::Sacrifice { entity_type, .. } => Some(entity_type.as_str()),
+                    CommandEffect::Spawn { entity_id, .. } => Some(entity_id.as_str()),
                     _ => None,
                 };
                 if let Some(entity_type) = referenced_type {

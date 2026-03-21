@@ -168,7 +168,7 @@ name = "summon"
 description = "Summon a skeleton at your position"
 args = []
 effects = [
-  { type = "spawn", entity_type = "skeleton", offset = 1 },
+  { type = "spawn", entity_id = "skeleton", offset = 1 },
   { type = "output", message = "[summon] A skeleton rises!" },
 ]
 

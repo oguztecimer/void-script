@@ -105,6 +105,8 @@ pub struct App {
     entity_unit_map: HashMap<u64, u64>,
     /// Whether initial effects (from Lua on_init) still need to be sent to the editor.
     initial_effects_pending: bool,
+    /// Buffered sim events from Lua on_init, replayed when editor becomes ready.
+    pending_init_events: Vec<deadcode_sim::SimEvent>,
 
     /// Whether the background tick thread has been spawned (Windows only).
     #[cfg(target_os = "windows")]
@@ -163,6 +165,7 @@ impl App {
             type_scripts: HashMap::new(),
             entity_unit_map: HashMap::new(),
             initial_effects_pending: true,
+            pending_init_events: Vec::new(),
 
             #[cfg(target_os = "windows")]
             tick_thread_started: false,
@@ -637,15 +640,8 @@ impl ApplicationHandler<UserEvent> for App {
                 let mut access = deadcode_sim::WorldAccess::new_from_world_ptr(&mut sim, caster_id);
                 let init_events = lua_runtime.run_init(&mut access);
                 let access_events = std::mem::take(&mut access.events);
-                // Apply events from init.
-                for event in access_events.into_iter().chain(init_events.into_iter()) {
-                    match &event {
-                        deadcode_sim::SimEvent::ScriptOutput { text, .. } => {
-                            eprintln!("[lua init] {text}");
-                        }
-                        _ => {}
-                    }
-                }
+                // Buffer init events to replay when the editor becomes ready.
+                self.pending_init_events = access_events.into_iter().chain(init_events.into_iter()).collect();
             }
 
             sim.command_handler = Some(Box::new(lua_runtime));
@@ -1305,6 +1301,12 @@ impl App {
                     self.send_available_commands();
 
                     // Flush pending spawns from Lua init and assign brain scripts.
+                    // Replay buffered init events (from Lua on_init) now that the editor is ready.
+                    let init_events = std::mem::take(&mut self.pending_init_events);
+                    for event in &init_events {
+                        self.forward_sim_event_to_editor(event);
+                    }
+
                     if self.initial_effects_pending {
                         self.initial_effects_pending = false;
                         let events = if let Some(sim) = &mut self.sim_world {

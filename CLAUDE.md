@@ -48,7 +48,7 @@ Editor UI is embedded into the Rust binary via `rust-embed` in `deadcode-editor/
 ## Testing
 
 ```bash
-cargo test                          # All Rust tests (182 tests)
+cargo test                          # All Rust tests (203 tests)
 cargo test -p deadcode-sim          # Sim engine + compiler tests
 cargo test -p grimscript-lang       # Language crate only
 cargo test -p deadcode-app --test interpreter_compiler_parity  # Parity tests
@@ -73,16 +73,16 @@ src/
   value.rs        — SimValue: Int, Bool, Str, None, List, Dict(IndexMap), EntityRef (no floats)
   error.rs        — SimError types (SimErrorKind: TypeError, DivisionByZero, IndexOutOfBounds, KeyNotFound, EntityNotFound, StackUnderflow, InvalidVariable, StackOverflow, Overflow, StepLimitExceeded, Runtime)
   entity.rs       — SimEntity (unified stats HashMap, types: Vec<String>, owner: Option<EntityId>), EntityId, EntityConfig, ScriptState (incl. step_limit_hit, error recovery), CallFrame, spawn_ticks_remaining
-  ir.rs           — 60+ stack-based Instruction variants, CompiledScript, FunctionEntry
+  ir.rs           — ~30 stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
   world.rs        — SimWorld: entity storage, tick() loop (main brain + entity shuffle), event collection, snapshots, global resources, trigger processing, entity_types_registry
   action.rs       — UnitAction enum, resolve_action(), CommandDef/CommandEffect/DynInt/CompareOp/Condition/EffectOutcome/TriggerDef/TriggerFilter/EffectContext types for mod-defined commands and triggers
-  query.rs        — scan(), nearest(), distance() — linear scan over entities
+  query.rs        — get_entity_attr() — entity attribute access for GetAttr instruction
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
     mod.rs        — compile(), compile_source(), compile_source_with(), compile_source_full(source, available_commands, custom_commands: HashMap<String, CommandMeta>), initial_variables()
     emit.rs       — AST walk, instruction emission, jump patching, function compilation, available command gating
     symbol_table.rs — Scope tracking, global slots vs function-local offsets
-    builtins.rs   — CommandMeta struct, classify_stdlib(), builtin_instruction() mapping known command names to IR instructions
+    builtins.rs   — CommandMeta struct, classify_stdlib() for stdlib classification
     error.rs      — CompileError
 ```
 
@@ -93,8 +93,7 @@ src/
 - Each entity has a `ScriptState` (program counter, value stack, variable slots, call stack)
 - Each entity has a `ScriptState` with `is_brain: bool` flag — brain scripts implicitly loop (restart from top on halt), non-brain scripts (terminal commands) halt normally
 - Per tick: seeded shuffle entity order, execute each until an action yields
-- Queries (scan, get_health, get_resource, etc.) are instant; actions (move, attack, wait, custom mod commands) consume the tick
-- Instant effects (gain_resource, try_spend_resource) return to the executor without consuming the tick — the tick loop handles mutation and pushes the return value onto the script's stack
+- Custom mod commands consume the tick — the executor yields after ActionCustom
 - `self` is pre-allocated at variable slot 0 as `EntityRef` for the executing entity
 - Brain scripts use `ScriptState::reset_for_restart(entity_id)` to reset PC/stack/vars when they halt, so they re-execute from the beginning next tick — no explicit `while True:` needed
 
@@ -102,21 +101,21 @@ src/
 
 **Library files:** Mods can provide `.grim` files via `commands.libraries` in `mod.toml`. Library source is loaded at mod time, concatenated across mods (in load order), and prepended to player scripts before compilation. Functions defined in libraries are available in player scripts as if defined at the top. Subject to the same command gating. Flat namespace, first-loaded-wins.
 
-**Available commands:** Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available. All other commands (queries, actions, instant effects, custom commands) are defined by mods via `[[commands.definitions]]` in `mod.toml` and gated by type capability (`commands` on `[[types]]`). The compiler receives command metadata via `HashMap<String, CommandMeta>` (kind, arg count, implicit_self) and an `available_commands: Option<HashSet<String>>` for gating. In **dev mode** (`--features dev-mode`), all commands are available (gate bypassed entirely). The frontend dynamically filters completions and syntax highlighting based on the available set + command info received via IPC.
+**Available commands:** Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`) are always available. All other commands are data-driven custom commands defined by mods via `[[commands.definitions]]` in `mod.toml`. There are currently no hardcoded game builtins — all game commands (queries, actions, etc.) have been removed and will be reimplemented from scratch as needed. The compiler receives command metadata via `HashMap<String, CommandMeta>` and an `available_commands: Option<HashSet<String>>` for type-based gating. In **dev mode**, all commands are available (gate bypassed).
 
-**Custom commands:** Mods define all commands via `[[commands.definitions]]` in `mod.toml`. Each `CommandDef` has `kind` (query/action/instant/custom, default: custom) and `implicit_self` (bool, default: false) fields, plus data-driven effects (damage, heal, spawn, modify_stat, use_resource, output, animate, list_commands, modify_resource, use_global_resource, if, start_channel, apply_buff, remove_buff). Commands with `kind = "query"`, `"action"`, or `"instant"` that have a matching `builtin_instruction()` compile to dedicated IR instructions; all others compile to `ActionCustom(name)`. `modify_stat` works with all stats; `use_resource` checks and deducts any stat, aborting remaining effects if insufficient. Integer fields in effects use `DynInt`: plain integers, `"rand(min,max)"`, or computed values. The `animate` effect triggers sprite animations on target entities via `PlayAnimation` sim events. The `if` effect evaluates a condition (resource, entity_count, stat) and runs one of two effect lists (then/else), with full nesting support. The `start_channel` effect initiates a phased channel from within an effect list, enabling conditional phase branching when combined with `if`. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
+**Custom commands:** Mods define commands via `[[commands.definitions]]` in `mod.toml`. Each `CommandDef` has data-driven effects (damage, heal, spawn, modify_stat, use_resource, output, animate, list_commands, modify_resource, use_global_resource, if, start_channel, apply_buff, remove_buff). All commands compile to `ActionCustom(name)` IR instructions. `modify_stat` works with all stats; `use_resource` checks and deducts any stat, aborting remaining effects if insufficient. Integer fields in effects use `DynInt`. The `animate` effect triggers sprite animations. The `if` effect evaluates conditions and branches. The `start_channel` effect initiates phased channels. Duplicate command names across mods are logged as warnings; first-loaded wins. See `docs/modding.md` for the full reference.
 
 **Phased commands:** Commands can use `phases` instead of `effects` for multi-tick abilities (mutually exclusive, validated at load). Each `PhaseDef` has `ticks`, `interruptible`, `on_start`, `per_update` effect lists, and `update_interval` (default 1). `per_update` effects fire after every `update_interval` ticks within a phase (interval=1: every tick; interval=2: ticks 1,3,5; interval=3: ticks 2,5,8). On initiation, a `ChannelState` is stored on the entity. The tick loop processes channels before script execution: interruptible phases run the script and cancel if it yields a real action; non-interruptible phases skip script execution. `use_resource` failure mid-phase cancels the channel. Hot-reload clears active channels.
 
-**Global resources:** World-level integer resources (e.g. `souls`, `gold`) stored in `SimWorld.resources: IndexMap<String, i64>`. Defined by mods via `[resources]` table in `mod.toml`, merged at load time (first-defined wins). Three builtins: `get_resource(name)` → Int (query, instant), `gain_resource(name, amount)` → Int (instant effect), `try_spend_resource(name, amount)` → Bool (instant effect). Instant effects use the `try_handle_instant()` pattern: the executor returns a `UnitAction` variant without yielding, the tick loop handles mutation and pushes the return value onto the stack before re-entering the executor. **Resource availability:** Resources have an available/unavailable mechanic mirroring commands. `[initial].resources` in `mod.toml` lists initially available resource names; if omitted, all defined resources are available. The executor checks `SimWorld.available_resources: Option<HashSet<String>>` at runtime — unavailable resources produce a runtime error. In dev mode, `available_resources` is `None` (all available).
+**Global resources:** World-level integer resources (e.g. `mana`, `bones`) stored in `SimWorld.resources: IndexMap<String, i64>`. Defined by mods via `[resources]` table in `mod.toml`, merged at load time (first-defined wins). Accessible via effects (`modify_resource`, `use_global_resource`). **Resource availability:** Resources have an available/unavailable mechanic. `[initial].resources` in `mod.toml` lists initially available resource names; if omitted, all defined resources are available. In dev mode, `available_resources` is `None` (all available).
 
 **Buff system:** Mods define temporary stat modifiers via `[[buffs]]` in `mod.toml`. Each `BuffDef` has `name`, `duration`, `modifiers` (stat→amount), `per_tick`/`on_apply`/`on_expire` effect lists, `stackable`, and `max_stacks`. Two new effect types: `apply_buff { target, buff, duration? }` and `remove_buff { target, buff }`. Active buffs tracked per-entity via `SimEntity.active_buffs`. Modifiers directly modify stats on apply and reverse on expire. Stackable buffs accumulate stacks; non-stackable refresh duration. Buff tick processing (step 6b) runs per_tick effects, decrements durations, and handles expiry (reverse modifiers, run on_expire effects). Buff definitions stored in `SimWorld.buff_registry`.
 
-**Multi-type entity system:** Entities have a `types: Vec<String>` field containing composable type tags for queries and filtering. The `entity_type: String` field serves as the unique entity definition ID for registry lookups (sprites, configs). `SimEntity::new()` auto-populates `types = [entity_type]` for backward compat; `SimEntity::new_with_types()` allows explicit type tags. `has_type(&self, tag) -> bool` checks membership. Query functions `scan()` and `nearest()` filter by `has_type()` instead of exact match. New GrimScript builtins: `get_types(entity) -> List`, `has_type(entity, name) -> Bool`. Entity attribute `entity.types` returns the type list. `DynInt::EntityCount`, `Condition::EntityCount`, and trigger filters all use `has_type()` for matching. `SimWorld.entity_types_registry` stores def ID → types mapping for spawn effects.
+**Multi-type entity system:** Entities have a `types: Vec<String>` field containing composable type tags for queries and filtering. The `entity_type: String` field serves as the unique entity definition ID for registry lookups (sprites, configs). `SimEntity::new()` auto-populates `types = [entity_type]` for backward compat; `SimEntity::new_with_types()` allows explicit type tags. `has_type(&self, tag) -> bool` checks membership. Query-like functions (when reimplemented) will filter by `has_type()` for matching. Entity attribute `entity.types` returns the type list. `DynInt::EntityCount`, `Condition::EntityCount`, and trigger filters all use `has_type()` for matching. `SimWorld.entity_types_registry` stores def ID → types mapping for spawn effects.
 
 **Type definitions (`[[types]]` in mod.toml):** Types are composable tags with optional stats, commands, and brain scripts. Each `TypeDef` has `name`, `brain: bool`, `stats: IndexMap`, `commands: Vec<String>`, and optional `script` path. Entity `[[entities]]` definitions reference types via `types = ["undead", "melee"]`. Stats are merged in type order, then entity-level stats override. Type `.gs` scripts loaded from `grimscript/` directory. Entity definitions use `id` field (unique key) with `type` as backward-compat fallback; `types` defaults to `[id]` if absent.
 
-**Unified entity stats:** All entity stats live in a single `SimEntity.stats: IndexMap<String, i64>` (deterministic iteration order), accessed via `stat(&self, name) -> i64` (returns 0 if unset), `set_stat(&mut self, name, value)`, and `clamp_stat(&mut self, name)` (clamps to `[0, max_{name}]` if a max exists). There are **no built-in default stats** — entities start with an empty stats map; all stats come from `EntityConfig` applied by mods. `EntityConfig` contains `stats: IndexMap<String, i64>`; `apply_config()` auto-sets `max_health`/`max_shield` when health/shield are defined without explicit max values. In `mod.toml`, entity stats merge from types (in type order) then entity-level overrides. `modify_stat` and `use_resource` effects work with all stats generically. Stats are accessible via entity attribute access (`entity.armor`) and the `get_stat(entity, "name")` GrimScript builtin (query, instant, gated by available_commands; `get_custom_stat` kept as alias).
+**Unified entity stats:** All entity stats live in a single `SimEntity.stats: IndexMap<String, i64>` (deterministic iteration order), accessed via `stat(&self, name) -> i64` (returns 0 if unset), `set_stat(&mut self, name, value)`, and `clamp_stat(&mut self, name)` (clamps to `[0, max_{name}]` if a max exists). There are **no built-in default stats** — entities start with an empty stats map; all stats come from `EntityConfig` applied by mods. `EntityConfig` contains `stats: IndexMap<String, i64>`; `apply_config()` auto-sets `max_health`/`max_shield` when health/shield are defined without explicit max values. In `mod.toml`, entity stats merge from types (in type order) then entity-level overrides. `modify_stat` and `use_resource` effects work with all stats generically. Stats are accessible via entity attribute access (e.g. `entity.armor` via the GetAttr instruction).
 
 **Computed values (DynInt):** `DynInt` extended with three game-state variants: `EntityCount { entity_type, multiplier }` resolves to the count of alive entities of a type, `ResourceValue { resource, multiplier }` resolves to a global resource's current value, `CasterStat { stat, multiplier }` resolves to the caster's stat value. TOML format: `"entity_count(skeleton)"`, `"resource(mana)"`, `"stat(health)"`, with optional multiplier `"entity_count(skeleton)*2"`. All effect `amount`/`offset` fields use `resolve_with_world()` for game-state access. Backward compatible — plain integers and `"rand(min,max)"` continue to work.
 
@@ -128,7 +127,7 @@ src/
 
 **Unified execution:** The sim runs continuously from game open. Brain scripts are compiled and assigned via `compile_and_assign_all_brains()` at startup (after script store init and initial effects flush) and per-entity via `compile_and_assign_entity_brain()` when entities spawn during gameplay. Saving a type `.gs` file triggers auto-reload: recompiles and hot-swaps all affected entities' `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). Saving an empty brain script clears the entity's `script_state` so it stops executing. The main brain (`main.gs`) runs with a special "main" entity before the entity shuffle each tick. Terminal commands execute against the main brain. The "main" type is always treated as a brain regardless of the `brain` flag in `mod.toml`.
 
-**Main brain:** Script stored as `SimWorld.main_brain: Option<ScriptState>`, backed by a real "main" entity spawned via `spawn_main_brain_entity()`. Runs first every tick (step 2c, before entity shuffle). Can call resource ops, queries, print, custom commands. Cannot perform entity actions (move, attack, flee — silently ignored). Terminal commands execute against the main brain.
+**Main brain:** Script stored as `SimWorld.main_brain: Option<ScriptState>`, backed by a real "main" entity spawned via `spawn_main_brain_entity()`. Runs first every tick (step 2c, before entity shuffle). Can call print and custom commands. Terminal commands execute against the main brain.
 
 **Error recovery:** When a script hits a runtime error, it stores the error on `ScriptState.error`. On the next tick, error recovery kicks in: the error is cleared, script state is fully reset (PC=0, stack/call stack cleared, variables re-initialized with slot 0 = self EntityRef), the entity yields `wait()` for that tick, and a `[error recovery]` message is emitted. The script re-executes from the beginning on the following tick. This prevents permanent script death from transient errors. Applies to entity scripts, main brain, and channel interruptible scripts.
 
@@ -147,7 +146,7 @@ src/
 2. Decrement spawn timers on spawning entities
 2c. Execute main brain (backed by real "main" entity, instant actions only)
 3. Shuffle ready entity IDs (excludes spawning entities, includes entities with active channels)
-4. For each: check error recovery (if script errored last tick, reset and yield wait), then process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print, resource ops — re-enter executor), collect tick-consuming action, put state back. Brain scripts that halt are reset via `reset_for_restart()` to re-execute from PC=0 next tick.
+4. For each: check error recovery (if script errored last tick, reset and yield wait), then process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print — re-enter executor), collect tick-consuming action, put state back. Brain scripts that halt are reset via `reset_for_restart()` to re-execute from PC=0 next tick.
 5. Resolve all actions against world state
 6. Tick passive systems (cooldowns, behavior cooldowns)
 6b. Tick buffs: run per_tick effects, decrement durations, handle expiry (reverse modifiers, fire on_expire)
@@ -201,8 +200,6 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 | Add language builtin | `crates/grimscript-lang/src/builtins.rs` |
 | Add sim IR instruction | `crates/deadcode-sim/src/ir.rs` + `executor.rs` |
 | Add sim builtin mapping | `crates/deadcode-sim/src/compiler/builtins.rs` |
-| Add sim query | `crates/deadcode-sim/src/query.rs` + `ir.rs` (QueryXxx) + `executor.rs` |
-| Add sim action | `crates/deadcode-sim/src/action.rs` + `ir.rs` (ActionXxx) + `executor.rs` |
 | Add IPC message | `crates/deadcode-editor/src/ipc.rs` + `editor-ui/src/ipc/types.ts` + `bridge.ts` |
 | Add unit/sprite | `crates/deadcode-desktop/src/unit.rs` + atlas in `src/assets/` |
 | Game loop logic | `crates/deadcode-app/src/app.rs` → `do_tick()` |
@@ -211,12 +208,10 @@ Render: 30 FPS active / 10 FPS idle. Sim: fixed 30 TPS regardless of render rate
 | Editor state | `editor-ui/src/state/` (zustand) |
 | Script storage | `crates/deadcode-editor/src/scripts.rs` |
 | Save/load | `crates/deadcode-desktop/src/save.rs` |
-| Add game command (query/action/instant) | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with `kind`, `implicit_self`; add IR instruction in `builtins.rs` `builtin_instruction()` if needed |
 | Add custom mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, effects or phases |
 | Add phased mod command | `mods/<mod>/mod.toml` → `[[commands.definitions]]` with name, args, phases (see `docs/modding.md`) |
 | Add new effect type | `crates/deadcode-sim/src/action.rs` → `CommandEffect` enum + handler in `resolve_effects_inner()` |
 | Add conditional effect logic | `crates/deadcode-sim/src/action.rs` → `Condition` enum + `evaluate_condition_with_ctx()` (target-bearing conditions need args/ctx); update `evaluate_condition()` wrapper if needed |
-| Add instant effect builtin | `ir.rs` (InstantXxx) + `executor.rs` + `action.rs` (UnitAction) + `builtins.rs` (InstantEffectBuiltin) + `world.rs` (try_handle_instant) |
 | Define mod resources | `mods/<mod>/mod.toml` → `[resources]` table (name = initial_value), `[initial].resources` list for availability |
 | Define buff | `mods/<mod>/mod.toml` → `[[buffs]]` with name, duration, modifiers, per_tick/on_apply/on_expire effects |
 | Add event trigger | `mods/<mod>/mod.toml` → `[[triggers]]` with event, filter, conditions, effects |

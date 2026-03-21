@@ -48,7 +48,7 @@ export function Header() {
             bgColor="var(--bg-btn-stop)"
             hoverBgColor="var(--bg-btn-stop-hover)"
             iconColor="var(--icon-stop)"
-            onClick={() => sendToRust({ type: 'pause_simulation' })}
+            onClick={() => { sendToRust({ type: 'pause_simulation' }); useStore.getState().setSimPaused(true); }}
           >
             <svg width="16" height="16" viewBox="0 0 16 16">
               <rect x="3" y="2" width="4" height="12" rx="1" fill="currentColor"/>
@@ -64,7 +64,7 @@ export function Header() {
             bgColor="var(--bg-btn-run)"
             hoverBgColor="var(--bg-btn-run-hover)"
             iconColor="var(--icon-run)"
-            onClick={() => sendToRust({ type: 'start_simulation' })}
+            onClick={() => { sendToRust({ type: 'start_simulation' }); useStore.getState().setSimPaused(false); }}
           >
             <svg width="20" height="20" viewBox="0 0 16 16"><path d="M4 2l10 6-10 6V2z" fill="currentColor"/></svg>
           </ToolBtn>

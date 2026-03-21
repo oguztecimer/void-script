@@ -10,7 +10,6 @@ How to create mods for VOID//SCRIPT. The base game ("Core") is itself a mod — 
 - [mod.toml Reference](#modtoml-reference)
 - [Type Definitions](#type-definitions)
 - [Entity Definitions](#entity-definitions)
-- [Spawn Definitions](#spawn-definitions)
 - [Global Resources](#global-resources)
 - [Available Commands](#available-commands)
 - [Initial Effects](#initial-effects)
@@ -106,12 +105,6 @@ stats = { armor = 5, crit = 10 }   # Entity-level stats (override type stats)
 
 # Backward compat: if `id` is absent, `type` is used as the ID.
 # If `types` is absent, defaults to `[id]`.
-
-# --- Initial Spawns ---
-[[spawn]]
-entity_id = "warrior"               # References entity definition ID (entity_type is a serde alias)
-name = "guard"
-position = 300
 
 # --- Global Resources ---
 [resources]
@@ -261,28 +254,6 @@ stats = { armor = 5, crit_chance = 10 }   # Override/extend type stats
 ### Auto-Max Behavior
 
 When `health` or `shield` are set and no explicit `max_health`/`max_shield` is provided, the engine automatically sets `max_health`/`max_shield` to the same value.
-
----
-
-## Spawn Definitions
-
-`[[spawn]]` blocks define entities placed when the game starts.
-
-```toml
-[[spawn]]
-entity_id = "skeleton"      # Must match an id from [[entities]] in any loaded mod
-name = "guard_left"         # Instance name
-position = 200              # 1D integer position on the strip
-
-[[spawn]]
-entity_id = "skeleton"
-name = "guard_right"
-position = 800
-```
-
-- `entity_id` — must match a registered entity definition ID (validated at load time). `entity_type` is accepted as a serde alias for backward compatibility.
-- `name` — instance name for the render unit
-- `position` — 1D integer position on the strip
 
 ---
 

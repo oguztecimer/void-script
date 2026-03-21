@@ -553,7 +553,7 @@ impl ApplicationHandler<UserEvent> for App {
         let known_stats: HashSet<String> = self.entity_configs.values()
             .flat_map(|c| c.stats.keys().cloned())
             .collect();
-        modding::validate_spawns(&mods, &known_types);
+        modding::validate_spawn_effects(&mods, &known_types);
         modding::validate_command_defs(&mods);
         modding::validate_triggers(&mods);
         modding::validate_type_defs(&mods);
@@ -561,55 +561,10 @@ impl ApplicationHandler<UserEvent> for App {
         modding::validate_buffs(&mods, &known_stats);
 
         // --- Unit system init ---
-        let mut um = UnitManager::new();
+        let um = UnitManager::new();
         let mut sim = SimWorld::new(42);
 
-        // Spawn entities defined in mod manifests.
         self.entity_unit_map.clear();
-        for loaded_mod in &mods {
-            for spawn_def in &loaded_mod.manifest.spawn {
-                // Spawn render unit if sprite data is available.
-                let maybe_uid = if let Some(sprite) = self.sprite_registry.get(&spawn_def.entity_id) {
-                    let [px, py] = self.pivot_registry
-                        .get(&spawn_def.entity_id)
-                        .copied()
-                        .unwrap_or([24.0, 0.0]);
-                    Some(um.spawn(
-                        &spawn_def.name,
-                        &sprite.png,
-                        &sprite.json,
-                        spawn_def.position as f32,
-                        px,
-                        py,
-                    ))
-                } else {
-                    None
-                };
-
-                // Spawn sim entity with optional stat overrides and type tags.
-                let config = self.entity_configs.get(&spawn_def.entity_id);
-                let types = self.entity_types.get(&spawn_def.entity_id).cloned().unwrap_or_default();
-                let eid = if types.is_empty() {
-                    sim.spawn_entity_with_config(
-                        spawn_def.entity_id.clone(),
-                        spawn_def.name.clone(),
-                        spawn_def.position,
-                        config,
-                    )
-                } else {
-                    sim.spawn_entity_with_types(
-                        spawn_def.entity_id.clone(),
-                        types,
-                        spawn_def.name.clone(),
-                        spawn_def.position,
-                        config,
-                    )
-                };
-                if let Some(uid) = maybe_uid {
-                    self.entity_unit_map.insert(eid.0, uid);
-                }
-            }
-        }
 
         // Register custom command definitions with the sim.
         for def in self.command_defs.values() {

@@ -1,8 +1,8 @@
 //! Mod loading system.
 //!
 //! Loads `mod.toml` manifests from the `mods/` directory. Each mod defines
-//! entity types (with sprites and stats), initial spawn definitions, and
-//! available commands. The base game ("core") is itself a mod.
+//! entity types (with sprites and stats), initial effects, and available
+//! commands. The base game ("core") is itself a mod.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use deadcode_desktop::animation::{SKELETON_ATLAS_PNG, SUMMONER_ATLAS_PNG, skeleton_atlas_json, summoner_atlas_json};
-use deadcode_sim::action::{BuffDef, CommandDef, CommandEffect, TriggerDef};
+use deadcode_sim::action::{BuffDef, CommandDef, CommandEffect, DynInt, TriggerDef};
 use deadcode_sim::entity::EntityConfig;
 
 // ---------------------------------------------------------------------------
@@ -23,8 +23,6 @@ pub struct ModManifest {
     pub meta: ModMeta,
     #[serde(default)]
     pub entities: Vec<EntityDef>,
-    #[serde(default)]
-    pub spawn: Vec<SpawnDef>,
     #[serde(default)]
     pub commands: Option<CommandsDef>,
     #[serde(default)]
@@ -185,15 +183,6 @@ impl EntityDef {
     pub fn to_entity_config(&self) -> EntityConfig {
         EntityConfig { stats: self.stats.clone() }
     }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SpawnDef {
-    /// Entity definition ID to spawn. `entity_type` is a serde alias for backward compat.
-    #[serde(alias = "entity_type")]
-    pub entity_id: String,
-    pub name: String,
-    pub position: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -642,13 +631,6 @@ fn embedded_fallback() -> LoadedMod {
             min_game_version: None,
         },
         entities: vec![],
-        spawn: vec![
-            SpawnDef {
-                entity_id: "summoner".into(),
-                name: "summoner".into(),
-                position: 500,
-            },
-        ],
         types: vec![],
         commands: Some(CommandsDef {
             definitions: vec![],
@@ -663,6 +645,7 @@ fn embedded_fallback() -> LoadedMod {
             ],
             resources: vec!["bones".into()],
             effects: vec![
+                CommandEffect::Spawn { entity_type: "summoner".into(), offset: DynInt::Fixed(0) },
                 CommandEffect::Output { message: "The dead stir beneath your feet".into() },
                 CommandEffect::Output { message: "Call for <hl>help()</hl> to hear them speak".into() },
             ],
@@ -751,18 +734,10 @@ fn collect_all_effects_recursive<'a>(effects: &'a [CommandEffect], out: &mut Vec
     }
 }
 
-/// Validate that spawn definitions reference known entity types.
-pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
+/// Validate that spawn/sacrifice effects in commands reference known entity types.
+pub fn validate_spawn_effects(mods: &[LoadedMod], known_types: &HashSet<String>) {
     for m in mods {
-        for spawn in &m.manifest.spawn {
-            if !known_types.contains(&spawn.entity_id) {
-                eprintln!(
-                    "[mod:{}] warning: spawn '{}' references unknown entity id '{}'",
-                    m.manifest.meta.id, spawn.name, spawn.entity_id
-                );
-            }
-        }
-        // Also validate spawn effects in custom command definitions (effects + phases),
+        // Validate spawn effects in custom command definitions (effects + phases),
         // recursively including If branches and StartChannel phases.
         if let Some(cmds) = &m.manifest.commands {
             for def in &cmds.definitions {
@@ -785,6 +760,26 @@ pub fn validate_spawns(mods: &[LoadedMod], known_types: &HashSet<String>) {
                                 m.manifest.meta.id, def.name, entity_type
                             );
                         }
+                    }
+                }
+            }
+        }
+        // Also validate spawn effects in initial effects.
+        if let Some(initial) = &m.manifest.initial {
+            let mut all_effects = Vec::new();
+            collect_all_effects_recursive(&initial.effects, &mut all_effects);
+            for effect in all_effects {
+                let referenced_type = match effect {
+                    CommandEffect::Spawn { entity_type, .. }
+                    | CommandEffect::Sacrifice { entity_type, .. } => Some(entity_type.as_str()),
+                    _ => None,
+                };
+                if let Some(entity_type) = referenced_type {
+                    if !known_types.contains(entity_type) {
+                        eprintln!(
+                            "[mod:{}] warning: initial effect references unknown entity type '{}'",
+                            m.manifest.meta.id, entity_type
+                        );
                     }
                 }
             }
@@ -1375,7 +1370,7 @@ mod tests {
                     min_game_version: None,
                 },
                 entities: vec![],
-                spawn: vec![],
+
                 commands: None,
                 initial: None,
                 resources: HashMap::new(),

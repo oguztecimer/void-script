@@ -32,7 +32,10 @@
 #### Added
 - **M-03: Type definitions** — New `[[types]]` section in `mod.toml` for defining composable type tags with stats, commands, and brain scripts. Each `TypeDef` has `name`, `brain` (bool), `stats` (IndexMap), `commands` (Vec), and optional `script` path. Type stats are merged in type order, then entity-level stats override. Type `.gs` scripts are loaded from `grimscript/` directory and syntax-checked at mod load time.
 - **M-04: Entity def ID and types** — `[[entities]]` gains `id` (unique definition key) and `types` (list of type tag names). Backward compat: if `id` absent, `type` is used; if `types` absent, defaults to `[id]`. Entity stats are now merged from types (in order) then entity-level overrides.
-- **M-05: Spawn entity_id field** — `[[spawn]]` gains `entity_id` field (with `entity_type` as serde alias for backward compat).
+- **M-05: Spawn entity_id field** — ~~`[[spawn]]` gains `entity_id` field.~~ Removed — `[[spawn]]` replaced by `[initial].effects` spawn effects.
+
+#### Removed
+- **M-11: `[[spawn]]` removed** — `[[spawn]]` blocks in `mod.toml` are no longer supported. Use `[initial].effects` with `{ type = "spawn", entity_type = "...", offset = 0 }` instead. The `SpawnDef` struct and spawn processing loop have been removed. Validation of entity type references in spawn/sacrifice effects is now handled by `validate_spawn_effects()`.
 
 ### Simulation Engine (continued)
 
@@ -61,7 +64,7 @@
 #### Changed
 - **E-05: Pause/Resume simulation** — Former no-op simulation controls now actually pause/resume the sim. Toolbar shows a pause button when running, resume button when paused.
 - **M-01: Removed entity convenience stat fields** — `[[entities]]` no longer supports top-level `health`, `speed`, `attack_damage`, `attack_range`, `attack_cooldown`, and `shield` fields. All stats are now defined exclusively in the `stats` table (e.g., `stats = { health = 50, speed = 2 }`). Auto-max behavior (`max_health`/`max_shield`) is preserved via `apply_config()`. The `custom_stats` alias still works.
-- **M-02: Summoner defined by core mod** — The summoner entity is no longer hardcoded in `app.rs`. It is now defined in `mods/core/mod.toml` as a normal `[[entities]]` entry with a `[[spawn]]` block, just like any other entity. Entity type, stats, sprite, pivot, and spawn position are all moddable. The embedded fallback mirrors this. Script execution still finds the summoner by entity type `"summoner"`.
+- **M-02: Summoner defined by core mod** — The summoner entity is no longer hardcoded in `app.rs`. It is now defined in `mods/core/mod.toml` as a normal `[[entities]]` entry, spawned via `[initial].effects`. Entity type, stats, sprite, and pivot are all moddable. The embedded fallback mirrors this. Script execution still finds the summoner by entity type `"summoner"`.
 
 ### Simulation Engine
 

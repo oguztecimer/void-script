@@ -19,7 +19,7 @@ pub use crate::error::LuaModError;
 use std::collections::HashMap;
 use std::path::Path;
 
-use deadcode_sim::action::{BuffCallbackType, CommandHandler, CommandHandlerResult, CommandMeta};
+use deadcode_sim::action::{BuffCallbackType, CommandHandler, CommandHandlerResult, CommandMeta, QueryResult};
 use deadcode_sim::entity::EntityId;
 use deadcode_sim::value::SimValue;
 use deadcode_sim::world::{SimEvent, WorldAccess};
@@ -201,6 +201,30 @@ impl CommandHandler for LuaModRuntime {
 
     fn run_init(&mut self, world: &mut WorldAccess) -> Vec<SimEvent> {
         api::run_init_handlers(&self.lua, world)
+    }
+
+    fn resolve_query(
+        &mut self,
+        world: &mut WorldAccess,
+        entity_id: EntityId,
+        command_name: &str,
+        args: &[SimValue],
+    ) -> QueryResult {
+        let Some(mod_id) = self.command_to_mod.get(command_name).cloned() else {
+            return QueryResult::NotHandled;
+        };
+
+        match coroutine::call_query_handler(
+            &self.lua,
+            &mod_id,
+            command_name,
+            entity_id,
+            args,
+            world,
+        ) {
+            Ok((value, events)) => QueryResult::Value { value, events },
+            Err(e) => QueryResult::Error(format!("{e}")),
+        }
     }
 
     fn command_metadata(&self) -> Vec<(String, CommandMeta)> {

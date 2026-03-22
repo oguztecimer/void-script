@@ -23,6 +23,7 @@ pub enum StdlibBuiltin {
     Percent,
     Scale,
     Random,
+    Wait,
 }
 
 /// Classify a function name as a stdlib builtin.
@@ -41,6 +42,7 @@ pub fn classify_stdlib(name: &str) -> Option<StdlibBuiltin> {
         "percent" => Some(StdlibBuiltin::Percent),
         "scale" => Some(StdlibBuiltin::Scale),
         "random" => Some(StdlibBuiltin::Random),
+        "wait" => Some(StdlibBuiltin::Wait),
         _ => None,
     }
 }

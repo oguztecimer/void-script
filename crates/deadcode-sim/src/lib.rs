@@ -20,7 +20,7 @@ pub mod rng;
 pub mod value;
 pub mod world;
 
-pub use action::{BuffCallbackType, BuffDef, CommandDef, CommandHandler, CommandHandlerResult, CommandKind, CommandMeta, CoroutineHandle};
+pub use action::{BuffCallbackType, BuffDef, CommandDef, CommandHandler, CommandHandlerResult, CommandKind, CommandMeta, CoroutineHandle, QueryResult};
 pub use entity::{EntityId, LuaCoroutineState, SimEntity};
 pub use ir::{CompiledScript, Instruction};
 pub use value::SimValue;

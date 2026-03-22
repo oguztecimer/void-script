@@ -99,6 +99,13 @@ impl mlua::UserData for CtxUserData {
             Ok(())
         });
 
+        methods.add_method("set_stat", |lua, this, (target, stat, value): (Value, String, i64)| {
+            let target_id = resolve_target_val(&target, this.caster_id)
+                .ok_or_else(|| mlua::Error::runtime("invalid target"))?;
+            with_world(lua, |w| w.set_stat(target_id, &stat, value));
+            Ok(())
+        });
+
         methods.add_method("get_stat", |lua, this, (target, stat): (Value, String)| {
             let target_id = resolve_target_val(&target, this.caster_id)
                 .ok_or_else(|| mlua::Error::runtime("invalid target"))?;
@@ -377,6 +384,9 @@ pub fn setup_mod_tables(lua: &Lua, mod_id: &str) -> Result<(), LuaModError> {
             if let Ok(args_table) = opts.get::<mlua::Table>("args") {
                 meta.set("args", args_table)?;
             }
+            if let Ok(kind_str) = opts.get::<String>("kind") {
+                meta.set("kind", kind_str)?;
+            }
         }
         meta_table.set(name, meta)?;
 
@@ -491,6 +501,29 @@ pub fn setup_mod_tables(lua: &Lua, mod_id: &str) -> Result<(), LuaModError> {
             })
             handler(proxy)
         end
+
+        function __void_query_wrapper(handler, ctx)
+            local proxy = setmetatable({}, {
+                __index = function(_, key)
+                    if key == "yield_ticks" or key == "wait" then
+                        return function()
+                            error("query commands cannot yield")
+                        end
+                    elseif key == "caster" then
+                        return ctx:get_caster()
+                    elseif key == "tick" then
+                        return ctx:get_tick()
+                    elseif key == "args" then
+                        return ctx:get_args()
+                    else
+                        return function(self, ...)
+                            return ctx[key](ctx, ...)
+                        end
+                    end
+                end
+            })
+            return handler(proxy)
+        end
     "#).exec()?;
 
     Ok(())
@@ -532,7 +565,13 @@ pub fn collect_command_metadata(lua: &Lua) -> Vec<(String, CommandMeta)> {
                                     v
                                 })
                                 .unwrap_or_default();
-                            result.push((cmd_name, CommandMeta { description, args, unlisted }));
+                            let kind = match meta.get::<String>("kind").unwrap_or_default().as_str() {
+                                "query" => deadcode_sim::CommandKind::Query,
+                                "action" => deadcode_sim::CommandKind::Action,
+                                "instant" => deadcode_sim::CommandKind::Instant,
+                                _ => deadcode_sim::CommandKind::Custom,
+                            };
+                            result.push((cmd_name, CommandMeta { description, args, unlisted, kind }));
                         }
                     }
                 }

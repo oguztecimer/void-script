@@ -170,6 +170,52 @@ fn resume_thread<A: mlua::IntoLuaMulti>(
     }
 }
 
+/// Call a query handler directly (no coroutine). Returns the handler's return value.
+/// Query handlers must not yield.
+pub fn call_query_handler(
+    lua: &Lua,
+    mod_id: &str,
+    command_name: &str,
+    entity_id: EntityId,
+    args: &[SimValue],
+    world: &mut WorldAccess,
+) -> Result<(SimValue, Vec<SimEvent>), LuaModError> {
+    let registry_key = format!("__mod_{mod_id}_cmd_{command_name}");
+    let handler: Function = lua.globals().get(registry_key.as_str())
+        .map_err(|e| LuaModError::Runtime(format!("query '{command_name}' not found: {e}")))?;
+
+    // Use the query wrapper which sets up the ctx proxy (args, caster, tick)
+    // but without coroutine yield support.
+    let wrapper: Function = lua.globals().get("__void_query_wrapper")
+        .map_err(|e| LuaModError::Runtime(format!("query wrapper not found: {e}")))?;
+
+    let ctx = create_ctx(lua, entity_id, world, args)?;
+
+    // Set up world access for ctx methods.
+    let world_ptr = world as *mut WorldAccess as usize;
+    lua.set_app_data(WorldAccessPtr(world_ptr));
+    lua.set_app_data(CasterEntity(entity_id));
+
+    // Call wrapper(handler, ctx) — returns the handler's return value.
+    let handler_val = Value::Function(handler);
+    let result = wrapper.call::<Value>((handler_val, ctx));
+
+    // Collect events.
+    let events = lua.remove_app_data::<CollectedEvents>()
+        .map(|c| c.0)
+        .unwrap_or_default();
+    lua.remove_app_data::<WorldAccessPtr>();
+    lua.remove_app_data::<CasterEntity>();
+
+    match result {
+        Ok(val) => {
+            let sim_val = crate::convert::lua_to_sim(&val);
+            Ok((sim_val, events))
+        }
+        Err(e) => Err(LuaModError::Runtime(format!("{e}"))),
+    }
+}
+
 // App-data types stored during coroutine execution.
 
 /// Raw pointer to WorldAccess, stored in Lua's app_data during resume.

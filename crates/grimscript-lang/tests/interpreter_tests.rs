@@ -268,12 +268,12 @@ fn stdlib_works_with_empty_available_set() {
 #[test]
 fn available_game_builtin_works_when_in_set() {
     let mut cmds = std::collections::HashSet::new();
-    cmds.insert("wait".to_string());
+    cmds.insert("slash".to_string());
     let custom = cmds.clone();
-    let events = run_with_commands("wait()", cmds, custom);
+    let events = run_with_commands("slash()", cmds, custom);
     assert!(succeeded(&events));
     // Game builtins are now treated as custom commands in the interpreter.
-    assert_eq!(outputs(&events), vec!["[wait] (custom command)"]);
+    assert_eq!(outputs(&events), vec!["[slash] (custom command)"]);
 }
 
 // ── Bug fix tests ─────────────────────────────────────────────────────

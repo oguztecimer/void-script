@@ -15,7 +15,7 @@ pub fn is_stdlib(name: &str) -> bool {
     matches!(
         name,
         "print" | "len" | "range" | "abs" | "min" | "max" | "int" | "float" | "str" | "type"
-            | "percent" | "scale" | "random"
+            | "percent" | "scale" | "random" | "wait"
     )
 }
 
@@ -340,6 +340,12 @@ pub fn call_builtin(
             let product = value.checked_mul(num)
                 .ok_or_else(|| GrimScriptError::runtime(0, "scale() integer overflow"))?;
             Ok(Value::Int(bankers_div(product, den)))
+        }
+        "wait" => {
+            if !args.is_empty() {
+                return Err(GrimScriptError::type_error(0, "wait() takes no arguments"));
+            }
+            Ok(Value::None)
         }
         "random" => {
             let (min, max) = match args.len() {

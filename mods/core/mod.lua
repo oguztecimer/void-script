@@ -58,6 +58,22 @@ mod.command("walk_right", { description = "walk right" }, function(ctx)
   ctx:move_by(1)
 end)
 
+mod.command("get_entities", {
+  kind = "query",
+  args = { "type_name" },
+  description = "Count entities of a type"
+}, function(ctx)
+  return ctx:entities_of_type(ctx.args[1])
+end)
+
+mod.command("tick", { kind = "query", description = "Current simulation tick" }, function(ctx)
+  return ctx.tick
+end)
+
+mod.command("set_var", { kind = "query", args = { "entity", "key", "value" } }, function(ctx)
+  ctx:set_stat(ctx.args[1], ctx.args[2], ctx.args[3])
+end)
+
 -- Triggers
 
 mod.on("entity_died", { filter = { entity_type = "skeleton" } }, function(ctx, event)

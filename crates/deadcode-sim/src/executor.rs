@@ -588,7 +588,6 @@ pub fn execute_unit(
             // --- Action instructions (consume tick) ---
             Instruction::ActionCustom(name) => {
                 let name = name.clone();
-                // Pop N args from stack (N from custom command registry).
                 let num_args = world.custom_command_arg_counts
                     .get(&name)
                     .copied()
@@ -597,11 +596,29 @@ pub fn execute_unit(
                 for _ in 0..num_args {
                     args.push(pop(&mut state.stack)?);
                 }
-                args.reverse(); // Args were pushed left-to-right, popped in reverse.
+                args.reverse();
                 state.yielded = true;
                 return Ok(Some(UnitAction::Custom { name, args }));
             }
+            Instruction::QueryCustom(name) => {
+                let name = name.clone();
+                let num_args = world.custom_command_arg_counts
+                    .get(&name)
+                    .copied()
+                    .unwrap_or(0);
+                let mut args = Vec::with_capacity(num_args);
+                for _ in 0..num_args {
+                    args.push(pop(&mut state.stack)?);
+                }
+                args.reverse();
+                // Do NOT set yielded — query is instant.
+                return Ok(Some(UnitAction::Query { name, args }));
+            }
             // --- Misc ---
+            Instruction::Wait => {
+                state.yielded = true;
+                return Ok(Some(UnitAction::Wait));
+            }
             Instruction::Print => {
                 let val = pop(&mut state.stack)?;
                 // Events are collected by the world; we store the output text.

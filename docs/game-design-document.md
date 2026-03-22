@@ -49,7 +49,7 @@ The simulation is fully deterministic — same code produces the same result eve
 3. **Observe** — Units move, attack, cast spells, and interact based on your code
 4. **Iterate** — Modify scripts, experiment with different strategies, optimize resource usage
 5. **Unlock** — Gain access to new commands and resources as you progress
-6. **Expand** — Summon more minions, each running their own brain scripts autonomously
+6. **Expand** — Summon more minions, each running their own soul scripts autonomously
 
 ### Resource Management
 
@@ -64,10 +64,10 @@ The simulation is fully deterministic — same code produces the same result eve
 
 A custom Python-like language with:
 - Variables, functions, loops, conditionals
-- Dynamic types: int, float, string, bool, None, list, dict, tuple, entity references
+- Dynamic types: int, string, bool, None, list, dict, entity references
 - Python-style floor division and modulo semantics
 - No imports or boilerplate — scripts execute from the first line
-- Brain scripts implicitly loop (restart from the top each tick when they halt)
+- Soul scripts implicitly loop (restart from the top each tick when they halt)
 
 ### Command System
 
@@ -82,13 +82,13 @@ All game commands are defined in Lua via `mod.command()`. There are no hardcoded
 ### Entity System
 
 - **Summoner** — The player's main entity (100 HP). Runs the player's scripts.
-- **Minions** — Spawned entities (e.g., skeletons with 5 HP) that run autonomous brain scripts.
-- **Composable types** — Entities are composed of type tags (e.g., `["unit", "skeleton"]`). Types provide stats, commands, and brain scripts. Stats merge in type order with entity-level overrides.
+- **Minions** — Spawned entities (e.g., skeletons with 5 HP) that run autonomous soul scripts.
+- **Composable types** — Entities are composed of type tags (e.g., `["unit", "skeleton"]`). Types provide stats, commands, and soul scripts. Stats merge in type order with entity-level overrides.
 
-### Brain Scripts
+### Soul Scripts
 
-Each entity type can have a `.gs` brain script that runs autonomously:
-- Brain scripts implicitly loop — no `while True:` needed
+Each entity type can have a `.gs` soul script that runs autonomously:
+- Soul scripts implicitly loop — no `while True:` needed
 - `self` refers to the executing entity
 - Scripts are hot-reloaded on save — edit and see results instantly
 - Error recovery: if a script crashes, it resets and retries next tick
@@ -103,7 +103,7 @@ Temporary stat modifiers with:
 ### Trigger System
 
 Event-driven reactive rules:
-- Events: entity_died, entity_spawned, entity_damaged, resource_changed, command_used, tick_interval, channel_completed, channel_interrupted
+- Events: entity_died, entity_spawned, entity_damaged, command_used, channel_completed, channel_interrupted
 - Filters narrow which events match
 - Conditions gate trigger firing
 - Effects resolve against game state
@@ -148,7 +148,7 @@ Type-based capability system:
 The game content layer is split between TOML data declarations and Lua behavior scripts:
 
 **TOML (`mod.toml`) — data declarations:**
-- **Types** — Composable type tags with stats, commands, and brain scripts
+- **Types** — Composable type tags with stats, commands, and soul scripts
 - **Entities** — Define new entity types with stats, sprites, and composable type tags
 - **Resources** — World-level integer resources with availability gating
 - **Buffs** — Temporary stat modifier definitions (duration, modifiers, stacking)
@@ -175,7 +175,7 @@ No Rust or TypeScript knowledge required to create mods — only TOML and Lua. S
 - Deterministic simulation engine with stack-based IR executor
 - Desktop strip rendering with transparent overlay
 - Integrated code editor with syntax highlighting, autocomplete, debugging
-- Entity system with composable types and brain scripts
+- Entity system with composable types and soul scripts
 - Resource management (mana, bones)
 - Custom command system with phased abilities
 - Buff/debuff system
@@ -188,7 +188,7 @@ No Rust or TypeScript knowledge required to create mods — only TOML and Lua. S
 ### Planned
 
 - Content expansion (more entity types, commands, progression)
-- Data-driven entity behaviors as an alternative to brain scripts
+- Data-driven entity behaviors as an alternative to soul scripts
 - Additional game mechanics and win conditions
 - Steam/itch.io distribution
 

@@ -308,10 +308,8 @@ impl mlua::UserData for CtxUserData {
 
         methods.add_method("set_available_resources", |lua, _this, names: mlua::Table| {
             let mut res_names = Vec::new();
-            for pair in names.sequence_values::<String>() {
-                if let Ok(name) = pair {
-                    res_names.push(name);
-                }
+            for name in names.sequence_values::<String>().flatten() {
+                res_names.push(name);
             }
             with_world(lua, |w| w.set_available_resources(&res_names));
             Ok(())
@@ -549,9 +547,9 @@ pub fn collect_command_metadata(lua: &Lua) -> Vec<(String, CommandMeta)> {
     // Iterate through all globals looking for __mod_*_meta keys.
     if let Ok(globals) = lua.globals().pairs::<String, Value>().collect::<Result<Vec<_>, _>>() {
         for (key, value) in &globals {
-            if key.starts_with("__mod_") && key.ends_with("_meta") {
-                if let Value::Table(meta_table) = value {
-                    if let Ok(pairs) = meta_table.pairs::<String, mlua::Table>().collect::<Result<Vec<_>, _>>() {
+            if key.starts_with("__mod_") && key.ends_with("_meta")
+                && let Value::Table(meta_table) = value
+                    && let Ok(pairs) = meta_table.pairs::<String, mlua::Table>().collect::<Result<Vec<_>, _>>() {
                         for (cmd_name, meta) in pairs {
                             let description = meta.get::<String>("description").unwrap_or_default();
                             let unlisted = meta.get::<bool>("unlisted").unwrap_or(false);
@@ -567,15 +565,11 @@ pub fn collect_command_metadata(lua: &Lua) -> Vec<(String, CommandMeta)> {
                                 .unwrap_or_default();
                             let kind = match meta.get::<String>("kind").unwrap_or_default().as_str() {
                                 "query" => deadcode_sim::CommandKind::Query,
-                                "action" => deadcode_sim::CommandKind::Action,
-                                "instant" => deadcode_sim::CommandKind::Instant,
                                 _ => deadcode_sim::CommandKind::Custom,
                             };
                             result.push((cmd_name, CommandMeta { description, args, unlisted, kind }));
                         }
                     }
-                }
-            }
         }
     }
 

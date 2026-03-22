@@ -74,14 +74,13 @@ fn match_event(
     match (event_name, event) {
         ("entity_died", SimEvent::EntityDied { entity_id, name, killer_id, owner_id }) => {
             // Check entity_type filter.
-            if let Some(filter) = filter {
-                if let Ok(filter_type) = filter.get::<String>("entity_type") {
+            if let Some(filter) = filter
+                && let Ok(filter_type) = filter.get::<String>("entity_type") {
                     // We don't have type info in the event directly — would need
                     // world access to check. For now, match by name prefix.
                     // TODO: pass types in event data for proper filtering.
                     let _ = filter_type;
                 }
-            }
             let table = lua.create_table().unwrap();
             let _ = table.set("entity_id", entity_id.0 as i64);
             let _ = table.set("name", name.as_str());
@@ -90,11 +89,9 @@ fn match_event(
             (true, Value::Table(table))
         }
         ("entity_spawned", SimEvent::EntitySpawned { entity_id, entity_type, name, position, spawner_id }) => {
-            if let Some(filter) = filter {
-                if let Ok(filter_type) = filter.get::<String>("entity_type") {
-                    if *entity_type != filter_type { return (false, Value::Nil); }
-                }
-            }
+            if let Some(filter) = filter
+                && let Ok(filter_type) = filter.get::<String>("entity_type")
+                    && *entity_type != filter_type { return (false, Value::Nil); }
             let table = lua.create_table().unwrap();
             let _ = table.set("entity_id", entity_id.0 as i64);
             let _ = table.set("entity_type", entity_type.as_str());
@@ -112,22 +109,18 @@ fn match_event(
             (true, Value::Table(table))
         }
         ("command_used", SimEvent::CommandUsed { entity_id, command }) => {
-            if let Some(filter) = filter {
-                if let Ok(filter_cmd) = filter.get::<String>("command") {
-                    if *command != filter_cmd { return (false, Value::Nil); }
-                }
-            }
+            if let Some(filter) = filter
+                && let Ok(filter_cmd) = filter.get::<String>("command")
+                    && *command != filter_cmd { return (false, Value::Nil); }
             let table = lua.create_table().unwrap();
             let _ = table.set("entity_id", entity_id.0 as i64);
             let _ = table.set("command", command.as_str());
             (true, Value::Table(table))
         }
         ("channel_completed", SimEvent::ChannelCompleted { entity_id, command }) => {
-            if let Some(filter) = filter {
-                if let Ok(filter_cmd) = filter.get::<String>("command") {
-                    if *command != filter_cmd { return (false, Value::Nil); }
-                }
-            }
+            if let Some(filter) = filter
+                && let Ok(filter_cmd) = filter.get::<String>("command")
+                    && *command != filter_cmd { return (false, Value::Nil); }
             let table = lua.create_table().unwrap();
             let _ = table.set("entity_id", entity_id.0 as i64);
             let _ = table.set("command", command.as_str());

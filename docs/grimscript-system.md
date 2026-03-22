@@ -60,9 +60,9 @@ Each entity with a script has a `ScriptState`:
 - `call_stack` — function call frames
 - `step_limit_hit` — true if the entity hit the 10k step limit this tick (triggers warning event)
 
-Brain scripts loop via a `brain()` function. `CompiledScript.brain_entry_pc` stores the PC of the auto-generated `Call brain()` instruction. When the script halts:
-- If `brain_entry_pc` is `Some(pc)`: `reset_for_brain_loop(pc)` — jump to brain(), preserve global variables
-- If `brain_entry_pc` is `None`: script halts (no looping)
+Soul scripts loop via a `soul()` function. `CompiledScript.soul_entry_pc` stores the PC of the auto-generated `Call soul()` instruction. When the script halts:
+- If `soul_entry_pc` is `Some(pc)`: `reset_for_soul_loop(pc)` — jump to soul(), preserve global variables
+- If `soul_entry_pc` is `None`: script halts (no looping)
 - On error: `reset_for_restart(entity_id)` — full reset to PC=0, clear all variables
 
 Per tick, the world:
@@ -71,7 +71,7 @@ Per tick, the world:
 3. For each entity: processes active channel (if present) or takes script state out, calls `executor::execute_unit()`
 4. Executor steps instructions until one of:
    - **Action instruction** (move, attack, etc.) → yields, tick consumed
-   - **Instant action** (print, gain_resource, try_spend_resource) → handled by `try_handle_instant()`, re-enters executor without consuming tick
+   - **Instant action** (print, query commands) → handled by `try_handle_instant()`, re-enters executor without consuming tick
    - **Halt** → script finished
    - **Error** → script stops
    - **10,000 steps** → auto-yields with implicit `wait()` and emits a warning: `[warning] Script exceeded step limit (10000 instructions) — auto-yielded`
@@ -92,9 +92,10 @@ Per tick, the world:
 | Control flow | No | Jump, JumpIfFalse, JumpIfTrue |
 | Functions | No | Call, Return |
 | Data structures | No | BuildList, BuildDict, Index, StoreIndex, GetAttr |
-| Stdlib | No | Len, Abs, Range, IntCast, StrCast, TypeOf, Min2, Max2, ListAppend, DictKeys/Values/Items/Get, Percent, Scale |
+| Stdlib | No | Len, Abs, Range, IntCast, StrCast, TypeOf, Min2, Max2, ListAppend, DictKeys/Values/Items/Get, Percent, Scale, Random |
 | Locals | No | LoadLocal, StoreLocal (function-scoped variables) |
-| **Actions** | **Yes** | ActionCustom(name) |
+| **Actions** | **Yes** | ActionCustom(name), Wait |
+| **Queries** | **No** | QueryCustom(name) |
 | Misc | No | Print, Halt |
 
 48 total instruction variants. All hardcoded game builtins (queries, actions, instant effects) were removed in S-36. All game commands now compile to `ActionCustom(name)` and are dispatched to Lua via the `CommandHandler` trait.
@@ -122,7 +123,7 @@ Per tick, the world:
 Command availability is controlled by type capability gating.
 
 **Stdlib classification** (`grimscript-lang/src/builtins.rs`):
-- `is_stdlib(name)` — 12 stdlib functions: `print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`. Always available, bypass the gate entirely. Note: `float()` is classified as stdlib but deliberately produces a compile error in the sim.
+- `is_stdlib(name)` — 14 stdlib functions: `print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`, `random`, `wait`. Always available, bypass the gate entirely. Note: `float()` is classified as stdlib but deliberately produces a compile error in the sim.
 
 **All non-stdlib commands** are defined in Lua via `mod.command()` in `mod.lua`. All hardcoded game builtins (queries, actions, instant effects) have been removed (S-36).
 
@@ -252,10 +253,10 @@ Events are how the sim communicates state changes to the rendering layer.
 | Language | `crates/grimscript-lang/src/interpreter.rs` | Tree-walking interpreter |
 | Language | `crates/grimscript-lang/src/ast.rs` | AST node types |
 | Language | `crates/grimscript-lang/src/parser.rs` | Pratt parser |
-| Sim IR | `crates/deadcode-sim/src/ir.rs` | 48 Instruction variants, CompiledScript |
+| Sim IR | `crates/deadcode-sim/src/ir.rs` | Instruction variants, CompiledScript |
 | Sim exec | `crates/deadcode-sim/src/executor.rs` | Stack machine execution |
 | Sim world | `crates/deadcode-sim/src/world.rs` | SimWorld, tick loop, events, trigger processing |
-| Sim actions | `crates/deadcode-sim/src/action.rs` | UnitAction enum (Wait/Print/Custom), resolve_action(), CommandDef, BuffDef, CommandHandler trait |
+| Sim actions | `crates/deadcode-sim/src/action.rs` | UnitAction enum (Wait/Print/Custom/Query), resolve_action(), CommandDef, BuffDef, CommandHandler trait |
 | Sim queries | `crates/deadcode-sim/src/query.rs` | Entity attribute access (GetAttr instruction) |
 | Sim entities | `crates/deadcode-sim/src/entity.rs` | SimEntity, EntityConfig, ScriptState, ActiveBuff |
 | Compiler | `crates/deadcode-sim/src/compiler/builtins.rs` | CommandMeta, stdlib classification |
@@ -277,4 +278,4 @@ Events are how the sim communicates state changes to the rendering layer.
 | Editor | `editor-ui/src/codemirror/grimscript-lang.ts` | Syntax highlighting (stdlib + commands filtered by available set) |
 | Editor state | `editor-ui/src/state/store.ts` | `availableCommands` + `commandInfo` state (set via IPC) |
 | Scripts | `crates/deadcode-editor/src/scripts.rs` | Script types, file storage |
-| Parity tests | `crates/deadcode-app/tests/interpreter_compiler_parity.rs` | Interpreter vs compiler output comparison (36 tests) |
+| Parity tests | `crates/deadcode-app/tests/interpreter_compiler_parity.rs` | Interpreter vs compiler output comparison (44 tests) |

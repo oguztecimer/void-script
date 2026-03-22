@@ -5,8 +5,8 @@ GrimScript is a Python-like scripting language for controlling entities in VOID/
 ## Quick Start
 
 ```python
-# A simple brain script
-def brain():
+# A simple soul script
+def soul():
     if self.health < 50:
         defend()
     else:
@@ -361,7 +361,12 @@ self.speed
 | Function | Description |
 |----------|-------------|
 | `print(args...)` | Print values separated by spaces. Instant (no tick consumed). |
-| `wait()` | Do nothing for one tick. |
+
+### Control
+
+| Function | Description |
+|----------|-------------|
+| `wait()` | Do nothing for one tick. Consumes the tick. |
 
 ```python
 print("health:", self.health)
@@ -428,29 +433,29 @@ random(1, 7)         # 1, 2, 3, 4, 5, or 6
 
 ---
 
-## Brain Scripts
+## Soul Scripts
 
-Entities with a brain type run a `.gs` script each tick. There are two patterns:
+Entities with a soul type run a `.gs` script each tick. There are two patterns:
 
-### With `brain()` function (recommended)
+### With `soul()` function (recommended)
 
-Top-level code runs once (initialization). The `brain()` function auto-loops each tick:
+Top-level code runs once (initialization). The `soul()` function auto-loops each tick:
 
 ```python
 # Top-level: runs once
 target_pos = 100
 
 # Runs every tick
-def brain():
+def soul():
     if self.pos < target_pos:
         walk_right()
     else:
         walk_left()
 ```
 
-Global variables persist across ticks. The brain function's local variables reset each loop.
+Global variables persist across ticks. The soul function's local variables reset each loop.
 
-### Without `brain()`
+### Without `soul()`
 
 The entire script runs once and halts. Useful for one-shot setup scripts.
 
@@ -461,7 +466,7 @@ The entire script runs once and halts. Useful for one-shot setup scripts.
 Commands are game actions defined by mods. Each command **consumes one tick** — the entity can only do one action per tick.
 
 ```python
-def brain():
+def soul():
     attack()         # takes one tick
     walk_right()     # takes one tick (next tick)
     defend()         # takes one tick (tick after that)
@@ -474,7 +479,7 @@ Available commands depend on the entity's type. Check the mod documentation for 
 ## Execution Model
 
 - The simulation runs at **30 ticks per second**.
-- Each tick, every entity executes its brain script until it performs an action (which consumes the tick) or halts.
+- Each tick, every entity executes its soul script until it performs an action (which consumes the tick) or halts.
 - `print()` is instant — it does not consume a tick. You can call it freely for debugging.
 - If a script errors, it automatically recovers next tick (resets and restarts).
 - Scripts have a **10,000 instruction step limit** per tick to prevent infinite loops.
@@ -493,7 +498,7 @@ mode = Mode.PATROL
 patrol_min = 50
 patrol_max = 200
 
-def brain():
+def soul():
     if self.health < 20:
         mode = Mode.FLEE
 

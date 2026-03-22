@@ -93,6 +93,12 @@ pub struct UnitManager {
     pub world_width: u32,
 }
 
+impl Default for UnitManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UnitManager {
     pub fn new() -> Self {
         Self {

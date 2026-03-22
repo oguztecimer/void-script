@@ -8,6 +8,24 @@
 - **L-01: Enum definitions** — New `enum Name:` block syntax for defining named integer enumerations. Members auto-increment from 0; explicit values supported (`DEAD = 10`). Enum members accessed via `Name.MEMBER` syntax, resolving to `Int` values. Enums are collected in a first pass (like functions) so they're available everywhere in the script.
 - **L-02: Match/case statements** — New `match subject:` / `case pattern:` syntax for value-based dispatching. Supported patterns: literals (int, string, bool, None, negative int), enum members (`State.IDLE`), wildcard (`_`), and OR patterns (`case 1 | 2 | State.DEAD:`). First-match-wins semantics, no fall-through. Compiles to comparison+jump chains (no new IR instructions needed). Bare name capture patterns are intentionally not supported in v1.
 
+### Code Quality
+
+#### Fixed
+- **CQ-01: Removed dead `CommandKind` variants** — `CommandKind::Action` and `CommandKind::Instant` were vestigial from before S-36 removed all hardcoded builtins. They were accepted in Lua `mod.command()` opts but silently treated as `Custom`, confusing modders. Now only `Query` and `Custom` variants exist. Lua `kind = "action"` or `kind = "instant"` now map to `Custom`.
+- **CQ-02: Removed unused import** — `CommandMeta` import in `interpreter_compiler_parity.rs` was unused.
+- **CQ-03: Optimized trigger event processing** — Replaced `self.events.clone()` with `std::mem::take()` in the tick loop's trigger processing step, avoiding an allocation-heavy clone of all tick events.
+- **CQ-04: Resolved all 75 clippy warnings** — Applied `cargo clippy --fix` (61 auto-fixes across 11 files) plus 14 manual fixes: collapsible if-let chains, `contains_key`+`insert` → entry API, `map_or` → `is_some_and`, redundant match, `len >= 1` → `!is_empty`, Default derive, doc formatting, struct init syntax.
+
+### Documentation
+
+#### Fixed
+- **DOC-01: Completed brain → soul rename in docs** — 30+ occurrences of stale "brain" terminology updated to "soul" across 5 doc files (`grimscript.md`, `grimscript-system.md`, `modding.md`, `game-design-document.md`, `TODO.md`). CHANGELOG entries are historical and intentionally unchanged.
+- **DOC-02: Fixed stdlib list inconsistencies** — All 4 doc files now list the correct 14 stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`, `random`, `wait`). Added `float` to CLAUDE.md, `random`+`wait` to grimscript-system.md and modding.md. Moved `wait()` from "Output" to "Control" section in grimscript.md.
+- **DOC-03: Fixed IR instruction table** — Added `Random` to stdlib row, `Wait` to actions row, new `Queries` row with `QueryCustom`. Updated `UnitAction` references to include `Query`.
+- **DOC-04: Fixed stale references** — `HashMap` → `IndexMap` in CLAUDE.md entity description. `[initial].effects` → `mod.on_init()` in modding.md. `CommandHandlerResult` variants updated (`Handled` → `Completed`, added `Error`). `CommandKind` variants updated (`Query, Custom` only). Removed non-existent trigger events (`resource_changed`, `tick_interval`) from GDD. Removed `float`/`tuple` from GDD sim data types. Added `channel_interrupted` to trigger event lists.
+- **DOC-05: Updated counts** — Test count 177 → 211 in CLAUDE.md. Parity test count 36 → 44 in grimscript-system.md.
+- **DOC-06: Documented new features** — Added `ctx:set_stat()` to modding.md ctx API table. Updated core mod commands list with `walk_left`, `walk_right`, `get_entities`, `tick`, `set_var`.
+
 ### Simulation Engine
 
 #### Added

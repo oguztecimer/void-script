@@ -7,21 +7,13 @@ use crate::world::{SimEvent, SimWorld};
 /// The kind of a command: how it compiles and executes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum CommandKind {
     /// Instant query — returns a value, does not consume tick. Supports method call syntax and implicit self.
     Query,
-    /// Built-in action — consumes tick, executor yields.
-    Action,
-    /// Instant effect — returns a value, does not consume tick, but mutates world state via tick loop.
-    Instant,
-    /// Data-driven custom command — consumes tick.
+    /// Custom command — consumes tick, dispatched to Lua via CommandHandler.
+    #[default]
     Custom,
-}
-
-impl Default for CommandKind {
-    fn default() -> Self {
-        CommandKind::Custom
-    }
 }
 
 /// An action a unit wants to perform this tick.
@@ -49,7 +41,7 @@ pub struct CommandDef {
     /// If true, the command is hidden from `list_commands` output.
     #[serde(default)]
     pub unlisted: bool,
-    /// The kind of command: query, action, instant, or custom (default).
+    /// The kind of command: query or custom (default).
     #[serde(default)]
     pub kind: CommandKind,
     /// If true, 0-arg calls auto-push `self` as first argument (queries only).

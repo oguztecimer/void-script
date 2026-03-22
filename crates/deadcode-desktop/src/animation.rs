@@ -115,12 +115,14 @@ impl AnimationPlayer {
     ///
     /// # Panics
     ///
-    /// Panics if:
+    /// Load the embedded skeleton atlas (default).
+    ///
+    /// # Panics
+    ///
     /// - The PNG cannot be decoded
     /// - The JSON is malformed
     /// - Any animation frame rect falls outside the atlas bounds
     /// - The "idle" animation is not present in the metadata
-    /// Load the embedded skeleton atlas (default).
     pub fn new() -> Self {
         Self::from_bytes(SKELETON_ATLAS_PNG, &skeleton_atlas_json())
     }
@@ -292,8 +294,7 @@ impl AnimationPlayer {
                 .post_translate(dst_x as f32, dst_y as f32)
         };
 
-        let mut paint = PixmapPaint::default();
-        paint.opacity = opacity;
+        let paint = PixmapPaint { opacity, ..PixmapPaint::default() };
 
         canvas.draw_pixmap(
             0,
@@ -320,8 +321,7 @@ impl AnimationPlayer {
                 .post_translate(dst_x as f32, (dst_y + sh * 2) as f32)
         };
 
-        let mut paint = PixmapPaint::default();
-        paint.opacity = opacity;
+        let paint = PixmapPaint { opacity, ..PixmapPaint::default() };
 
         canvas.draw_pixmap(
             0,

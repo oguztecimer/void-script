@@ -43,8 +43,8 @@ impl Environment {
     /// If not found anywhere, set in the current scope.
     pub fn update(&mut self, name: String, value: Value) {
         for scope in self.scopes.iter_mut().rev() {
-            if scope.contains_key(&name) {
-                scope.insert(name, value);
+            if let std::collections::hash_map::Entry::Occupied(mut e) = scope.entry(name.clone()) {
+                e.insert(value);
                 return;
             }
         }

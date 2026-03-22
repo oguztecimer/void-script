@@ -181,14 +181,13 @@ impl SimWorld {
 
     /// Check if a resource is available for use. Returns Err if not available.
     pub fn check_resource_available(&self, name: &str) -> Result<(), crate::error::SimError> {
-        if let Some(ref set) = self.available_resources {
-            if !set.contains(name) {
+        if let Some(ref set) = self.available_resources
+            && !set.contains(name) {
                 return Err(crate::error::SimError::new(
                     crate::error::SimErrorKind::Runtime,
                     format!("resource '{}' is not available yet", name),
                 ));
             }
-        }
         Ok(())
     }
 
@@ -478,7 +477,7 @@ impl SimWorld {
         let mut grimoire_state = self.grimoire.take();
         if let (Some(state), Some(eid)) = (&mut grimoire_state, grimoire_eid) {
             // Process active channel on the grimoire entity first.
-            let has_channel = self.get_entity(eid).map_or(false, |e| e.active_channel.is_some());
+            let has_channel = self.get_entity(eid).is_some_and(|e| e.active_channel.is_some());
             if has_channel {
                 // Let channel processing happen in the normal entity loop (step 4).
                 // Just skip grimoire script execution this tick.
@@ -554,12 +553,11 @@ impl SimWorld {
             .iter()
             .filter(|e| e.is_ready() && (e.script_state.is_some() || e.active_channel.is_some()))
             .filter(|e| {
-                if let Some(mid) = main_eid {
-                    if e.id == mid {
+                if let Some(mid) = main_eid
+                    && e.id == mid {
                         // Only include grimoire entity if it has an active channel.
                         return e.active_channel.is_some();
                     }
-                }
                 true
             })
             .map(|e| e.id)
@@ -571,7 +569,7 @@ impl SimWorld {
 
         for &eid in &scriptable_ids {
             // --- Channel processing (Lua coroutines) ---
-            let has_channel = self.get_entity(eid).map_or(false, |e| e.active_channel.is_some());
+            let has_channel = self.get_entity(eid).is_some_and(|e| e.active_channel.is_some());
 
             if has_channel {
                 let mut lua_ch = self.get_entity_mut(eid).unwrap().active_channel.take().unwrap();
@@ -817,7 +815,7 @@ impl SimWorld {
 
         // 8. Process triggers via command handler (Lua).
         if self.command_handler.is_some() {
-            let tick_events = self.events.clone();
+            let mut tick_events = std::mem::take(&mut self.events);
             let mut handler = self.command_handler.take().unwrap();
             // Use a dummy caster — the handler decides which entity to use.
             let dummy_caster = self.entities.iter().find(|e| e.alive).map(|e| e.id)
@@ -825,8 +823,9 @@ impl SimWorld {
             let mut access = WorldAccess::new_from_world_ptr(self, dummy_caster);
             let trigger_events = handler.process_triggers(&mut access, &tick_events);
             let lua_events = std::mem::take(&mut access.events);
-            self.events.extend(lua_events);
-            self.events.extend(trigger_events);
+            tick_events.extend(lua_events);
+            tick_events.extend(trigger_events);
+            self.events = tick_events;
             self.command_handler = Some(handler);
         }
     }
@@ -850,8 +849,8 @@ impl SimWorld {
 
             // Run per_tick callbacks via Lua handler.
             for name in &buff_names {
-                if self.buff_registry.contains_key(name) {
-                    if let Some(mut handler) = self.command_handler.take() {
+                if self.buff_registry.contains_key(name)
+                    && let Some(mut handler) = self.command_handler.take() {
                         let mut access = WorldAccess::new_from_world_ptr(self, eid);
                         let events = handler.buff_callback(
                             &mut access, eid, name,
@@ -862,7 +861,6 @@ impl SimWorld {
                         self.events.extend(events);
                         self.command_handler = Some(handler);
                     }
-                }
             }
 
             // Decrement durations and collect expired buffs.
@@ -1147,7 +1145,7 @@ impl<'a> WorldAccess<'a> {
     }
 
     pub fn is_alive(&self, target_id: EntityId) -> bool {
-        self.world.get_entity(target_id).map_or(false, |e| e.alive)
+        self.world.get_entity(target_id).is_some_and(|e| e.alive)
     }
 
     pub fn distance(&self, a: EntityId, b: EntityId) -> i64 {
@@ -1158,11 +1156,11 @@ impl<'a> WorldAccess<'a> {
 
     pub fn has_buff(&self, target_id: EntityId, buff: &str) -> bool {
         self.world.get_entity(target_id)
-            .map_or(false, |e| e.active_buffs.iter().any(|b| b.name == buff))
+            .is_some_and(|e| e.active_buffs.iter().any(|b| b.name == buff))
     }
 
     pub fn has_type(&self, target_id: EntityId, type_name: &str) -> bool {
-        self.world.get_entity(target_id).map_or(false, |e| e.has_type(type_name))
+        self.world.get_entity(target_id).is_some_and(|e| e.has_type(type_name))
     }
 
     pub fn position(&self, target_id: EntityId) -> i64 {
@@ -1219,7 +1217,7 @@ impl<'a> WorldAccess<'a> {
             if let Some(idx) = existing {
                 if buff_def.stackable {
                     let at_max = buff_def.max_stacks > 0
-                        && self.world.get_entity(target_id).map_or(true, |e| e.active_buffs[idx].stacks >= buff_def.max_stacks);
+                        && self.world.get_entity(target_id).is_none_or(|e| e.active_buffs[idx].stacks >= buff_def.max_stacks);
                     if !at_max {
                         crate::action::apply_buff_modifiers(self.world, target_id, &buff_def);
                         if let Some(entity) = self.world.get_entity_mut(target_id) {
@@ -1227,10 +1225,8 @@ impl<'a> WorldAccess<'a> {
                             entity.active_buffs[idx].remaining_ticks = dur;
                         }
                     }
-                } else {
-                    if let Some(entity) = self.world.get_entity_mut(target_id) {
-                        entity.active_buffs[idx].remaining_ticks = dur;
-                    }
+                } else if let Some(entity) = self.world.get_entity_mut(target_id) {
+                    entity.active_buffs[idx].remaining_ticks = dur;
                 }
             } else {
                 crate::action::apply_buff_modifiers(self.world, target_id, &buff_def);

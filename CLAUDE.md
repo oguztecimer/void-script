@@ -50,7 +50,7 @@ Editor UI is embedded into the Rust binary via `rust-embed` in `deadcode-editor/
 ## Testing
 
 ```bash
-cargo test                          # All Rust tests (177 tests)
+cargo test                          # All Rust tests (211 tests)
 cargo test -p deadcode-sim          # Sim engine + compiler tests
 cargo test -p grimscript-lang       # Language crate only
 cargo test -p deadcode-app --test interpreter_compiler_parity  # Parity tests
@@ -75,7 +75,7 @@ src/
   rng.rs          — SplitMix64 PRNG + Fisher-Yates shuffle (deterministic)
   value.rs        — SimValue: Int, Bool, Str, None, List, Dict(IndexMap), EntityRef (no floats)
   error.rs        — SimError types (SimErrorKind: TypeError, DivisionByZero, IndexOutOfBounds, KeyNotFound, EntityNotFound, StackUnderflow, InvalidVariable, StackOverflow, Overflow, StepLimitExceeded, Runtime)
-  entity.rs       — SimEntity (unified stats HashMap, types: Vec<String>, owner: Option<EntityId>), EntityId, EntityConfig, ScriptState (incl. step_limit_hit, error recovery), CallFrame, spawn_ticks_remaining
+  entity.rs       — SimEntity (unified stats IndexMap, types: Vec<String>, owner: Option<EntityId>), EntityId, EntityConfig, ScriptState (incl. step_limit_hit, error recovery), CallFrame, spawn_ticks_remaining
   ir.rs           — 48 stack-based Instruction variants, CompiledScript, FunctionEntry
   executor.rs     — Stack machine: steps IR until action/halt/error, 10k step limit per tick (warns on limit hit)
   world.rs        — SimWorld: entity storage, tick() loop (grimoire + entity shuffle), event collection, snapshots, global resources, WorldAccess API, entity_types_registry
@@ -104,7 +104,7 @@ src/
 
 **Library files:** Mods can provide `.grim` files via `commands.libraries` in `mod.toml`. Library source is loaded at mod time, concatenated across mods (in load order), and prepended to player scripts before compilation. Functions defined in libraries are available in player scripts as if defined at the top. Subject to the same command gating. Flat namespace, first-loaded-wins.
 
-**Available commands:** Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `str`, `type`, `percent`, `scale`, `random`, `wait`) are always available.
+**Available commands:** Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`, `random`, `wait`) are always available.
 
 **Mod hot-reload:** The app polls `mod.lua` files every 1 second (mtime comparison). When changed, the mod is automatically reloaded via `CommandHandler::reload_mod()` — clears old registrations, re-executes the Lua source, and re-registers command metadata. Status messages appear in the editor console. Note: `float()` is classified as stdlib but deliberately produces a compile error in the sim ("float() is not supported in simulation mode"). All other commands are defined in Lua via `mod.command()` in `mod.lua`. The compiler receives command metadata via `HashMap<String, CommandMeta>` and an `available_commands: Option<HashSet<String>>` for type-based gating. In **dev mode**, all commands are available (gate bypassed).
 
@@ -120,7 +120,7 @@ src/
 
 **Unified entity stats:** All entity stats live in a single `SimEntity.stats: IndexMap<String, i64>` (deterministic iteration order), accessed via `stat(&self, name) -> i64` (returns 0 if unset), `set_stat(&mut self, name, value)`, and `clamp_stat(&mut self, name)` (clamps to `[0, max_{name}]` if a max exists). There are **no built-in default stats** — entities start with an empty stats map; all stats come from `EntityConfig` applied by mods. `EntityConfig` contains `stats: IndexMap<String, i64>`; `apply_config()` auto-sets `max_health`/`max_shield` when health/shield are defined without explicit max values. In `mod.toml`, entity stats merge from types (in type order) then entity-level overrides. Stats are accessible via entity attribute access (e.g. `entity.armor` via the GetAttr instruction) and Lua `ctx:get_stat()`/`ctx:modify_stat()`.
 
-**Event triggers:** Mods define reactive rules in Lua via `mod.on(event, opts, handler)`. Events include `entity_died`, `entity_spawned`, `entity_damaged`, `command_used`, `channel_completed`. The Lua handler receives event data (entity_id, killer_id, etc.) and a `ctx` for world access. Trigger processing occurs at the end of each tick (step 8) via `CommandHandler::process_triggers()`.
+**Event triggers:** Mods define reactive rules in Lua via `mod.on(event, opts, handler)`. Events include `entity_died`, `entity_spawned`, `entity_damaged`, `command_used`, `channel_completed`, `channel_interrupted`. The Lua handler receives event data (entity_id, killer_id, etc.) and a `ctx` for world access. Trigger processing occurs at the end of each tick (step 8) via `CommandHandler::process_triggers()`.
 
 **Unified execution:** The sim runs continuously from game open. Soul scripts are compiled and assigned via `compile_and_assign_all_souls()` at startup (after script store init and initial effects flush) and per-entity via `compile_and_assign_entity_soul()` when entities spawn during gameplay. The caller pre-scans the soul type's source for a `soul()` function via `source_defines_function()` and passes `enable_soul_loop` to the compiler. Saving a type `.gs` file triggers auto-reload: recompiles and hot-swaps all affected entities' `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). Saving an empty soul script clears the entity's `script_state` so it stops executing. The grimoire (`grimoire.gs`) runs with a special "grimoire" entity before the entity shuffle each tick. Terminal commands execute against the grimoire. The "grimoire" type is always treated as a soul regardless of the `soul` flag in `mod.toml`.
 

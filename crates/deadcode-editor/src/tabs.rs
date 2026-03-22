@@ -31,11 +31,10 @@ impl EditorWindowState {
             self.tabs.remove(idx);
             if self.tabs.is_empty() {
                 self.active_tab_index = None;
-            } else if let Some(active) = self.active_tab_index {
-                if active >= self.tabs.len() {
+            } else if let Some(active) = self.active_tab_index
+                && active >= self.tabs.len() {
                     self.active_tab_index = Some(self.tabs.len() - 1);
                 }
-            }
         }
     }
 

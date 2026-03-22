@@ -86,15 +86,13 @@ impl Interpreter {
             return Ok(());
         }
         // All non-stdlib commands are checked against available_commands if set.
-        if self.custom_commands.contains(name) {
-            if let Some(ref set) = self.available_commands {
-                if !set.contains(name) {
-                    return Err(GrimScriptError::runtime(
-                        line,
-                        format!("'{name}' is not available yet"),
-                    ));
-                }
-            }
+        if self.custom_commands.contains(name)
+            && let Some(ref set) = self.available_commands
+            && !set.contains(name) {
+                return Err(GrimScriptError::runtime(
+                    line,
+                    format!("'{name}' is not available yet"),
+                ));
         }
         Ok(())
     }
@@ -765,15 +763,11 @@ impl Interpreter {
                 }
 
                 // Fallback: evaluate the expression as a callable value
-                let func_val = self.eval_expr(func)?;
-                match func_val {
-                    _ => {
-                        Err(GrimScriptError::type_error(
-                            expr.line,
-                            "object is not callable",
-                        ))
-                    }
-                }
+                let _func_val = self.eval_expr(func)?;
+                Err(GrimScriptError::type_error(
+                    expr.line,
+                    "object is not callable",
+                ))
             }
 
             ExprKind::Index { object, index } => {
@@ -784,8 +778,8 @@ impl Interpreter {
 
             ExprKind::Attribute { object, attr } => {
                 // Check if this is an enum member access (e.g. State.IDLE)
-                if let ExprKind::Name(name) = &object.kind {
-                    if let Some(enum_map) = self.enums.get(name) {
+                if let ExprKind::Name(name) = &object.kind
+                    && let Some(enum_map) = self.enums.get(name) {
                         if let Some(&val) = enum_map.get(attr) {
                             return Ok(Value::Int(val));
                         }
@@ -793,7 +787,6 @@ impl Interpreter {
                             expr.line,
                             format!("'{name}' has no member '{attr}'"),
                         ));
-                    }
                 }
                 let obj = self.eval_expr(object)?;
                 self.get_attribute(&obj, attr, expr.line)
@@ -1542,7 +1535,7 @@ impl Interpreter {
                 )),
             },
             Value::Tuple(items) => match attr {
-                "x" if items.len() >= 1 => Ok(items[0].clone()),
+                "x" if !items.is_empty() => Ok(items[0].clone()),
                 "y" if items.len() >= 2 => Ok(items[1].clone()),
                 _ => Err(GrimScriptError::runtime(
                     line,

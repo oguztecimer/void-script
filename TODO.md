@@ -45,11 +45,11 @@ Several compiler scaffolding items were removed to eliminate warnings. Re-add th
 
 **Priority: Medium**
 
-Entities now have brain scripts (type `.gs` files) that give them autonomous behavior. The remaining work is adding data-driven behaviors in `mod.toml` for modders who want simple AI without writing GrimScript.
+Entities now have soul scripts (type `.gs` files) that give them autonomous behavior. The remaining work is adding data-driven behaviors in `mod.toml` for modders who want simple AI without writing GrimScript.
 
 ### Planned work
 
-- Data-driven behavior system in `mod.toml` as an alternative to brain scripts
+- Data-driven behavior system in `mod.toml` as an alternative to soul scripts
 - `[[entities.behaviors]]` section in mod.toml for simple AI patterns
 - Built-in behaviors: attack_nearest, flee_when_low, move_toward, idle
 - Data-driven periodic behaviors — interval + effects (reuse effect engine)

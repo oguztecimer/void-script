@@ -32,6 +32,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle, Win32WindowHandle, Win
 use std::num::NonZeroIsize;
 
 /// Holds the editor webview and native window.
+#[derive(Default)]
 pub struct WebViewManager {
     pub webview: Option<WebView>,
     #[cfg(target_os = "macos")]
@@ -46,20 +47,6 @@ pub struct WebViewManager {
     shake_origin: Option<(f64, f64)>,
 }
 
-impl Default for WebViewManager {
-    fn default() -> Self {
-        Self {
-            webview: None,
-            #[cfg(target_os = "macos")]
-            ns_window: None,
-            #[cfg(target_os = "windows")]
-            hwnd: None,
-            shown_once: false,
-            shake_start: None,
-            shake_origin: None,
-        }
-    }
-}
 
 impl WebViewManager {
     pub fn send_to_all(&self, msg: &RustToJs) {
@@ -115,7 +102,7 @@ impl WebViewManager {
             if let Some(ns_window) = &self.ns_window {
                 return ns_window.isVisible();
             }
-            return false;
+            false
         }
     }
 
@@ -343,8 +330,8 @@ impl WebViewManager {
         }
         #[cfg(target_os = "macos")]
         {
-            if let Some(ns_window) = &self.ns_window {
-                if !ns_window.isVisible() && !ns_window.isMiniaturized() {
+            if let Some(ns_window) = &self.ns_window
+                && !ns_window.isVisible() && !ns_window.isMiniaturized() {
                     let frame = ns_window.frame();
                     let geometry = (
                         frame.origin.x as i32,
@@ -357,7 +344,6 @@ impl WebViewManager {
                     self.shown_once = false;
                     return Some(geometry);
                 }
-            }
         }
         #[cfg(target_os = "windows")]
         {

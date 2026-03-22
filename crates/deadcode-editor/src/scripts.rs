@@ -55,8 +55,8 @@ impl ScriptStore {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "gs") {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
+                if path.extension().is_some_and(|ext| ext == "gs")
+                    && let Ok(content) = std::fs::read_to_string(&path) {
                         let name = path
                             .file_stem()
                             .unwrap_or_default()
@@ -74,17 +74,16 @@ impl ScriptStore {
                             },
                         );
                     }
-                }
             }
         }
         // Load type scripts from types/ subdirectory.
         let types_dir = dir.join("types");
-        if types_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&types_dir) {
+        if types_dir.exists()
+            && let Ok(entries) = std::fs::read_dir(&types_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.extension().map_or(false, |ext| ext == "gs") {
-                        if let Ok(content) = std::fs::read_to_string(&path) {
+                    if path.extension().is_some_and(|ext| ext == "gs")
+                        && let Ok(content) = std::fs::read_to_string(&path) {
                             let name = path
                                 .file_stem()
                                 .unwrap_or_default()
@@ -104,10 +103,8 @@ impl ScriptStore {
                                 },
                             );
                         }
-                    }
                 }
             }
-        }
     }
 
     fn infer_type(name: &str) -> ScriptType {

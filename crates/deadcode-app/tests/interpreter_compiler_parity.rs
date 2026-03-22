@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use crossbeam_channel::unbounded;
 
 use deadcode_sim::compiler;
-use deadcode_sim::compiler::CommandMeta;
 use deadcode_sim::entity::ScriptState;
 use deadcode_sim::executor;
 use deadcode_sim::value::SimValue;

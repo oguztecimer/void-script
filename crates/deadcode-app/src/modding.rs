@@ -414,8 +414,8 @@ fn load_mod_from_dir(mod_dir: &Path) -> Option<LoadedMod> {
 pub fn load_mods(mods_dir: &Path) -> Vec<LoadedMod> {
     let mut loaded = Vec::new();
 
-    if mods_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(mods_dir) {
+    if mods_dir.is_dir()
+        && let Ok(entries) = std::fs::read_dir(mods_dir) {
             let mut dirs: Vec<_> = entries
                 .flatten()
                 .filter(|e| e.path().is_dir())
@@ -428,7 +428,6 @@ pub fn load_mods(mods_dir: &Path) -> Vec<LoadedMod> {
                 }
             }
         }
-    }
 
     if loaded.is_empty() {
         eprintln!("[mod] no mods found");
@@ -673,13 +672,12 @@ pub fn collect_initial_resources(mods: &[LoadedMod]) -> CollectedResources {
     }
     // Warn when initial value exceeds cap.
     for (name, &max) in &caps {
-        if let Some(&val) = values.get(name) {
-            if val > max {
+        if let Some(&val) = values.get(name)
+            && val > max {
                 eprintln!(
                     "[mod] warning: resource '{name}' initial value ({val}) exceeds max ({max})"
                 );
             }
-        }
     }
     CollectedResources { values, caps }
 }
@@ -691,7 +689,7 @@ pub fn collect_available_resources(mods: &[LoadedMod]) -> Vec<String> {
     let mut seen = HashSet::new();
     for m in mods {
         let initial_resources = m.manifest.initial.as_ref().map(|i| &i.resources);
-        let has_explicit_list = initial_resources.map_or(false, |r| !r.is_empty());
+        let has_explicit_list = initial_resources.is_some_and(|r| !r.is_empty());
         if has_explicit_list {
             for name in initial_resources.unwrap() {
                 if seen.insert(name.clone()) {
@@ -799,7 +797,7 @@ pub fn validate_entity_defs(mods: &[LoadedMod], all_type_defs: &HashMap<String, 
 
             // Check soul count — entities with multiple soul types are rejected.
             let soul_count = types.iter()
-                .filter(|t| all_type_defs.get(*t).map_or(false, |td| td.soul))
+                .filter(|t| all_type_defs.get(*t).is_some_and(|td| td.soul))
                 .count();
             if soul_count > 1 {
                 eprintln!(
@@ -845,12 +843,11 @@ pub fn compute_effective_commands(
     let mut type_commands: HashSet<String> = HashSet::new();
     let mut any_has_commands = false;
     for t in entity_types {
-        if let Some(tdef) = all_type_defs.get(t) {
-            if !tdef.commands.is_empty() {
+        if let Some(tdef) = all_type_defs.get(t)
+            && !tdef.commands.is_empty() {
                 any_has_commands = true;
                 type_commands.extend(tdef.commands.iter().cloned());
             }
-        }
     }
     if any_has_commands { Some(type_commands) } else { None }
 }

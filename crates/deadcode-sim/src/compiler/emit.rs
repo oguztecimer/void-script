@@ -74,14 +74,13 @@ impl<'a> Compiler<'a> {
     }
 
     fn check_command_available(&self, name: &str, line: u32) -> Result<(), CompileError> {
-        if let Some(ref set) = self.available_commands {
-            if !set.contains(name) {
+        if let Some(ref set) = self.available_commands
+            && !set.contains(name) {
                 return Err(CompileError::new(
                     line,
                     format!("'{name}' is not available"),
                 ));
             }
-        }
         Ok(())
     }
 
@@ -186,7 +185,7 @@ impl<'a> Compiler<'a> {
             let needs_implicit_return = func_def
                 .body
                 .last()
-                .map_or(true, |s| !matches!(s.kind, StmtKind::Return { .. }));
+                .is_none_or(|s| !matches!(s.kind, StmtKind::Return { .. }));
             if needs_implicit_return {
                 self.emit(Instruction::LoadConst(SimValue::None));
                 self.emit(Instruction::Return);
@@ -202,17 +201,15 @@ impl<'a> Compiler<'a> {
             });
 
             // Patch main() call if this is main.
-            if func_def.name == "main" {
-                if let Some(patch_idx) = main_call_patch {
+            if func_def.name == "main"
+                && let Some(patch_idx) = main_call_patch {
                     self.instructions[patch_idx] = Instruction::Call(func_pc, 0);
                 }
-            }
             // Patch soul() call — overwrite on each match so the last compiled body wins.
-            if func_def.name == "soul" {
-                if let Some(patch_idx) = soul_call_patch {
+            if func_def.name == "soul"
+                && let Some(patch_idx) = soul_call_patch {
                     self.instructions[patch_idx] = Instruction::Call(func_pc, 0);
                 }
-            }
         }
 
         // Fixup pass: resolve pending function calls.
@@ -706,8 +703,8 @@ impl<'a> Compiler<'a> {
 
             ExprKind::Attribute { object, attr } => {
                 // Check if this is an enum member access (e.g. State.IDLE)
-                if let ExprKind::Name(name) = &object.kind {
-                    if let Some(enum_map) = self.enum_defs.get(name) {
+                if let ExprKind::Name(name) = &object.kind
+                    && let Some(enum_map) = self.enum_defs.get(name) {
                         let val = *enum_map.get(attr).ok_or_else(|| {
                             CompileError::new(
                                 expr.line,
@@ -717,7 +714,6 @@ impl<'a> Compiler<'a> {
                         self.emit(Instruction::LoadConst(SimValue::Int(val)));
                         return Ok(());
                     }
-                }
                 self.compile_expr(object)?;
                 self.emit(Instruction::LoadConst(SimValue::Str(attr.clone())));
                 self.emit(Instruction::GetAttr);
@@ -1144,9 +1140,9 @@ impl<'a> Compiler<'a> {
                     if builtins::classify_stdlib(name).is_some() {
                         return matches!(builtins::classify_stdlib(name), Some(StdlibBuiltin::Print | StdlibBuiltin::Wait));
                     }
-                    // Actions and Custom commands are void (consume tick)
+                    // Custom commands are void (consume tick)
                     if let Some(meta) = self.custom_commands.get(name.as_str()) {
-                        return matches!(meta.kind, CommandKind::Action | CommandKind::Custom);
+                        return matches!(meta.kind, CommandKind::Custom);
                     }
                     false
                 } else {

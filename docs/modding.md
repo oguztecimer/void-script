@@ -37,7 +37,7 @@ mods/
   my-mod/
     mod.toml                # Required: mod manifest (data declarations)
     mod.lua                 # Optional: Lua logic (commands, triggers, init)
-    grimscript/             # Brain scripts for entity types
+    grimscript/             # Soul scripts for entity types
     lib/
       utils.grim            # GrimScript library files (optional)
     sprites/
@@ -85,7 +85,7 @@ stats = { speed = 2, attack_damage = 10 }
 
 [[types]]
 name = "skeleton_ai"
-brain = true                         # Brain types drive entity execution via .gs files
+soul = true                          # Soul types drive entity execution via .gs files
 
 # --- Entity Definitions ---
 [[entities]]
@@ -142,13 +142,13 @@ stats = { speed = 2, attack_damage = 10, attack_range = 3 }
 
 [[types]]
 name = "skeleton_ai"
-brain = true                         # Brain types drive entity execution via .gs files
+soul = true                          # Soul types drive entity execution via .gs files
 ```
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `name` | yes | — | Unique type tag name |
-| `brain` | no | `false` | If true, this type drives entity execution via a `.gs` script |
+| `soul` | no | `false` | If true, this type drives entity execution via a `.gs` script |
 | `stats` | no | `{}` | Stats provided by this type (merged in type order) |
 | `commands` | no | `[]` | Commands entities with this type can use |
 | `script` | no | `{name}.gs` | Path to .gs script in `grimscript/` directory |
@@ -171,7 +171,7 @@ Query functions for types (e.g. scan, nearest, get_types, has_type) are not yet 
 
 ## Entity Definitions
 
-Entity definitions register entities that can be spawned — either at startup via `[initial].effects` or at runtime by effects (e.g., the `raise` command spawns skeletons).
+Entity definitions register entities that can be spawned — either at startup via `mod.on_init()` in Lua or at runtime by commands (e.g., the `raise` command spawns skeletons).
 
 ```toml
 [[entities]]
@@ -251,7 +251,7 @@ All non-stdlib commands are defined in Lua via `mod.command()` in `mod.lua`.
 
 These are always available and not defined by mods:
 
-`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`
+`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`, `random`, `wait`
 
 ### Command Capability Gating
 
@@ -400,7 +400,7 @@ mod.on("entity_spawned", { filter = { entity_type = "warrior" } }, function(ctx,
 end)
 ```
 
-**Event types:** `entity_died`, `entity_spawned`, `entity_damaged`, `command_used`, `channel_completed`
+**Event types:** `entity_died`, `entity_spawned`, `entity_damaged`, `command_used`, `channel_completed`, `channel_interrupted`
 
 **Event data fields:** `entity_id`, `name`, `entity_type`, `killer_id`, `owner_id`, `attacker_id`, `command`, `damage`, `new_health`, `position`, `spawner_id` (varies by event type)
 
@@ -437,6 +437,7 @@ Buff stat modifiers (`modifiers` field) and duration remain in TOML `[[buffs]]`.
 | `ctx:damage(target, amount)` | Deal damage (shield-first) |
 | `ctx:heal(target, amount)` | Heal (capped at max_health) |
 | `ctx:modify_stat(target, stat, amount)` | Modify any stat |
+| `ctx:set_stat(target, stat, value)` | Set stat to absolute value |
 | `ctx:get_stat(target, stat)` | Read stat value (0 if unset) |
 | `ctx:spawn(entity_id, opts)` | Spawn entity. `opts = { offset = N }` |
 | `ctx:animate(target, animation)` | Trigger sprite animation |
@@ -688,7 +689,7 @@ After all mods are loaded, the engine validates:
 - Entity IDs must be non-empty and unique
 - Unknown type references produce a warning
 - Duplicate types per entity produce a warning
-- Entities with multiple brain types are **rejected** and removed from all registries (configs, types, sprites, pivots) — they will not load or spawn
+- Entities with multiple soul types are **rejected** and removed from all registries (configs, types, sprites, pivots) — they will not load or spawn
 
 ### Dependency Validation (`validate_dependencies()`)
 - Missing dependencies cause the mod (and dependants) to be skipped with a warning
@@ -737,7 +738,7 @@ If `mods/` doesn't exist or contains no valid mods, nothing loads — no entitie
 mods/core/
   mod.toml          # Data: types, entities, resources, buff stats
   mod.lua           # Logic: commands, triggers, init, buff callbacks
-  grimscript/       # Brain scripts for entity types
+  grimscript/       # Soul scripts for entity types
   sprites/
     summoner_atlas.png
     summoner_atlas.json
@@ -754,7 +755,8 @@ Its `mod.toml` defines:
 
 Its `mod.lua` defines:
 - Initialization handler (spawns summoner, outputs startup messages)
-- Custom commands (`help`, `trance`, `raise`, `harvest`, `pact`)
+- Custom commands (`help`, `trance`, `raise`, `harvest`, `pact`, `walk_left`, `walk_right`)
+- Query commands (`get_entities`, `tick`, `set_var`)
 - Event triggers (e.g., `entity_died` for bone harvesting)
 
 ---
@@ -830,6 +832,8 @@ Your mod loads after `core` and can reference its entity types, resources, and c
 | `type(value)` | Get type name as string |
 | `percent(value, pct)` | `value * pct / 100` with banker's rounding |
 | `scale(value, num, den)` | `value * num / den` with banker's rounding |
+| `random(max)` / `random(min, max)` | Deterministic random integer |
+| `wait()` | Do nothing for one tick (consumes the tick) |
 
 ### Operators
 
@@ -914,16 +918,16 @@ my_hp = self.health
 my_armor = self.armor
 ```
 
-### Brain Scripts
+### Soul Scripts
 
-Brain type scripts use a `brain()` function for per-tick looping. Top-level code runs once (initialization), and the `brain()` function is called automatically each tick. Global variables persist across ticks.
+Soul type scripts use a `soul()` function for per-tick looping. Top-level code runs once (initialization), and the `soul()` function is called automatically each tick. Global variables persist across ticks.
 
 ```python
 # Top-level code runs once at startup
 state = "idle"
 counter = 0
 
-def brain():
+def soul():
     # This function is auto-called every tick.
     # Global variables (state, counter) persist across calls.
     counter += 1
@@ -931,9 +935,9 @@ def brain():
         trance()
 ```
 
-If no `brain()` function is defined, the script runs once and halts (no looping). Only the **brain type's** `brain()` function is auto-called — if a non-brain type defines `brain()`, it is treated as a regular callable function.
+If no `soul()` function is defined, the script runs once and halts (no looping). Only the **soul type's** `soul()` function is auto-called — if a non-soul type defines `soul()`, it is treated as a regular callable function.
 
-On error, the entire script resets (including initialization code), re-runs from the top, and the `brain()` loop resumes.
+On error, the entire script resets (including initialization code), re-runs from the top, and the `soul()` loop resumes.
 
 ### Script Execution
 
@@ -984,19 +988,19 @@ All hardcoded game builtins (queries, actions, instant effects) have been remove
 |------|----------|---------|
 | `ModManifest` | `deadcode-app/modding.rs` | Deserialized `mod.toml` |
 | `ModMeta` | `deadcode-app/modding.rs` | Mod metadata (id, name, version, depends_on, conflicts_with) |
-| `TypeDef` | `deadcode-app/modding.rs` | Type definition (name, brain, stats, commands, script) |
+| `TypeDef` | `deadcode-app/modding.rs` | Type definition (name, soul, stats, commands, script) |
 | `EntityDef` | `deadcode-app/modding.rs` | Entity definition (id, types, sprite, pivot, stats) |
 | `InitialDef` | `deadcode-app/modding.rs` | Initially available resource names |
 | `ResourceDef` | `deadcode-app/modding.rs` | Resource definition (value, optional max) |
 | `CommandsDef` | `deadcode-app/modding.rs` | Library file paths |
 | `LoadedMod` | `deadcode-app/modding.rs` | Fully resolved mod (sprites, configs, library source) |
 | `CommandDef` | `deadcode-sim/action.rs` | Command metadata (name, description, args, unlisted, kind, implicit_self) |
-| `CommandKind` | `deadcode-sim/action.rs` | Command kind enum (Query, Action, Instant, Custom) |
+| `CommandKind` | `deadcode-sim/action.rs` | Command kind enum (Query, Custom) |
 | `CommandMeta` | `deadcode-sim/action.rs` | Compiler-facing command metadata (num_args) |
-| `UnitAction` | `deadcode-sim/action.rs` | Action enum (Wait, Print, Custom) |
+| `UnitAction` | `deadcode-sim/action.rs` | Action enum (Wait, Print, Custom, Query) |
 | `BuffDef` | `deadcode-sim/action.rs` | Buff definition (name, duration, modifiers, stacking) |
 | `CommandHandler` | `deadcode-sim/action.rs` | Trait for external runtimes (Lua) to handle commands/triggers/buffs |
-| `CommandHandlerResult` | `deadcode-sim/action.rs` | Handler result enum (Handled, Yielded, NotHandled) |
+| `CommandHandlerResult` | `deadcode-sim/action.rs` | Handler result enum (Completed, Yielded, NotHandled, Error) |
 | `BuffCallbackType` | `deadcode-sim/action.rs` | Buff callback enum (OnApply, PerTick, OnExpire) |
 | `EntityConfig` | `deadcode-sim/entity.rs` | Stat overrides applied at spawn |
 | `SimEntity` | `deadcode-sim/entity.rs` | Game entity (stats map, types, owner, position, buffs) |

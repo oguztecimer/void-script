@@ -176,8 +176,8 @@ pub fn call_builtin(
                     "min() requires at least 1 argument",
                 ));
             }
-            if args.len() == 1 {
-                if let Value::List(list) = &args[0] {
+            if args.len() == 1
+                && let Value::List(list) = &args[0] {
                     if list.is_empty() {
                         return Err(GrimScriptError::runtime(
                             0,
@@ -191,7 +191,6 @@ pub fn call_builtin(
                         }
                     }
                     return Ok(best.clone());
-                }
             }
             let mut best = &args[0];
             for item in args.iter().skip(1) {
@@ -208,8 +207,8 @@ pub fn call_builtin(
                     "max() requires at least 1 argument",
                 ));
             }
-            if args.len() == 1 {
-                if let Value::List(list) = &args[0] {
+            if args.len() == 1
+                && let Value::List(list) = &args[0] {
                     if list.is_empty() {
                         return Err(GrimScriptError::runtime(
                             0,
@@ -223,7 +222,6 @@ pub fn call_builtin(
                         }
                     }
                     return Ok(best.clone());
-                }
             }
             let mut best = &args[0];
             for item in args.iter().skip(1) {

@@ -218,8 +218,8 @@ impl App {
             ticks_this_frame += 1;
 
             let mut spawned_entities: Vec<(deadcode_sim::entity::EntityId, String)> = Vec::new();
-            if let Some(sim) = &mut self.sim_world {
-                if sim.is_running() {
+            if let Some(sim) = &mut self.sim_world
+                && sim.is_running() {
                     sim.tick();
                     sim_ticked = true;
 
@@ -240,7 +240,6 @@ impl App {
                         self.apply_sim_event_to_units(event);
                     }
                 }
-            }
             // Assign soul scripts to newly spawned entities (outside sim borrow).
             if !spawned_entities.is_empty() {
                 let cmd_meta = self.command_metadata();
@@ -272,7 +271,7 @@ impl App {
                 let resources: Vec<_> = sim.resources.iter()
                     .filter(|(name, _)| {
                         sim.available_resources.as_ref()
-                            .map_or(true, |set| set.contains(name.as_str()))
+                            .is_none_or(|set| set.contains(name.as_str()))
                     })
                     .map(|(name, &value)| deadcode_editor::ipc::ResourceValue {
                         name: name.clone(),
@@ -355,11 +354,10 @@ impl App {
 
     /// Render the current frame (request redraw on the active monitor).
     fn do_redraw(&mut self) {
-        if !self.is_hidden_for_fullscreen {
-            if let Some(slot) = self.monitor_slots.get(self.active_monitor) {
+        if !self.is_hidden_for_fullscreen
+            && let Some(slot) = self.monitor_slots.get(self.active_monitor) {
                 slot.window.request_redraw();
             }
-        }
     }
 }
 
@@ -429,8 +427,8 @@ impl ApplicationHandler<UserEvent> for App {
                 #[cfg(target_os = "macos")]
                 {
                     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-                    if let Ok(handle) = window.window_handle() {
-                        if let RawWindowHandle::AppKit(h) = handle.as_raw() {
+                    if let Ok(handle) = window.window_handle()
+                        && let RawWindowHandle::AppKit(h) = handle.as_raw() {
                             use objc2::msg_send;
                             let ns_window: *mut objc2::runtime::AnyObject = unsafe {
                                 msg_send![h.ns_view.cast::<objc2::runtime::AnyObject>().as_ref(), window]
@@ -439,7 +437,6 @@ impl ApplicationHandler<UserEvent> for App {
                                 let _: () = unsafe { msg_send![ns_window, setHasShadow: false] };
                             }
                         }
-                    }
                 }
 
                 let context = Context::new(window.clone())
@@ -668,7 +665,7 @@ impl ApplicationHandler<UserEvent> for App {
                 let init_events = lua_runtime.run_init(&mut access);
                 let access_events = std::mem::take(&mut access.events);
                 // Buffer init events to replay when the editor becomes ready.
-                self.pending_init_events = access_events.into_iter().chain(init_events.into_iter()).collect();
+                self.pending_init_events = access_events.into_iter().chain(init_events).collect();
             }
 
             sim.command_handler = Some(Box::new(lua_runtime));
@@ -677,12 +674,11 @@ impl ApplicationHandler<UserEvent> for App {
         // Populate mod.lua file watch list for hot-reload.
         for m in &mods {
             let lua_path = m.mod_dir.join("mod.lua");
-            if lua_path.exists() {
-                if let Ok(meta) = std::fs::metadata(&lua_path) {
+            if lua_path.exists()
+                && let Ok(meta) = std::fs::metadata(&lua_path) {
                     let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
                     self.mod_lua_watch.push((m.manifest.meta.id.clone(), lua_path, mtime));
                 }
-            }
         }
 
         self.unit_manager = Some(um);
@@ -1011,8 +1007,8 @@ impl App {
     fn apply_sim_event_to_units(&mut self, event: &deadcode_sim::SimEvent) {
         match event {
             deadcode_sim::SimEvent::EntitySpawned { entity_id, entity_type, name, position, .. } => {
-                if let Some(sprite) = self.sprite_registry.get(entity_type) {
-                    if let Some(um) = &mut self.unit_manager {
+                if let Some(sprite) = self.sprite_registry.get(entity_type)
+                    && let Some(um) = &mut self.unit_manager {
                         let [px, py] = self.pivot_registry
                             .get(entity_type)
                             .copied()
@@ -1027,29 +1023,25 @@ impl App {
                         );
                         self.entity_unit_map.insert(entity_id.0, uid);
                     }
-                }
             }
             deadcode_sim::SimEvent::EntityDied { entity_id, .. } => {
-                if let Some(um) = &mut self.unit_manager {
-                    if let Some(&uid) = self.entity_unit_map.get(&entity_id.0) {
+                if let Some(um) = &mut self.unit_manager
+                    && let Some(&uid) = self.entity_unit_map.get(&entity_id.0) {
                         um.kill(uid);
                         self.entity_unit_map.remove(&entity_id.0);
                     }
-                }
             }
             deadcode_sim::SimEvent::PlayAnimation { entity_id, animation } => {
-                if let Some(um) = &mut self.unit_manager {
-                    if let Some(&uid) = self.entity_unit_map.get(&entity_id.0) {
+                if let Some(um) = &mut self.unit_manager
+                    && let Some(&uid) = self.entity_unit_map.get(&entity_id.0) {
                         um.play_animation(uid, animation);
                     }
-                }
             }
             deadcode_sim::SimEvent::EntityFlipped { entity_id, facing_left } => {
-                if let Some(um) = &mut self.unit_manager {
-                    if let Some(&uid) = self.entity_unit_map.get(&entity_id.0) {
+                if let Some(um) = &mut self.unit_manager
+                    && let Some(&uid) = self.entity_unit_map.get(&entity_id.0) {
                         um.set_facing(uid, *facing_left);
                     }
-                }
             }
             _ => {}
         }
@@ -1157,7 +1149,7 @@ impl App {
     ) {
         // Find the soul type for this entity.
         let soul_type = types.iter()
-            .find(|t| self.type_defs.get(*t).map_or(false, |td| td.soul));
+            .find(|t| self.type_defs.get(*t).is_some_and(|td| td.soul));
 
         let soul_type = match soul_type {
             Some(bt) => bt.clone(),
@@ -1168,19 +1160,18 @@ impl App {
         let soul_source = self.get_type_script_source(&soul_type);
         if soul_source.is_empty() {
             // Empty script — clear the entity's script state so it stops executing.
-            if let Some(sim) = &mut self.sim_world {
-                if let Some(entity) = sim.get_entity_mut(eid) {
+            if let Some(sim) = &mut self.sim_world
+                && let Some(entity) = sim.get_entity_mut(eid) {
                     entity.script_state = None;
                     entity.active_channel = None;
                 }
-            }
             return;
         }
 
         // Build library source from non-soul types' scripts.
         let mut type_lib_source = String::new();
         for t in types {
-            if self.type_defs.get(t).map_or(false, |td| td.soul) {
+            if self.type_defs.get(t).is_some_and(|td| td.soul) {
                 continue; // Skip soul types in library.
             }
             let src = self.get_type_script_source(t);
@@ -1239,11 +1230,10 @@ impl App {
     /// Checks the script store first (user edits), falls back to mod defaults.
     fn get_type_script_source(&self, type_name: &str) -> String {
         // Check script store for user-edited version.
-        if let Some(store) = &self.script_store {
-            if let Some(script) = store.find_type_script(type_name) {
+        if let Some(store) = &self.script_store
+            && let Some(script) = store.find_type_script(type_name) {
                 return script.content.clone();
             }
-        }
         // Fall back to mod default.
         self.type_scripts.get(type_name).cloned().unwrap_or_default()
     }
@@ -1270,8 +1260,8 @@ impl App {
         }
 
         for (mod_id, source) in reloads {
-            if let Some(sim) = &mut self.sim_world {
-                if let Some(handler) = &mut sim.command_handler {
+            if let Some(sim) = &mut self.sim_world
+                && let Some(handler) = &mut sim.command_handler {
                     match handler.reload_mod(&mod_id, &source) {
                         Ok(()) => {
                             // Re-register command metadata after reload.
@@ -1310,7 +1300,6 @@ impl App {
                         }
                     }
                 }
-            }
         }
     }
 
@@ -1357,7 +1346,7 @@ impl App {
         }
 
         // Determine which entities are affected.
-        let is_soul = self.type_defs.get(type_name).map_or(false, |td| td.soul);
+        let is_soul = self.type_defs.get(type_name).is_some_and(|td| td.soul);
 
         let affected: Vec<(deadcode_sim::entity::EntityId, Vec<String>)> = if let Some(sim) = &self.sim_world {
             sim.entities()
@@ -1381,7 +1370,7 @@ impl App {
             } else {
                 // Non-soul type changed — library changed, find the soul and recompile.
                 let has_soul = types.iter()
-                    .any(|t| self.type_defs.get(t).map_or(false, |td| td.soul));
+                    .any(|t| self.type_defs.get(t).is_some_and(|td| td.soul));
                 if has_soul {
                     self.compile_and_assign_entity_soul(eid, &types, &cmd_meta);
                 }
@@ -1457,8 +1446,8 @@ impl App {
                     }
                 }
                 JsToRust::ScriptRequest { script_id } => {
-                    if let Some(store) = &self.script_store {
-                        if let Some(script) = store.scripts.get(&script_id) {
+                    if let Some(store) = &self.script_store
+                        && let Some(script) = store.scripts.get(&script_id) {
                             self.editor_state.open_tab(script.id.clone(), script.name.clone());
                             let msg = RustToJs::ScriptLoad {
                                 script_id: script.id.clone(),
@@ -1468,7 +1457,6 @@ impl App {
                             };
                             self.webview_manager.send_to_all(&msg);
                         }
-                    }
                 }
                 JsToRust::ScriptListRequest => {
                     if let Some(store) = &self.script_store {
@@ -1569,15 +1557,13 @@ impl App {
         use tray_icon::menu::ContextMenu;
         use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-        if let (Some(w), Some(menu)) = (&self.window, &self.context_menu) {
-            if let Ok(handle) = w.window_handle() {
-                if let RawWindowHandle::AppKit(h) = handle.as_raw() {
+        if let (Some(w), Some(menu)) = (&self.window, &self.context_menu)
+            && let Ok(handle) = w.window_handle()
+                && let RawWindowHandle::AppKit(h) = handle.as_raw() {
                     unsafe {
                         menu.show_context_menu_for_nsview(h.ns_view.as_ptr() as _, None);
                     }
                 }
-            }
-        }
     }
 
     #[cfg(target_os = "windows")]

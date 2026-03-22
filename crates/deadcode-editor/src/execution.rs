@@ -153,13 +153,12 @@ impl ScriptExecutionManager {
             bps.insert(line);
         }
         let bps_snapshot = bps.clone();
-        if let Some(active) = self.active.as_ref() {
-            if active.script_id == script_id {
+        if let Some(active) = self.active.as_ref()
+            && active.script_id == script_id {
                 let _ = active.command_tx.send(
                     DebugCommand::SetBreakpoints(bps_snapshot)
                 );
             }
-        }
     }
 
     pub fn handle_console_command(&mut self, source: &str, _webview: &WebViewManager) {

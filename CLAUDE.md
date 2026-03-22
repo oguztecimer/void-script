@@ -104,7 +104,7 @@ src/
 
 **Library files:** Mods can provide `.grim` files via `commands.libraries` in `mod.toml`. Library source is loaded at mod time, concatenated across mods (in load order), and prepended to player scripts before compilation. Functions defined in libraries are available in player scripts as if defined at the top. Subject to the same command gating. Flat namespace, first-loaded-wins.
 
-**Available commands:** Stdlib functions (`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`, `random`, `wait`) are always available.
+**Available commands:** Stdlib functions (`echo`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`, `random`, `wait`) are always available.
 
 **Mod hot-reload:** The app polls `mod.lua` files every 1 second (mtime comparison). When changed, the mod is automatically reloaded via `CommandHandler::reload_mod()` — clears old registrations, re-executes the Lua source, and re-registers command metadata. Status messages appear in the editor console. Note: `float()` is classified as stdlib but deliberately produces a compile error in the sim ("float() is not supported in simulation mode"). All other commands are defined in Lua via `mod.command()` in `mod.lua`. The compiler receives command metadata via `HashMap<String, CommandMeta>` and an `available_commands: Option<HashSet<String>>` for type-based gating. In **dev mode**, all commands are available (gate bypassed).
 
@@ -124,7 +124,7 @@ src/
 
 **Unified execution:** The sim runs continuously from game open. Soul scripts are compiled and assigned via `compile_and_assign_all_souls()` at startup (after script store init and initial effects flush) and per-entity via `compile_and_assign_entity_soul()` when entities spawn during gameplay. The caller pre-scans the soul type's source for a `soul()` function via `source_defines_function()` and passes `enable_soul_loop` to the compiler. Saving a type `.gs` file triggers auto-reload: recompiles and hot-swaps all affected entities' `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). Saving an empty soul script clears the entity's `script_state` so it stops executing. The grimoire (`grimoire.gs`) runs with a special "grimoire" entity before the entity shuffle each tick. Terminal commands execute against the grimoire. The "grimoire" type is always treated as a soul regardless of the `soul` flag in `mod.toml`.
 
-**Grimoire:** Script stored as `SimWorld.grimoire: Option<ScriptState>`, backed by a real "grimoire" entity spawned via `spawn_grimoire_entity()`. Runs first every tick (step 2c, before entity shuffle). Can call print and custom commands. Terminal commands execute against the grimoire.
+**Grimoire:** Script stored as `SimWorld.grimoire: Option<ScriptState>`, backed by a real "grimoire" entity spawned via `spawn_grimoire_entity()`. Runs first every tick (step 2c, before entity shuffle). Can call echo and custom commands. Terminal commands execute against the grimoire.
 
 **Error recovery:** When a script hits a runtime error, it stores the error on `ScriptState.error`. On the next tick, error recovery kicks in: the error is cleared, script state is fully reset (PC=0, stack/call stack cleared, variables re-initialized with slot 0 = self EntityRef), the entity yields `wait()` for that tick, and a `[error recovery]` message is emitted. The script re-executes from the beginning on the following tick. This prevents permanent script death from transient errors. Applies to entity scripts, grimoire, and channel interruptible scripts.
 
@@ -143,7 +143,7 @@ src/
 2. Decrement spawn timers on spawning entities
 2c. Execute grimoire (backed by real "grimoire" entity, instant actions only)
 3. Shuffle ready entity IDs (excludes spawning entities, includes entities with active channels)
-4. For each: check error recovery (if script errored last tick, full reset via `reset_for_restart()` and yield wait), then process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print, Query — re-enter executor), collect tick-consuming action, put state back. Soul scripts that halt are reset via `reset_for_soul_loop(soul_pc)` to re-enter the `soul()` function next tick (global vars preserved).
+4. For each: check error recovery (if script errored last tick, full reset via `reset_for_restart()` and yield wait), then process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Echo, Query — re-enter executor), collect tick-consuming action, put state back. Soul scripts that halt are reset via `reset_for_soul_loop(soul_pc)` to re-enter the `soul()` function next tick (global vars preserved).
 5. Resolve all actions against world state
 6. Tick passive systems (cooldowns, behavior cooldowns)
 6b. Tick buffs: run per_tick effects, decrement durations, handle expiry (reverse modifiers, fire on_expire)

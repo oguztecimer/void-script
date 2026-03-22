@@ -1,2 +1,0 @@
-def soul():
-    act()

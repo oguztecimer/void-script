@@ -14,13 +14,11 @@ commands = ["help", "trance", "raise", "harvest", "pact"]
 [[types]]
 name = "unit"
 stats = { health = 1, speed = 1 }
-commands = ["walk_left","walk_right"]
 
 [[types]]
 name = "summoner"
 soul = true
 stats = { health = 100 }
-commands = ["help", "trance", "raise", "harvest", "pact"]
 
 [[types]]
 name = "skeleton"

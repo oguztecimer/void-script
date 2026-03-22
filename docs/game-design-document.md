@@ -73,7 +73,7 @@ A custom Python-like language with:
 
 Commands are the verbs of the game — everything a script can do:
 
-- **Stdlib** (always available, don't consume a tick): `print()`, `len()`, `range()`, `abs()`, `min()`, `max()`, `percent()`, `scale()`
+- **Stdlib** (always available, don't consume a tick): `echo()`, `len()`, `range()`, `abs()`, `min()`, `max()`, `percent()`, `scale()`
 - **Custom commands** (mod-defined in Lua, consume one tick): `trance()`, `raise()`, `harvest()`, `pact()`, `help()`
 - **Multi-tick commands** (Lua coroutines with `ctx:yield_ticks()`): Commands can span multiple ticks with interruptible/non-interruptible segments and resource gates
 

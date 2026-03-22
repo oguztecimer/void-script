@@ -14,7 +14,7 @@ fn send_output(output_tx: &Sender<ScriptEvent>, msg: &str) {
 pub fn is_stdlib(name: &str) -> bool {
     matches!(
         name,
-        "print" | "len" | "range" | "abs" | "min" | "max" | "int" | "float" | "str" | "type"
+        "echo" | "len" | "range" | "abs" | "min" | "max" | "int" | "float" | "str" | "type"
             | "percent" | "scale" | "random" | "wait"
     )
 }
@@ -34,7 +34,7 @@ pub fn call_builtin(
     output_tx: &Sender<ScriptEvent>,
 ) -> Result<Value, GrimScriptError> {
     match name {
-        "print" => {
+        "echo" => {
             let parts: Vec<String> = args.iter().map(|v| v.display()).collect();
             let msg = parts.join(" ");
             send_output(output_tx, &msg);

@@ -136,7 +136,7 @@ else:
 ```python
 count = 0
 while count < 5:
-    print(count)
+    echo(count)
     count += 1
 ```
 
@@ -144,13 +144,13 @@ while count < 5:
 
 ```python
 for item in [1, 2, 3]:
-    print(item)
+    echo(item)
 
 for i in range(5):
-    print(i)         # 0, 1, 2, 3, 4
+    echo(i)         # 0, 1, 2, 3, 4
 
 for key in my_dict:
-    print(key)       # iterates over keys
+    echo(key)       # iterates over keys
 ```
 
 ### break / continue
@@ -161,7 +161,7 @@ for i in range(10):
         break        # exit loop
     if i % 2 == 0:
         continue     # skip to next iteration
-    print(i)         # prints 1, 3
+    echo(i)         # prints 1, 3
 ```
 
 ### pass
@@ -177,7 +177,7 @@ if condition:
 
 ```python
 def greet(name):
-    print("Hello, " + name)
+    echo("Hello, " + name)
 
 def add(a, b):
     return a + b
@@ -217,7 +217,7 @@ enum Priority:
     HIGH          # 12
 
 current = State.IDLE
-print(current)       # 0
+echo(current)       # 0
 ```
 
 Use with `match` for clean dispatch.
@@ -231,11 +231,11 @@ Pattern matching on values:
 ```python
 match state:
     case State.IDLE:
-        print("doing nothing")
+        echo("doing nothing")
     case State.WALKING:
-        print("on the move")
+        echo("on the move")
     case _:
-        print("something else")
+        echo("something else")
 ```
 
 ### Patterns
@@ -251,11 +251,11 @@ match state:
 ```python
 match direction:
     case 1 | 2:
-        print("forward-ish")
+        echo("forward-ish")
     case -1 | -2:
-        print("backward-ish")
+        echo("backward-ish")
     case 0:
-        print("standing still")
+        echo("standing still")
 ```
 
 First matching case wins. No fall-through.
@@ -298,7 +298,7 @@ stats.items()            # [["health", 100], ["armor", 5], ["speed", 3]]
 len(stats)               # 3
 
 for key in stats:
-    print(key, stats[key])
+    echo(key, stats[key])
 ```
 
 ---
@@ -360,7 +360,7 @@ self.speed
 
 | Function | Description |
 |----------|-------------|
-| `print(args...)` | Print values separated by spaces. Instant (no tick consumed). |
+| `echo(args...)` | Print values separated by spaces. Instant (no tick consumed). |
 
 ### Control
 
@@ -369,8 +369,8 @@ self.speed
 | `wait()` | Do nothing for one tick. Consumes the tick. |
 
 ```python
-print("health:", self.health)
-print(1, 2, 3)    # "1 2 3"
+echo("health:", self.health)
+echo(1, 2, 3)    # "1 2 3"
 ```
 
 ### Math
@@ -480,7 +480,7 @@ Available commands depend on the entity's type. Check the mod documentation for 
 
 - The simulation runs at **30 ticks per second**.
 - Each tick, every entity executes its soul script until it performs an action (which consumes the tick) or halts.
-- `print()` is instant — it does not consume a tick. You can call it freely for debugging.
+- `echo()` is instant — it does not consume a tick. You can call it freely for debugging.
 - If a script errors, it automatically recovers next tick (resets and restarts).
 - Scripts have a **10,000 instruction step limit** per tick to prevent infinite loops.
 

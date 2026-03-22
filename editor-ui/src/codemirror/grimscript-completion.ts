@@ -7,7 +7,7 @@ const keywordCompletions: Completion[] = [
 ].map((label) => ({ label, type: 'keyword' }));
 
 const stdlibCompletions: Completion[] = [
-  { label: 'print', detail: '(msg)', info: 'Print to console' },
+  { label: 'echo', detail: '(msg)', info: 'Print to console' },
   { label: 'len', detail: '(obj)', info: 'Get length' },
   { label: 'range', detail: '([start,] end [, step])', info: 'Generate range' },
   { label: 'abs', detail: '(n)', info: 'Absolute value' },

@@ -251,7 +251,7 @@ All non-stdlib commands are defined in Lua via `mod.command()` in `mod.lua`.
 
 These are always available and not defined by mods:
 
-`print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`, `random`, `wait`
+`echo`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`, `random`, `wait`
 
 ### Command Capability Gating
 
@@ -821,7 +821,7 @@ Your mod loads after `core` and can reference its entity types, resources, and c
 
 | Function | Description |
 |----------|-------------|
-| `print(value, ...)` | Print values to the console |
+| `echo(value, ...)` | Print values to the console |
 | `len(collection)` | Length of list, string, or dict |
 | `range(stop)` / `range(start, stop)` / `range(start, stop, step)` | Generate a list of integers |
 | `abs(n)` | Absolute value |
@@ -873,7 +873,7 @@ for x in range(10):
         break
     if x % 2 == 0:
         continue
-    print(x)
+    echo(x)
 ```
 
 ### Functions
@@ -905,7 +905,7 @@ got = my_dict.get("missing", 0)
 
 # Iteration
 for key in my_dict:
-    print(key, my_dict[key])
+    echo(key, my_dict[key])
 ```
 
 ### `self` Variable
@@ -943,7 +943,7 @@ On error, the entire script resets (including initialization code), re-runs from
 
 - Scripts compile to IR and execute in a tick-based loop
 - Custom commands consume the tick — the script pauses until next tick
-- `print()` does not consume the tick
+- `echo()` does not consume the tick
 - 10,000 instruction step limit per tick — exceeding it emits a warning and auto-yields with wait
 
 ---
@@ -957,7 +957,7 @@ On error, the entire script resets (including initialization code), re-runs from
 | **What** | New method on the `ctx` object in Lua | New IR instruction in the sim executor |
 | **Files** | 1 Rust file (`deadcode-lua/src/api.rs`) | 4–5 Rust files |
 | **Use when** | New world-mutating operation for Lua command handlers | New function callable directly from GrimScript |
-| **Examples** | `ctx:damage()`, `ctx:heal()`, `ctx:spawn()` | `print()`, `len()`, `percent()` |
+| **Examples** | `ctx:damage()`, `ctx:heal()`, `ctx:spawn()` | `echo()`, `len()`, `percent()` |
 
 **Rule of thumb:** Most new game mechanics should be Lua ctx methods. IR builtins are only needed for operations that GrimScript code calls directly (stdlib-level functions).
 

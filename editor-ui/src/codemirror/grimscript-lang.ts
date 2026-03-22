@@ -12,7 +12,7 @@ const booleans = new Set(['True', 'False', 'None']);
 const constants = new Set<string>([]);
 
 const stdlibFunctions = new Set([
-  'print', 'len', 'range', 'abs', 'min', 'max', 'int', 'str', 'type',
+  'echo', 'len', 'range', 'abs', 'min', 'max', 'int', 'str', 'type',
 ]);
 
 // Indentation-based folding for Python-like syntax

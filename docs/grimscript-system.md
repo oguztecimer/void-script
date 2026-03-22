@@ -71,7 +71,7 @@ Per tick, the world:
 3. For each entity: processes active channel (if present) or takes script state out, calls `executor::execute_unit()`
 4. Executor steps instructions until one of:
    - **Action instruction** (move, attack, etc.) → yields, tick consumed
-   - **Instant action** (print, query commands) → handled by `try_handle_instant()`, re-enters executor without consuming tick
+   - **Instant action** (echo, query commands) → handled by `try_handle_instant()`, re-enters executor without consuming tick
    - **Halt** → script finished
    - **Error** → script stops
    - **10,000 steps** → auto-yields with implicit `wait()` and emits a warning: `[warning] Script exceeded step limit (10000 instructions) — auto-yielded`
@@ -123,7 +123,7 @@ Per tick, the world:
 Command availability is controlled by type capability gating.
 
 **Stdlib classification** (`grimscript-lang/src/builtins.rs`):
-- `is_stdlib(name)` — 14 stdlib functions: `print`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`, `random`, `wait`. Always available, bypass the gate entirely. Note: `float()` is classified as stdlib but deliberately produces a compile error in the sim.
+- `is_stdlib(name)` — 14 stdlib functions: `echo`, `len`, `range`, `abs`, `min`, `max`, `int`, `float`, `str`, `type`, `percent`, `scale`, `random`, `wait`. Always available, bypass the gate entirely. Note: `float()` is classified as stdlib but deliberately produces a compile error in the sim.
 
 **All non-stdlib commands** are defined in Lua via `mod.command()` in `mod.lua`. All hardcoded game builtins (queries, actions, instant effects) have been removed (S-36).
 

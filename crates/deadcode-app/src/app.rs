@@ -717,7 +717,7 @@ impl ApplicationHandler<UserEvent> for App {
         // Always include grimoire.gs (the grimoire script).
         if !type_script_defs.iter().any(|(n, _, _)| n == "grimoire") {
             let grimoire_default = self.type_scripts.get("grimoire").cloned()
-                .unwrap_or_else(|| "# Grimoire — runs every tick before entities\n# No self, no position — use resource ops, queries, print\n".to_string());
+                .unwrap_or_else(|| "# Grimoire — runs every tick before entities\n# No self, no position — use resource ops, queries, echo\n".to_string());
             type_script_defs.push(("grimoire".to_string(), true, grimoire_default));
         }
         store.ensure_type_scripts(&type_script_defs);

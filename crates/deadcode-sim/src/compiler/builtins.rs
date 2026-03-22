@@ -29,7 +29,7 @@ pub enum StdlibBuiltin {
 /// Classify a function name as a stdlib builtin.
 pub fn classify_stdlib(name: &str) -> Option<StdlibBuiltin> {
     match name {
-        "print" => Some(StdlibBuiltin::Print),
+        "echo" => Some(StdlibBuiltin::Print),
         "len" => Some(StdlibBuiltin::Len),
         "range" => Some(StdlibBuiltin::Range),
         "abs" => Some(StdlibBuiltin::Abs),

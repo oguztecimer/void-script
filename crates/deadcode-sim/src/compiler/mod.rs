@@ -385,13 +385,13 @@ mod tests {
 
     #[test]
     fn print_builtin() {
-        let (_state, action) = compile_and_run("print(\"hello\")");
+        let (_state, action) = compile_and_run("echo(\"hello\")");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "hello"));
     }
 
     #[test]
     fn print_multi_arg() {
-        let (_state, action) = compile_and_run("print(\"x\", 42)");
+        let (_state, action) = compile_and_run("echo(\"x\", 42)");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "x 42"));
     }
 
@@ -531,56 +531,56 @@ mod tests {
 
     #[test]
     fn match_literal() {
-        let (_state, action) = compile_and_run("x = 2\nmatch x:\n    case 1:\n        print(\"one\")\n    case 2:\n        print(\"two\")\n    case 3:\n        print(\"three\")");
+        let (_state, action) = compile_and_run("x = 2\nmatch x:\n    case 1:\n        echo(\"one\")\n    case 2:\n        echo(\"two\")\n    case 3:\n        echo(\"three\")");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "two"));
     }
 
     #[test]
     fn match_enum_member() {
-        let (_state, action) = compile_and_run("enum State:\n    IDLE\n    MOVING\ns = State.MOVING\nmatch s:\n    case State.IDLE:\n        print(\"idle\")\n    case State.MOVING:\n        print(\"moving\")");
+        let (_state, action) = compile_and_run("enum State:\n    IDLE\n    MOVING\ns = State.MOVING\nmatch s:\n    case State.IDLE:\n        echo(\"idle\")\n    case State.MOVING:\n        echo(\"moving\")");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "moving"));
     }
 
     #[test]
     fn match_wildcard() {
-        let (_state, action) = compile_and_run("x = 99\nmatch x:\n    case 1:\n        print(\"one\")\n    case _:\n        print(\"default\")");
+        let (_state, action) = compile_and_run("x = 99\nmatch x:\n    case 1:\n        echo(\"one\")\n    case _:\n        echo(\"default\")");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "default"));
     }
 
     #[test]
     fn match_or_pattern() {
-        let (_state, action) = compile_and_run("x = 2\nmatch x:\n    case 1 | 2:\n        print(\"low\")\n    case 3:\n        print(\"three\")");
+        let (_state, action) = compile_and_run("x = 2\nmatch x:\n    case 1 | 2:\n        echo(\"low\")\n    case 3:\n        echo(\"three\")");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "low"));
     }
 
     #[test]
     fn match_no_match() {
-        let (_state, action) = compile_and_run("x = 99\nmatch x:\n    case 1:\n        print(\"one\")\n    case 2:\n        print(\"two\")");
-        // No case matches, so no print action (halts with None).
+        let (_state, action) = compile_and_run("x = 99\nmatch x:\n    case 1:\n        echo(\"one\")\n    case 2:\n        echo(\"two\")");
+        // No case matches, so no echo action (halts with None).
         assert!(action.is_none());
     }
 
     #[test]
     fn match_first_wins() {
-        let (_state, action) = compile_and_run("x = 1\nmatch x:\n    case 1:\n        print(\"first\")\n    case 1:\n        print(\"second\")");
+        let (_state, action) = compile_and_run("x = 1\nmatch x:\n    case 1:\n        echo(\"first\")\n    case 1:\n        echo(\"second\")");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "first"));
     }
 
     #[test]
     fn match_or_with_enum() {
-        let (_state, action) = compile_and_run("enum State:\n    IDLE\n    MOVING\n    ATTACKING\ns = State.ATTACKING\nmatch s:\n    case State.MOVING | State.ATTACKING:\n        print(\"active\")\n    case _:\n        print(\"other\")");
+        let (_state, action) = compile_and_run("enum State:\n    IDLE\n    MOVING\n    ATTACKING\ns = State.ATTACKING\nmatch s:\n    case State.MOVING | State.ATTACKING:\n        echo(\"active\")\n    case _:\n        echo(\"other\")");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "active"));
     }
 
     #[test]
     fn match_negative_literal() {
-        let (_state, action) = compile_and_run("x = -1\nmatch x:\n    case -1:\n        print(\"neg one\")\n    case 0:\n        print(\"zero\")");
+        let (_state, action) = compile_and_run("x = -1\nmatch x:\n    case -1:\n        echo(\"neg one\")\n    case 0:\n        echo(\"zero\")");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "neg one"));
     }
 
     #[test]
     fn enum_in_function() {
-        let (_state, action) = compile_and_run("enum Dir:\n    LEFT\n    RIGHT\ndef describe(d):\n    match d:\n        case Dir.LEFT:\n            return \"left\"\n        case _:\n            return \"other\"\nprint(describe(Dir.LEFT))");
+        let (_state, action) = compile_and_run("enum Dir:\n    LEFT\n    RIGHT\ndef describe(d):\n    match d:\n        case Dir.LEFT:\n            return \"left\"\n        case _:\n            return \"other\"\necho(describe(Dir.LEFT))");
         assert!(matches!(action, Some(UnitAction::Print { text }) if text == "left"));
     }
 }

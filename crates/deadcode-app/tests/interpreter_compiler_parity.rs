@@ -38,7 +38,7 @@ fn interpreter_outputs(source: &str) -> Vec<String> {
     outputs
 }
 
-/// Run source through compiler + executor, collecting print outputs from sim events.
+/// Run source through compiler + executor, collecting echo outputs from sim events.
 fn compiler_outputs(source: &str) -> Vec<String> {
     let script = compiler::compile_source_full(source, None, HashMap::new(), false).expect("compilation failed");
     let mut world = SimWorld::new(42);
@@ -51,7 +51,7 @@ fn compiler_outputs(source: &str) -> Vec<String> {
 
     let mut outputs = Vec::new();
 
-    // Run until halt, collecting print outputs.
+    // Run until halt, collecting echo outputs.
     loop {
         match executor::execute_unit(eid, &mut state, &world) {
             Ok(Some(deadcode_sim::action::UnitAction::Print { text })) => {
@@ -69,7 +69,7 @@ fn compiler_outputs(source: &str) -> Vec<String> {
     outputs
 }
 
-/// Assert interpreter and compiler produce the same print outputs.
+/// Assert interpreter and compiler produce the same echo outputs.
 fn assert_parity(source: &str) {
     let interp = interpreter_outputs(source);
     let comp = compiler_outputs(source);
@@ -85,76 +85,76 @@ fn assert_parity(source: &str) {
 
 #[test]
 fn parity_print_int() {
-    assert_parity("print(42)");
+    assert_parity("echo(42)");
 }
 
 #[test]
 fn parity_print_string() {
-    assert_parity("print(\"hello world\")");
+    assert_parity("echo(\"hello world\")");
 }
 
 #[test]
 fn parity_print_bool() {
-    assert_parity("print(True)");
-    assert_parity("print(False)");
+    assert_parity("echo(True)");
+    assert_parity("echo(False)");
 }
 
 #[test]
 fn parity_print_none() {
-    assert_parity("print(None)");
+    assert_parity("echo(None)");
 }
 
 #[test]
 fn parity_len() {
-    assert_parity("print(len([1, 2, 3]))");
-    assert_parity("print(len(\"hello\"))");
-    assert_parity("print(len({\"a\": 1}))");
+    assert_parity("echo(len([1, 2, 3]))");
+    assert_parity("echo(len(\"hello\"))");
+    assert_parity("echo(len({\"a\": 1}))");
 }
 
 #[test]
 fn parity_abs() {
-    assert_parity("print(abs(-42))");
-    assert_parity("print(abs(42))");
-    assert_parity("print(abs(0))");
+    assert_parity("echo(abs(-42))");
+    assert_parity("echo(abs(42))");
+    assert_parity("echo(abs(0))");
 }
 
 #[test]
 fn parity_min_max() {
-    assert_parity("print(min(3, 7))");
-    assert_parity("print(max(3, 7))");
-    assert_parity("print(min(10, 2))");
-    assert_parity("print(max(10, 2))");
+    assert_parity("echo(min(3, 7))");
+    assert_parity("echo(max(3, 7))");
+    assert_parity("echo(min(10, 2))");
+    assert_parity("echo(max(10, 2))");
 }
 
 #[test]
 fn parity_int_cast() {
-    assert_parity("print(int(\"99\"))");
-    assert_parity("print(int(True))");
-    assert_parity("print(int(False))");
-    assert_parity("print(int(42))");
+    assert_parity("echo(int(\"99\"))");
+    assert_parity("echo(int(True))");
+    assert_parity("echo(int(False))");
+    assert_parity("echo(int(42))");
 }
 
 #[test]
 fn parity_str_cast() {
-    assert_parity("print(str(42))");
-    assert_parity("print(str(True))");
-    assert_parity("print(str(None))");
+    assert_parity("echo(str(42))");
+    assert_parity("echo(str(True))");
+    assert_parity("echo(str(None))");
 }
 
 #[test]
 fn parity_type_builtin() {
-    assert_parity("print(type(42))");
-    assert_parity("print(type(\"hello\"))");
-    assert_parity("print(type(True))");
-    assert_parity("print(type(None))");
-    assert_parity("print(type([1, 2]))");
+    assert_parity("echo(type(42))");
+    assert_parity("echo(type(\"hello\"))");
+    assert_parity("echo(type(True))");
+    assert_parity("echo(type(None))");
+    assert_parity("echo(type([1, 2]))");
 }
 
 #[test]
 fn parity_range() {
-    assert_parity("print(range(5))");
-    assert_parity("print(range(2, 5))");
-    assert_parity("print(range(0, 10, 3))");
+    assert_parity("echo(range(5))");
+    assert_parity("echo(range(2, 5))");
+    assert_parity("echo(range(0, 10, 3))");
 }
 
 // ---------------------------------------------------------------------------
@@ -163,28 +163,28 @@ fn parity_range() {
 
 #[test]
 fn parity_arithmetic() {
-    assert_parity("print(10 + 5)");
-    assert_parity("print(10 - 3)");
-    assert_parity("print(4 * 7)");
-    assert_parity("print(10 // 3)");
-    assert_parity("print(10 % 3)");
+    assert_parity("echo(10 + 5)");
+    assert_parity("echo(10 - 3)");
+    assert_parity("echo(4 * 7)");
+    assert_parity("echo(10 // 3)");
+    assert_parity("echo(10 % 3)");
 }
 
 #[test]
 fn parity_variable_assignment() {
-    assert_parity("x = 42\nprint(x)");
-    assert_parity("x = 10\ny = x + 5\nprint(y)");
+    assert_parity("x = 42\necho(x)");
+    assert_parity("x = 10\ny = x + 5\necho(y)");
 }
 
 #[test]
 fn parity_string_concat() {
-    assert_parity("print(\"hello\" + \" \" + \"world\")");
+    assert_parity("echo(\"hello\" + \" \" + \"world\")");
 }
 
 #[test]
 fn parity_unary_negate() {
-    assert_parity("print(-42)");
-    assert_parity("x = 10\nprint(-x)");
+    assert_parity("echo(-42)");
+    assert_parity("x = 10\necho(-x)");
 }
 
 // ---------------------------------------------------------------------------
@@ -193,13 +193,13 @@ fn parity_unary_negate() {
 
 #[test]
 fn parity_if_else() {
-    assert_parity("x = 5\nif x > 3:\n    print(\"big\")\nelse:\n    print(\"small\")");
-    assert_parity("x = 1\nif x > 3:\n    print(\"big\")\nelse:\n    print(\"small\")");
+    assert_parity("x = 5\nif x > 3:\n    echo(\"big\")\nelse:\n    echo(\"small\")");
+    assert_parity("x = 1\nif x > 3:\n    echo(\"big\")\nelse:\n    echo(\"small\")");
 }
 
 #[test]
 fn parity_elif() {
-    let src = "x = 5\nif x > 10:\n    print(\"huge\")\nelif x > 3:\n    print(\"medium\")\nelse:\n    print(\"tiny\")";
+    let src = "x = 5\nif x > 10:\n    echo(\"huge\")\nelif x > 3:\n    echo(\"medium\")\nelse:\n    echo(\"tiny\")";
     assert_parity(src);
 }
 
@@ -209,22 +209,22 @@ fn parity_elif() {
 
 #[test]
 fn parity_while_loop() {
-    assert_parity("x = 0\nwhile x < 5:\n    print(x)\n    x = x + 1");
+    assert_parity("x = 0\nwhile x < 5:\n    echo(x)\n    x = x + 1");
 }
 
 #[test]
 fn parity_for_range() {
-    assert_parity("for i in range(5):\n    print(i)");
+    assert_parity("for i in range(5):\n    echo(i)");
 }
 
 #[test]
 fn parity_for_list() {
-    assert_parity("for x in [10, 20, 30]:\n    print(x)");
+    assert_parity("for x in [10, 20, 30]:\n    echo(x)");
 }
 
 #[test]
 fn parity_while_break() {
-    assert_parity("x = 0\nwhile True:\n    x = x + 1\n    if x == 3:\n        break\nprint(x)");
+    assert_parity("x = 0\nwhile True:\n    x = x + 1\n    if x == 3:\n        break\necho(x)");
 }
 
 // ---------------------------------------------------------------------------
@@ -233,29 +233,29 @@ fn parity_while_break() {
 
 #[test]
 fn parity_list_index() {
-    assert_parity("x = [10, 20, 30]\nprint(x[1])");
+    assert_parity("x = [10, 20, 30]\necho(x[1])");
 }
 
 #[test]
 fn parity_list_append() {
-    assert_parity("x = [1, 2]\nx.append(3)\nprint(x)");
+    assert_parity("x = [1, 2]\nx.append(3)\necho(x)");
 }
 
 #[test]
 fn parity_dict_access() {
-    assert_parity("d = {\"a\": 1, \"b\": 2}\nprint(d[\"a\"])");
+    assert_parity("d = {\"a\": 1, \"b\": 2}\necho(d[\"a\"])");
 }
 
 #[test]
 fn parity_dict_get() {
-    assert_parity("d = {\"a\": 1}\nprint(d.get(\"a\", 0))");
-    assert_parity("d = {\"a\": 1}\nprint(d.get(\"b\", 99))");
+    assert_parity("d = {\"a\": 1}\necho(d.get(\"a\", 0))");
+    assert_parity("d = {\"a\": 1}\necho(d.get(\"b\", 99))");
 }
 
 #[test]
 fn parity_dict_keys() {
-    let interp = interpreter_outputs("d = {\"a\": 1, \"b\": 2}\nprint(d.keys())");
-    let comp = compiler_outputs("d = {\"a\": 1, \"b\": 2}\nprint(d.keys())");
+    let interp = interpreter_outputs("d = {\"a\": 1, \"b\": 2}\necho(d.keys())");
+    let comp = compiler_outputs("d = {\"a\": 1, \"b\": 2}\necho(d.keys())");
     assert_eq!(interp.len(), 1);
     assert_eq!(comp.len(), 1);
     assert!(interp[0].contains("a") && interp[0].contains("b"));
@@ -268,12 +268,12 @@ fn parity_dict_keys() {
 
 #[test]
 fn parity_function_call() {
-    assert_parity("def add(a, b):\n    return a + b\nprint(add(3, 7))");
+    assert_parity("def add(a, b):\n    return a + b\necho(add(3, 7))");
 }
 
 #[test]
 fn parity_recursive_function() {
-    let src = "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\nprint(fact(5))";
+    let src = "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\necho(fact(5))";
     assert_parity(src);
 }
 
@@ -283,16 +283,16 @@ fn parity_recursive_function() {
 
 #[test]
 fn parity_percent() {
-    assert_parity("print(percent(200, 50))");  // 100
-    assert_parity("print(percent(100, 150))"); // 150
-    assert_parity("print(percent(10, 33))");   // 3 (10*33/100 = 3.3 → 3)
+    assert_parity("echo(percent(200, 50))");  // 100
+    assert_parity("echo(percent(100, 150))"); // 150
+    assert_parity("echo(percent(10, 33))");   // 3 (10*33/100 = 3.3 → 3)
 }
 
 #[test]
 fn parity_scale() {
-    assert_parity("print(scale(100, 1, 3))");  // 33 (100/3 = 33.33 → 33)
-    assert_parity("print(scale(100, 2, 3))");  // 67 (200/3 = 66.67 → 67)
-    assert_parity("print(scale(10, 3, 4))");   // 8 (30/4 = 7.5 → 8, banker's round to even)
+    assert_parity("echo(scale(100, 1, 3))");  // 33 (100/3 = 33.33 → 33)
+    assert_parity("echo(scale(100, 2, 3))");  // 67 (200/3 = 66.67 → 67)
+    assert_parity("echo(scale(10, 3, 4))");   // 8 (30/4 = 7.5 → 8, banker's round to even)
 }
 
 // ---------------------------------------------------------------------------
@@ -301,22 +301,22 @@ fn parity_scale() {
 
 #[test]
 fn parity_floor_div_negative() {
-    assert_parity("print(-7 // 2)");
+    assert_parity("echo(-7 // 2)");
 }
 
 #[test]
 fn parity_floor_div_both_negative() {
-    assert_parity("print(-7 // -2)");
+    assert_parity("echo(-7 // -2)");
 }
 
 #[test]
 fn parity_floor_mod_negative() {
-    assert_parity("print(-7 % 2)");
+    assert_parity("echo(-7 % 2)");
 }
 
 #[test]
 fn parity_floor_mod_both_negative() {
-    assert_parity("print(-7 % -2)");
+    assert_parity("echo(-7 % -2)");
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +326,7 @@ fn parity_floor_mod_both_negative() {
 #[test]
 fn parity_for_continue() {
     assert_parity(
-        "total = 0\nfor i in range(5):\n    if i == 2:\n        continue\n    total = total + i\nprint(total)",
+        "total = 0\nfor i in range(5):\n    if i == 2:\n        continue\n    total = total + i\necho(total)",
     );
 }
 
@@ -340,42 +340,42 @@ fn parity_for_continue() {
 
 #[test]
 fn parity_enum_basic() {
-    assert_parity("enum Color:\n    RED\n    GREEN\n    BLUE\nprint(Color.RED)\nprint(Color.GREEN)\nprint(Color.BLUE)");
+    assert_parity("enum Color:\n    RED\n    GREEN\n    BLUE\necho(Color.RED)\necho(Color.GREEN)\necho(Color.BLUE)");
 }
 
 #[test]
 fn parity_enum_explicit_values() {
-    assert_parity("enum State:\n    IDLE\n    DEAD = 10\n    BURIED\nprint(State.IDLE)\nprint(State.DEAD)\nprint(State.BURIED)");
+    assert_parity("enum State:\n    IDLE\n    DEAD = 10\n    BURIED\necho(State.IDLE)\necho(State.DEAD)\necho(State.BURIED)");
 }
 
 #[test]
 fn parity_match_literal() {
-    assert_parity("x = 2\nmatch x:\n    case 1:\n        print(\"one\")\n    case 2:\n        print(\"two\")\n    case 3:\n        print(\"three\")");
+    assert_parity("x = 2\nmatch x:\n    case 1:\n        echo(\"one\")\n    case 2:\n        echo(\"two\")\n    case 3:\n        echo(\"three\")");
 }
 
 #[test]
 fn parity_match_enum() {
-    assert_parity("enum State:\n    IDLE\n    MOVING\ns = State.MOVING\nmatch s:\n    case State.IDLE:\n        print(\"idle\")\n    case State.MOVING:\n        print(\"moving\")");
+    assert_parity("enum State:\n    IDLE\n    MOVING\ns = State.MOVING\nmatch s:\n    case State.IDLE:\n        echo(\"idle\")\n    case State.MOVING:\n        echo(\"moving\")");
 }
 
 #[test]
 fn parity_match_or() {
-    assert_parity("x = 2\nmatch x:\n    case 1 | 2:\n        print(\"low\")\n    case 3:\n        print(\"three\")");
+    assert_parity("x = 2\nmatch x:\n    case 1 | 2:\n        echo(\"low\")\n    case 3:\n        echo(\"three\")");
 }
 
 #[test]
 fn parity_match_wildcard() {
-    assert_parity("x = 99\nmatch x:\n    case 1:\n        print(\"one\")\n    case _:\n        print(\"default\")");
+    assert_parity("x = 99\nmatch x:\n    case 1:\n        echo(\"one\")\n    case _:\n        echo(\"default\")");
 }
 
 #[test]
 fn parity_match_no_match() {
-    assert_parity("x = 99\nmatch x:\n    case 1:\n        print(\"one\")\n    case 2:\n        print(\"two\")");
+    assert_parity("x = 99\nmatch x:\n    case 1:\n        echo(\"one\")\n    case 2:\n        echo(\"two\")");
 }
 
 #[test]
 fn parity_match_in_function() {
-    assert_parity("enum Dir:\n    LEFT\n    RIGHT\ndef describe(d):\n    match d:\n        case Dir.LEFT:\n            return \"left\"\n        case Dir.RIGHT:\n            return \"right\"\n        case _:\n            return \"unknown\"\nprint(describe(Dir.LEFT))\nprint(describe(Dir.RIGHT))\nprint(describe(99))");
+    assert_parity("enum Dir:\n    LEFT\n    RIGHT\ndef describe(d):\n    match d:\n        case Dir.LEFT:\n            return \"left\"\n        case Dir.RIGHT:\n            return \"right\"\n        case _:\n            return \"unknown\"\necho(describe(Dir.LEFT))\necho(describe(Dir.RIGHT))\necho(describe(99))");
 }
 
 // ---------------------------------------------------------------------------
@@ -384,9 +384,9 @@ fn parity_match_in_function() {
 
 #[test]
 fn divergence_float_not_supported_in_compiler() {
-    let interp = interpreter_outputs("print(float(42))");
+    let interp = interpreter_outputs("echo(float(42))");
     assert!(!interp.is_empty(), "interpreter should produce output for float()");
 
-    let result = compiler::compile_source("print(float(42))");
+    let result = compiler::compile_source("echo(float(42))");
     assert!(result.is_err(), "compiler should reject float()");
 }

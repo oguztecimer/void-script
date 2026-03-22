@@ -11,12 +11,16 @@
 ### Simulation Engine
 
 #### Added
+- **S-45: Query commands** — Mods can now define commands with `kind = "query"` that execute instantly (no tick consumed) and return a value to the GrimScript stack. Query handlers are called directly (no coroutine wrapping) and their Lua return value is converted to a SimValue and pushed onto the script's stack. The compiler emits `QueryCustom` instead of `ActionCustom` for query-kind commands. The tick loop handles queries in `try_handle_instant`, running the Lua handler and pushing the result before re-entering the executor.
+- **S-44: Mod.lua hot-reload** — The app now polls `mod.lua` files for changes every 1 second (mtime comparison). When a mod's Lua script is modified externally, it is automatically re-read and hot-reloaded via `CommandHandler::reload_mod()`. Command metadata is re-registered with the sim after reload. Success/error messages are output to both stderr and the editor console.
+- **S-43: `wait()` stdlib function** — Do-nothing action that consumes one tick. Allows brain scripts to intentionally skip a tick without needing a mod command. Compiles to a dedicated `Wait` IR instruction that yields `UnitAction::Wait`.
 - **S-41: `random()` stdlib function** — Deterministic random integer generation for GrimScript. `random(max)` returns a random int in `[0, max)`. `random(min, max)` returns a random int in `[min, max)`. Exclusive upper bound, consistent with `range()` semantics. Determinism is achieved by deriving a per-call RNG seed from the world's tick seed, entity ID, and a per-tick call counter (reset each tick/brain restart). Available in both the sim compiler/executor and the language interpreter.
 
 #### Fixed
 - **S-42: Halt instruction leaking into function bodies** — When `Halt` executed, the PC was left at `Halt_index + 1`, which pointed into function bodies compiled after the Halt. On the next tick, execution would resume inside function body code without a call frame, causing `LoadLocal` to read from incorrect variable slots (e.g., reading `self` EntityRef instead of function arguments). Fixed by setting PC to `instructions.len()` on Halt, preventing re-entry.
 
 #### Changed
+- **S-46: `print()` is now instant** — `print()` no longer consumes a tick. It is handled in `try_handle_instant()` alongside queries, emitting a `ScriptOutput` event and returning control to the executor immediately. Players can now use `print()` freely for debugging without slowing their entities. Previously, `print()` was routed through `resolve_action()` as a tick-consuming action.
 - **S-40: `brain()` function looping** — Brain scripts now loop only the contents of a `brain()` function instead of the entire file. Top-level code runs once (initialization), global variables persist across ticks, and the `brain()` function is auto-called each tick. The `is_brain` flag on `ScriptState` has been removed; looping is now determined by `CompiledScript.brain_entry_pc`, which is set by the compiler when `enable_brain_loop=true` and a `brain()` function exists in the source. The caller (app.rs) pre-scans the brain type's script to decide this flag. Error recovery still resets to PC=0 and clears all variables. Scripts without a `brain()` function run once and halt. Non-brain types' `brain()` functions are never auto-called, even if present in concatenated source.
 
 #### Added

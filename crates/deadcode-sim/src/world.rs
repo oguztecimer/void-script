@@ -226,7 +226,7 @@ impl SimWorld {
 
     /// Register a custom command's metadata (description, arg count, unlisted, command_order).
     pub fn register_custom_command(&mut self, def: &CommandDef) {
-        if matches!(def.kind, crate::action::CommandKind::Custom) {
+        if matches!(def.kind, crate::action::CommandKind::Custom | crate::action::CommandKind::Query) {
             self.custom_command_arg_counts.insert(def.name.clone(), def.args.len());
         }
         if !def.description.is_empty() {
@@ -907,12 +907,51 @@ impl SimWorld {
     /// `Some(action)` if it should be collected as a tick-consuming action.
     fn try_handle_instant(
         &mut self,
-        _eid: EntityId,
+        eid: EntityId,
         action: UnitAction,
-        _script_state: &mut crate::entity::ScriptState,
+        script_state: &mut crate::entity::ScriptState,
     ) -> Option<UnitAction> {
-        // All actions currently consume the tick.
-        Some(action)
+        match action {
+            UnitAction::Print { text } => {
+                self.events.push(SimEvent::ScriptOutput { entity_id: eid, text });
+                None // instant — no tick consumed
+            }
+            UnitAction::Query { name, args } => {
+                if self.command_handler.is_some() {
+                    let mut handler = self.command_handler.take().unwrap();
+                    let mut access = WorldAccess::new_from_world_ptr(self, eid);
+                    let result = handler.resolve_query(&mut access, eid, &name, &args);
+                    let lua_events = std::mem::take(&mut access.events);
+                    self.events.extend(lua_events);
+                    match result {
+                        crate::action::QueryResult::Value { value, events } => {
+                            self.events.extend(events);
+                            script_state.stack.push(value);
+                        }
+                        crate::action::QueryResult::NotHandled => {
+                            self.events.push(SimEvent::ScriptOutput {
+                                entity_id: eid,
+                                text: format!("[{name}] query (no handler)"),
+                            });
+                            script_state.stack.push(SimValue::None);
+                        }
+                        crate::action::QueryResult::Error(msg) => {
+                            self.events.push(SimEvent::ScriptOutput {
+                                entity_id: eid,
+                                text: format!("[lua error] {msg}"),
+                            });
+                            script_state.stack.push(SimValue::None);
+                        }
+                    }
+                    self.command_handler = Some(handler);
+                } else {
+                    script_state.stack.push(SimValue::None);
+                }
+                None // instant — continue executing
+            }
+            // All other actions consume the tick.
+            _ => Some(action),
+        }
     }
 
     /// Rebuild the entity index after removals.
@@ -1007,6 +1046,13 @@ impl<'a> WorldAccess<'a> {
         if let Some(target) = self.world.get_entity_mut(target_id) {
             let new_val = target.stat(stat).saturating_add(amount);
             target.set_stat(stat, new_val);
+            target.clamp_stat(stat);
+        }
+    }
+
+    pub fn set_stat(&mut self, target_id: EntityId, stat: &str, value: i64) {
+        if let Some(target) = self.world.get_entity_mut(target_id) {
+            target.set_stat(stat, value);
             target.clamp_stat(stat);
         }
     }

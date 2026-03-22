@@ -29,10 +29,12 @@ impl Default for CommandKind {
 pub enum UnitAction {
     /// Do nothing for one tick.
     Wait,
-    /// Print a value (not really a game action, but uses the same yield path).
+    /// Print a value — instant (no tick consumed), handled in try_handle_instant.
     Print { text: String },
     /// Custom mod-defined command with resolved arguments.
     Custom { name: String, args: Vec<SimValue> },
+    /// Custom mod-defined query — instant, returns a value to the script stack.
+    Query { name: String, args: Vec<SimValue> },
 }
 
 /// Definition of a command (parsed from mod.toml).
@@ -90,6 +92,10 @@ pub fn resolve_action(
 
         UnitAction::Print { text } => {
             events.push(SimEvent::ScriptOutput { entity_id, text });
+        }
+
+        UnitAction::Query { .. } => {
+            // Queries are handled in try_handle_instant, not here.
         }
 
         UnitAction::Custom { name, args } => {
@@ -207,6 +213,7 @@ pub struct CommandMeta {
     pub description: String,
     pub args: Vec<String>,
     pub unlisted: bool,
+    pub kind: CommandKind,
 }
 
 /// Which buff callback to invoke.
@@ -229,6 +236,16 @@ pub enum CommandHandlerResult {
         interruptible: bool,
     },
     /// Command name not handled by this handler.
+    NotHandled,
+    /// Error during execution.
+    Error(String),
+}
+
+/// Result of a query command invocation.
+pub enum QueryResult {
+    /// Query completed, returned a value.
+    Value { value: SimValue, events: Vec<crate::world::SimEvent> },
+    /// Query name not handled by this handler.
     NotHandled,
     /// Error during execution.
     Error(String),
@@ -278,6 +295,15 @@ pub trait CommandHandler {
 
     /// Run initialization effects.
     fn run_init(&mut self, world: &mut crate::world::WorldAccess) -> Vec<crate::world::SimEvent>;
+
+    /// Resolve a query command synchronously. Returns a value. Must not yield.
+    fn resolve_query(
+        &mut self,
+        world: &mut crate::world::WorldAccess,
+        entity_id: EntityId,
+        command_name: &str,
+        args: &[SimValue],
+    ) -> QueryResult;
 
     /// Get command metadata for the compiler.
     fn command_metadata(&self) -> Vec<(String, CommandMeta)>;

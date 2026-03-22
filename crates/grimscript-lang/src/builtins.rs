@@ -15,7 +15,7 @@ pub fn is_stdlib(name: &str) -> bool {
     matches!(
         name,
         "print" | "len" | "range" | "abs" | "min" | "max" | "int" | "float" | "str" | "type"
-            | "percent" | "scale"
+            | "percent" | "scale" | "random"
     )
 }
 
@@ -340,6 +340,48 @@ pub fn call_builtin(
             let product = value.checked_mul(num)
                 .ok_or_else(|| GrimScriptError::runtime(0, "scale() integer overflow"))?;
             Ok(Value::Int(bankers_div(product, den)))
+        }
+        "random" => {
+            let (min, max) = match args.len() {
+                1 => {
+                    let max = match &args[0] {
+                        Value::Int(n) => *n,
+                        _ => return Err(GrimScriptError::type_error(0, "random() argument must be int")),
+                    };
+                    (0i64, max)
+                }
+                2 => {
+                    let min = match &args[0] {
+                        Value::Int(n) => *n,
+                        _ => return Err(GrimScriptError::type_error(0, "random() arguments must be int")),
+                    };
+                    let max = match &args[1] {
+                        Value::Int(n) => *n,
+                        _ => return Err(GrimScriptError::type_error(0, "random() arguments must be int")),
+                    };
+                    (min, max)
+                }
+                _ => return Err(GrimScriptError::type_error(0, "random() takes 1 or 2 arguments")),
+            };
+            if min >= max {
+                return Err(GrimScriptError::runtime(
+                    0,
+                    format!("random() empty range: [{min}, {max})"),
+                ));
+            }
+            // Use a simple hash-based deterministic value for the interpreter.
+            // Not suitable for real randomness, but matches the sim's deterministic spirit.
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            // Mix in a thread-local counter for unique values per call.
+            thread_local! { static COUNTER: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+            let count = COUNTER.with(|c| { let v = c.get(); c.set(v.wrapping_add(1)); v });
+            count.hash(&mut hasher);
+            let hash = hasher.finish();
+            let range = (max - min) as u64;
+            let result = min + (hash % range) as i64;
+            Ok(Value::Int(result))
         }
         "append" => {
             // This is a special case - handled as method call in interpreter

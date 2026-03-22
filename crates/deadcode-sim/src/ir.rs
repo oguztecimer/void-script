@@ -111,6 +111,8 @@ pub enum Instruction {
     Percent,
     /// Pop den (Int), pop num (Int), pop value (Int), push `value * num / den` with banker's rounding.
     Scale,
+    /// Deterministic random integer. nargs=1: `random(max)` → `[0, max)`. nargs=2: `random(min, max)` → `[min, max)`.
+    Random(u8),
 
     // --- Misc ---
     /// Pop value, emit as script output.

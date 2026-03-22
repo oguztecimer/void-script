@@ -906,6 +906,15 @@ impl<'a> Compiler<'a> {
                 self.compile_expr(&args[2])?;
                 self.emit(Instruction::Scale);
             }
+            StdlibBuiltin::Random => {
+                if args.is_empty() || args.len() > 2 {
+                    return Err(CompileError::new(line, "random() takes 1 or 2 arguments"));
+                }
+                for arg in args {
+                    self.compile_expr(arg)?;
+                }
+                self.emit(Instruction::Random(args.len() as u8));
+            }
         }
         Ok(())
     }

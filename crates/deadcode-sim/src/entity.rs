@@ -38,6 +38,8 @@ pub struct ScriptState {
     pub step_limit_hit: bool,
     /// Set on unrecoverable error — unit stops executing.
     pub error: Option<String>,
+    /// Counter for deterministic random() calls within a tick.
+    pub random_counter: u64,
 }
 
 impl ScriptState {
@@ -51,6 +53,7 @@ impl ScriptState {
             yielded: false,
             step_limit_hit: false,
             error: None,
+            random_counter: 0,
         }
     }
 
@@ -63,6 +66,7 @@ impl ScriptState {
         self.call_stack.clear();
         self.yielded = false;
         self.step_limit_hit = false;
+        self.random_counter = 0;
         let num_vars = self.variables.len();
         self.variables = vec![SimValue::None; num_vars];
         if num_vars > 0 {
@@ -79,6 +83,7 @@ impl ScriptState {
         self.call_stack.clear();
         self.yielded = false;
         self.step_limit_hit = false;
+        self.random_counter = 0;
         self.variables.truncate(self.program.num_variables);
     }
 }

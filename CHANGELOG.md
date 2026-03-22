@@ -10,6 +10,12 @@
 
 ### Simulation Engine
 
+#### Added
+- **S-41: `random()` stdlib function** — Deterministic random integer generation for GrimScript. `random(max)` returns a random int in `[0, max)`. `random(min, max)` returns a random int in `[min, max)`. Exclusive upper bound, consistent with `range()` semantics. Determinism is achieved by deriving a per-call RNG seed from the world's tick seed, entity ID, and a per-tick call counter (reset each tick/brain restart). Available in both the sim compiler/executor and the language interpreter.
+
+#### Fixed
+- **S-42: Halt instruction leaking into function bodies** — When `Halt` executed, the PC was left at `Halt_index + 1`, which pointed into function bodies compiled after the Halt. On the next tick, execution would resume inside function body code without a call frame, causing `LoadLocal` to read from incorrect variable slots (e.g., reading `self` EntityRef instead of function arguments). Fixed by setting PC to `instructions.len()` on Halt, preventing re-entry.
+
 #### Changed
 - **S-40: `brain()` function looping** — Brain scripts now loop only the contents of a `brain()` function instead of the entire file. Top-level code runs once (initialization), global variables persist across ticks, and the `brain()` function is auto-called each tick. The `is_brain` flag on `ScriptState` has been removed; looping is now determined by `CompiledScript.brain_entry_pc`, which is set by the compiler when `enable_brain_loop=true` and a `brain()` function exists in the source. The caller (app.rs) pre-scans the brain type's script to decide this flag. Error recovery still resets to PC=0 and clears all variables. Scripts without a `brain()` function run once and halt. Non-brain types' `brain()` functions are never auto-called, even if present in concatenated source.
 

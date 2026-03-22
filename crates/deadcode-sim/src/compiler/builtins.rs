@@ -22,6 +22,7 @@ pub enum StdlibBuiltin {
     Float, // compile error
     Percent,
     Scale,
+    Random,
 }
 
 /// Classify a function name as a stdlib builtin.
@@ -39,6 +40,7 @@ pub fn classify_stdlib(name: &str) -> Option<StdlibBuiltin> {
         "float" => Some(StdlibBuiltin::Float),
         "percent" => Some(StdlibBuiltin::Percent),
         "scale" => Some(StdlibBuiltin::Scale),
+        "random" => Some(StdlibBuiltin::Random),
         _ => None,
     }
 }

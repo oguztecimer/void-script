@@ -3,6 +3,7 @@ use crate::entity::{CallFrame, EntityId, ScriptState};
 use crate::error::SimError;
 use crate::ir::Instruction;
 use crate::query;
+use crate::rng::SimRng;
 use crate::value::SimValue;
 use crate::world::SimWorld;
 
@@ -552,6 +553,38 @@ pub fn execute_unit(
                 state.stack.push(SimValue::Int(result));
             }
 
+            Instruction::Random(nargs) => {
+                let (min, max) = match *nargs {
+                    1 => {
+                        let max = pop_int(&mut state.stack)?;
+                        (0i64, max)
+                    }
+                    2 => {
+                        let max = pop_int(&mut state.stack)?;
+                        let min = pop_int(&mut state.stack)?;
+                        (min, max)
+                    }
+                    _ => {
+                        return Err(SimError::type_error("random() takes 1 or 2 arguments"));
+                    }
+                };
+                if min >= max {
+                    return Err(SimError::new(
+                        crate::error::SimErrorKind::Runtime,
+                        format!("random() empty range: [{min}, {max})"),
+                    ));
+                }
+                // Deterministic RNG from tick seed, entity id, and per-tick call counter.
+                let rng_seed = world.tick_seed()
+                    ^ _entity_id.0.wrapping_mul(0x517cc1b727220a95)
+                    ^ state.random_counter.wrapping_mul(0x6c62272e07bb0142);
+                state.random_counter += 1;
+                let mut rng = SimRng::new(rng_seed);
+                let range = (max - min) as u64;
+                let result = min + rng.next_bounded(range) as i64;
+                state.stack.push(SimValue::Int(result));
+            }
+
             // --- Action instructions (consume tick) ---
             Instruction::ActionCustom(name) => {
                 let name = name.clone();
@@ -578,6 +611,9 @@ pub fn execute_unit(
                 }));
             }
             Instruction::Halt => {
+                // Set PC past all instructions so the script won't re-enter
+                // function bodies that are compiled after the Halt.
+                state.pc = state.program.instructions.len();
                 return Ok(None);
             }
         }

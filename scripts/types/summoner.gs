@@ -1,1 +1,3 @@
-walk_right()
+
+def brain():
+    goto(100)

@@ -34,6 +34,22 @@ pub fn compile_with_custom(
     Ok(script)
 }
 
+/// Check if a source string defines a function with the given name.
+/// Does a quick lex+parse and checks for a `FunctionDef` at the top level.
+pub fn source_defines_function(source: &str, name: &str) -> bool {
+    let tokens = match grimscript_lang::lexer::Lexer::new(source).tokenize() {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    let program = match grimscript_lang::parser::Parser::new(tokens).parse() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    program.statements.iter().any(|stmt| {
+        matches!(&stmt.kind, grimscript_lang::ast::StmtKind::FunctionDef { name: n, .. } if n == name)
+    })
+}
+
 /// Create the initial variables vector for an entity.
 /// Slot 0 = self (EntityRef for the given entity).
 pub fn initial_variables(entity_id: EntityId, num_globals: usize) -> Vec<SimValue> {
@@ -52,21 +68,28 @@ pub fn compile_source_with(
     source: &str,
     available_commands: Option<HashSet<String>>,
 ) -> Result<CompiledScript, String> {
-    compile_source_full(source, available_commands, HashMap::new())
+    compile_source_full(source, available_commands, HashMap::new(), false)
 }
 
-/// Parse source code and compile to IR, with command gating and custom commands.
+/// Parse source code and compile to IR, with command gating, custom commands,
+/// and optional brain loop. When `enable_brain_loop` is true and the source
+/// defines a `brain()` function, the compiler emits an auto-call to `brain()`
+/// and records the PC as `brain_entry_pc` for tick-loop restart.
 pub fn compile_source_full(
     source: &str,
     available_commands: Option<HashSet<String>>,
     custom_commands: HashMap<String, CommandMeta>,
+    enable_brain_loop: bool,
 ) -> Result<CompiledScript, String> {
     let tokens = grimscript_lang::lexer::Lexer::new(source).tokenize()
         .map_err(|e| format!("syntax error (line {}): {}", e.line, e.message))?;
     let program = grimscript_lang::parser::Parser::new(tokens)
         .parse()
         .map_err(|e| format!("parse error (line {}): {}", e.line, e.message))?;
-    compile_with_custom(&program, available_commands, custom_commands)
+    let compiler = emit::Compiler::new(available_commands)
+        .with_custom_commands(custom_commands)
+        .with_brain_loop(enable_brain_loop);
+    compiler.compile(&program)
         .map_err(|e| format!("compile error (line {}): {}", e.line, e.message))
 }
 
@@ -87,7 +110,7 @@ mod tests {
 
     /// Helper: compile source with game builtins, execute on a fresh world, return final state + action.
     fn compile_and_run(source: &str) -> (ScriptState, Option<UnitAction>) {
-        let script = compile_source_full(source, None, test_command_metadata()).expect("compilation failed");
+        let script = compile_source_full(source, None, test_command_metadata(), false).expect("compilation failed");
         let mut world = SimWorld::new(42);
         let eid = world.spawn_entity("skeleton".into(), "test".into(), 100);
         let num_vars = script.num_variables;
@@ -347,7 +370,7 @@ mod tests {
 
     #[test]
     fn self_is_entity_ref() {
-        let script = compile_source_full("x = self", None, test_command_metadata()).unwrap();
+        let script = compile_source_full("x = self", None, test_command_metadata(), false).unwrap();
         assert!(script.instructions.iter().any(|i| matches!(i, Instruction::LoadVar(0))));
     }
 

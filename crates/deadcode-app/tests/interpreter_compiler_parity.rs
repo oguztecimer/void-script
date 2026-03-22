@@ -41,7 +41,7 @@ fn interpreter_outputs(source: &str) -> Vec<String> {
 
 /// Run source through compiler + executor, collecting print outputs from sim events.
 fn compiler_outputs(source: &str) -> Vec<String> {
-    let script = compiler::compile_source_full(source, None, HashMap::new()).expect("compilation failed");
+    let script = compiler::compile_source_full(source, None, HashMap::new(), false).expect("compilation failed");
     let mut world = SimWorld::new(42);
     let eid = world.spawn_entity("skeleton".into(), "test".into(), 100);
     let num_vars = script.num_variables;

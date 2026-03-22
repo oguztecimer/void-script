@@ -10,6 +10,9 @@
 
 ### Simulation Engine
 
+#### Changed
+- **S-40: `brain()` function looping** — Brain scripts now loop only the contents of a `brain()` function instead of the entire file. Top-level code runs once (initialization), global variables persist across ticks, and the `brain()` function is auto-called each tick. The `is_brain` flag on `ScriptState` has been removed; looping is now determined by `CompiledScript.brain_entry_pc`, which is set by the compiler when `enable_brain_loop=true` and a `brain()` function exists in the source. The caller (app.rs) pre-scans the brain type's script to decide this flag. Error recovery still resets to PC=0 and clears all variables. Scripts without a `brain()` function run once and halt. Non-brain types' `brain()` functions are never auto-called, even if present in concatenated source.
+
 #### Added
 - **S-37: `move_to`, `move_by`, and `face_to` WorldAccess operations** — `WorldAccess::move_to(entity_id, position)` teleports an entity to an absolute 1D position (emits `EntityMoved` event). `WorldAccess::move_by(entity_id, offset)` moves by a relative offset (delegates to `move_to`). `WorldAccess::face_to(entity_id, target_id)` compares positions and emits `EntityFlipped` event to flip the entity's facing direction towards the target. No-ops if both entities are at the same position.
 - **S-38: `EntityFlipped` SimEvent** — New `SimEvent::EntityFlipped { entity_id, facing_left }` variant consumed by the render layer to flip entity sprites.
@@ -53,7 +56,7 @@
 ### Simulation Engine
 
 #### Added
-- **S-32: Implicit brain loop** — Brain scripts (`ScriptState.is_brain = true`) now implicitly restart from the top when they halt, removing the need for explicit `while True:` loops. `ScriptState::reset_for_restart(entity_id)` resets PC/stack/vars. Non-brain scripts (terminal commands) halt normally. Brain flag is set by `compile_and_assign_entity_brain()` and main brain compilation.
+- **S-32: Implicit brain loop** — Brain scripts with a `brain()` function now loop by re-entering that function each tick, preserving global variables. Top-level code runs once (initialization). `CompiledScript.brain_entry_pc` stores the auto-call PC; `ScriptState::reset_for_brain_loop(brain_pc)` resets execution state but preserves globals. Scripts without `brain()` run once and halt. Error recovery still uses `reset_for_restart()` (full reset to PC=0).
 - **S-33: Auto brain assignment on spawn** — When entities are spawned during gameplay (via spawn effects), their brain scripts are automatically compiled and assigned via `EntitySpawned` event handling in `do_tick()`. Brain execution is gated by `is_ready()` so it doesn't start until spawn animation completes.
 - **S-34: `SimWorld::flush_pending()` public method** — Extracted inline flush logic into a reusable public method for flushing pending spawns/despawns.
 

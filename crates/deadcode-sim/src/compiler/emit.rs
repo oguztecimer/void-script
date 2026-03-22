@@ -42,6 +42,8 @@ pub struct Compiler<'a> {
     available_commands: Option<HashSet<String>>,
     /// Command name → metadata (from mod definitions — includes all game builtins and custom commands).
     custom_commands: HashMap<String, CommandMeta>,
+    /// When true, emit an auto-call to `brain()` after `main()` if a `brain()` function is defined.
+    enable_brain_loop: bool,
 }
 
 impl<'a> Compiler<'a> {
@@ -57,11 +59,17 @@ impl<'a> Compiler<'a> {
             pending_calls: Vec::new(),
             available_commands,
             custom_commands: HashMap::new(),
+            enable_brain_loop: false,
         }
     }
 
     pub fn with_custom_commands(mut self, custom_commands: HashMap<String, CommandMeta>) -> Self {
         self.custom_commands = custom_commands;
+        self
+    }
+
+    pub fn with_brain_loop(mut self, enable: bool) -> Self {
+        self.enable_brain_loop = enable;
         self
     }
 
@@ -142,6 +150,19 @@ impl<'a> Compiler<'a> {
             None
         };
 
+        // Auto-call brain() if enabled and defined.
+        // Use rfind to get the last brain() definition (brain type script comes last).
+        let has_brain_func = self.enable_brain_loop
+            && self.func_defs.iter().any(|f| f.name == "brain");
+        let brain_call_patch = if has_brain_func {
+            let idx = self.instructions.len();
+            self.emit(Instruction::Call(0, 0)); // placeholder
+            self.emit(Instruction::Pop); // discard brain's return value
+            Some(idx)
+        } else {
+            None
+        };
+
         self.emit(Instruction::Halt);
 
         // Pass 3: emit function bodies after the Halt.
@@ -186,6 +207,12 @@ impl<'a> Compiler<'a> {
                     self.instructions[patch_idx] = Instruction::Call(func_pc, 0);
                 }
             }
+            // Patch brain() call — overwrite on each match so the last compiled body wins.
+            if func_def.name == "brain" {
+                if let Some(patch_idx) = brain_call_patch {
+                    self.instructions[patch_idx] = Instruction::Call(func_pc, 0);
+                }
+            }
         }
 
         // Fixup pass: resolve pending function calls.
@@ -204,6 +231,7 @@ impl<'a> Compiler<'a> {
             instructions: self.instructions,
             functions: self.functions,
             num_variables,
+            brain_entry_pc: brain_call_patch,
         })
     }
 

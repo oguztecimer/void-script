@@ -135,6 +135,10 @@ pub struct CompiledScript {
     pub functions: Vec<FunctionEntry>,
     /// Total number of variable slots needed (params + locals + temporaries).
     pub num_variables: usize,
+    /// PC of the auto-generated `Call brain()` instruction.
+    /// When present, the script loops by jumping to this PC instead of PC=0,
+    /// preserving global variables across ticks.
+    pub brain_entry_pc: Option<usize>,
 }
 
 impl CompiledScript {
@@ -143,6 +147,7 @@ impl CompiledScript {
             instructions,
             functions: Vec::new(),
             num_variables,
+            brain_entry_pc: None,
         }
     }
 }

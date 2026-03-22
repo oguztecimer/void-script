@@ -518,8 +518,8 @@ impl SimWorld {
                             }
                         }
                         Ok(None) => {
-                            if state.is_brain {
-                                state.reset_for_restart(eid);
+                            if let Some(brain_pc) = state.program.brain_entry_pc {
+                                state.reset_for_brain_loop(brain_pc);
                                 if !brain_restarted {
                                     brain_restarted = true;
                                     continue;
@@ -614,8 +614,8 @@ impl SimWorld {
                                         }
                                     }
                                     Ok(None) => {
-                                        if state.is_brain {
-                                            state.reset_for_restart(eid);
+                                        if let Some(brain_pc) = state.program.brain_entry_pc {
+                                            state.reset_for_brain_loop(brain_pc);
                                             if !brain_restarted {
                                                 brain_restarted = true;
                                                 continue;
@@ -749,8 +749,8 @@ impl SimWorld {
                         // Instant action handled, continue executing.
                     }
                     Ok(None) => {
-                        if script_state.is_brain {
-                            script_state.reset_for_restart(eid);
+                        if let Some(brain_pc) = script_state.program.brain_entry_pc {
+                            script_state.reset_for_brain_loop(brain_pc);
                             if !brain_restarted {
                                 brain_restarted = true;
                                 continue; // Re-enter executor once to avoid wasting the tick.

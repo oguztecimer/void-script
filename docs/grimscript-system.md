@@ -60,6 +60,11 @@ Each entity with a script has a `ScriptState`:
 - `call_stack` — function call frames
 - `step_limit_hit` — true if the entity hit the 10k step limit this tick (triggers warning event)
 
+Brain scripts loop via a `brain()` function. `CompiledScript.brain_entry_pc` stores the PC of the auto-generated `Call brain()` instruction. When the script halts:
+- If `brain_entry_pc` is `Some(pc)`: `reset_for_brain_loop(pc)` — jump to brain(), preserve global variables
+- If `brain_entry_pc` is `None`: script halts (no looping)
+- On error: `reset_for_restart(entity_id)` — full reset to PC=0, clear all variables
+
 Per tick, the world:
 1. Decrements `spawn_ticks_remaining` on spawning entities
 2. Shuffles ready entity IDs — excludes those still spawning (seeded RNG for determinism)

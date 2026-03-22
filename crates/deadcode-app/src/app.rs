@@ -923,7 +923,7 @@ impl App {
         // Prepend library functions from mods.
         let full_source = self.prepend_library_source(source);
 
-        let compiled = deadcode_sim::compiler::compile_source_full(&full_source, available, custom);
+        let compiled = deadcode_sim::compiler::compile_source_full(&full_source, available, custom, false);
         match compiled {
             Ok(script) => {
                 if let Some(sim) = &mut self.sim_world {
@@ -1091,12 +1091,12 @@ impl App {
         if !main_source.is_empty() {
             let available = self.effective_commands_for_main_brain();
             let full_source = self.prepend_library_source(&main_source);
-            match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta.clone()) {
+            let enable_brain_loop = deadcode_sim::compiler::source_defines_function(&main_source, "brain");
+            match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta.clone(), enable_brain_loop) {
                 Ok(script) => {
                     if let Some(sim) = &mut self.sim_world {
                         let num_vars = script.num_variables;
-                        let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
-                        state.is_brain = true;
+                        let state = deadcode_sim::entity::ScriptState::new(script, num_vars);
                         sim.main_brain = Some(state);
                     }
                 }
@@ -1185,12 +1185,14 @@ impl App {
             modding::compute_effective_commands(types, &self.type_defs)
         };
 
-        match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta.clone()) {
+        // Pre-scan: does the brain type's own script define brain()?
+        let enable_brain_loop = deadcode_sim::compiler::source_defines_function(&brain_source, "brain");
+
+        match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta.clone(), enable_brain_loop) {
             Ok(script) => {
                 if let Some(sim) = &mut self.sim_world {
                     let num_vars = script.num_variables;
                     let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
-                    state.is_brain = true;
                     // Set self = EntityRef.
                     if !state.variables.is_empty() {
                         state.variables[0] = deadcode_sim::SimValue::EntityRef(eid);
@@ -1238,12 +1240,12 @@ impl App {
             {
                 let available = self.effective_commands_for_main_brain();
                 let full_source = self.prepend_library_source(&main_source);
-                match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta) {
+                let enable_brain_loop = deadcode_sim::compiler::source_defines_function(&main_source, "brain");
+                match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta, enable_brain_loop) {
                     Ok(script) => {
                         if let Some(sim) = &mut self.sim_world {
                             let num_vars = script.num_variables;
-                            let mut state = deadcode_sim::entity::ScriptState::new(script, num_vars);
-                            state.is_brain = true;
+                            let state = deadcode_sim::entity::ScriptState::new(script, num_vars);
                             sim.main_brain = Some(state);
                         }
                         self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {

@@ -914,6 +914,27 @@ my_hp = self.health
 my_armor = self.armor
 ```
 
+### Brain Scripts
+
+Brain type scripts use a `brain()` function for per-tick looping. Top-level code runs once (initialization), and the `brain()` function is called automatically each tick. Global variables persist across ticks.
+
+```python
+# Top-level code runs once at startup
+state = "idle"
+counter = 0
+
+def brain():
+    # This function is auto-called every tick.
+    # Global variables (state, counter) persist across calls.
+    counter += 1
+    if state == "idle":
+        trance()
+```
+
+If no `brain()` function is defined, the script runs once and halts (no looping). Only the **brain type's** `brain()` function is auto-called — if a non-brain type defines `brain()`, it is treated as a regular callable function.
+
+On error, the entire script resets (including initialization code), re-runs from the top, and the `brain()` loop resumes.
+
 ### Script Execution
 
 - Scripts compile to IR and execute in a tick-based loop

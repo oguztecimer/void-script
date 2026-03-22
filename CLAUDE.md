@@ -82,7 +82,7 @@ src/
   action.rs       — UnitAction enum, resolve_action(), CommandDef, BuffDef, CommandHandler trait, CommandHandlerResult, CoroutineHandle, BuffCallbackType
   query.rs        — get_entity_attr() — entity attribute access for GetAttr instruction
   compiler/       — GrimScript AST → IR compiler (feature-gated behind "compiler")
-    mod.rs        — compile(), compile_source(), compile_source_with(), compile_source_full(source, available_commands, custom_commands: HashMap<String, CommandMeta>), initial_variables()
+    mod.rs        — compile(), compile_source(), compile_source_with(), compile_source_full(source, available_commands, custom_commands, enable_brain_loop), source_defines_function(), initial_variables()
     emit.rs       — AST walk, instruction emission, jump patching, function compilation, available command gating
     symbol_table.rs — Scope tracking, global slots vs function-local offsets
     builtins.rs   — CommandMeta struct, classify_stdlib() for stdlib classification
@@ -94,11 +94,11 @@ src/
 **Execution model:**
 - GrimScript source → lexer → parser → AST → compiler → `CompiledScript` (flat instruction vec + function table)
 - Each entity has a `ScriptState` (program counter, value stack, variable slots, call stack)
-- Each entity has a `ScriptState` with `is_brain: bool` flag — brain scripts implicitly loop (restart from top on halt), non-brain scripts (terminal commands) halt normally
+- Brain scripts loop via a `brain()` function: top-level code runs once (init), `brain()` is auto-called each tick with global variables preserved. `CompiledScript.brain_entry_pc` stores the PC of the auto-generated `Call brain()` instruction. `ScriptState::reset_for_brain_loop(brain_pc)` jumps to `brain_entry_pc`, clears stack/call_stack, but preserves global variables. Scripts without `brain()` run once and halt.
 - Per tick: seeded shuffle entity order, execute each until an action yields
 - Custom mod commands consume the tick — the executor yields after ActionCustom
 - `self` is pre-allocated at variable slot 0 as `EntityRef` for the executing entity
-- Brain scripts use `ScriptState::reset_for_restart(entity_id)` to reset PC/stack/vars when they halt, so they re-execute from the beginning next tick — no explicit `while True:` needed
+- Error recovery uses `reset_for_restart(entity_id)` (PC=0, clears all vars) — the script re-runs init + brain from scratch
 
 **Mod dependencies:** `depends_on` and `conflicts_with` fields in `[mod]` are enforced at load time. Mods are topologically sorted by dependency graph (Kahn's algorithm, alphabetical tie-breaking). Missing deps → mod skipped with warning (cascading). Conflicts → second-loaded mod skipped. Cycles → fallback to alphabetical with error log.
 
@@ -120,7 +120,7 @@ src/
 
 **Event triggers:** Mods define reactive rules in Lua via `mod.on(event, opts, handler)`. Events include `entity_died`, `entity_spawned`, `entity_damaged`, `command_used`, `channel_completed`. The Lua handler receives event data (entity_id, killer_id, etc.) and a `ctx` for world access. Trigger processing occurs at the end of each tick (step 8) via `CommandHandler::process_triggers()`.
 
-**Unified execution:** The sim runs continuously from game open. Brain scripts are compiled and assigned via `compile_and_assign_all_brains()` at startup (after script store init and initial effects flush) and per-entity via `compile_and_assign_entity_brain()` when entities spawn during gameplay. Saving a type `.gs` file triggers auto-reload: recompiles and hot-swaps all affected entities' `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). Saving an empty brain script clears the entity's `script_state` so it stops executing. The main brain (`main.gs`) runs with a special "main" entity before the entity shuffle each tick. Terminal commands execute against the main brain. The "main" type is always treated as a brain regardless of the `brain` flag in `mod.toml`.
+**Unified execution:** The sim runs continuously from game open. Brain scripts are compiled and assigned via `compile_and_assign_all_brains()` at startup (after script store init and initial effects flush) and per-entity via `compile_and_assign_entity_brain()` when entities spawn during gameplay. The caller pre-scans the brain type's source for a `brain()` function via `source_defines_function()` and passes `enable_brain_loop` to the compiler. Saving a type `.gs` file triggers auto-reload: recompiles and hot-swaps all affected entities' `ScriptState` (full reset: PC, stack, variables discarded; entity keeps position/health/world state). Saving an empty brain script clears the entity's `script_state` so it stops executing. The main brain (`main.gs`) runs with a special "main" entity before the entity shuffle each tick. Terminal commands execute against the main brain. The "main" type is always treated as a brain regardless of the `brain` flag in `mod.toml`.
 
 **Main brain:** Script stored as `SimWorld.main_brain: Option<ScriptState>`, backed by a real "main" entity spawned via `spawn_main_brain_entity()`. Runs first every tick (step 2c, before entity shuffle). Can call print and custom commands. Terminal commands execute against the main brain.
 
@@ -141,7 +141,7 @@ src/
 2. Decrement spawn timers on spawning entities
 2c. Execute main brain (backed by real "main" entity, instant actions only)
 3. Shuffle ready entity IDs (excludes spawning entities, includes entities with active channels)
-4. For each: check error recovery (if script errored last tick, reset and yield wait), then process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print — re-enter executor), collect tick-consuming action, put state back. Brain scripts that halt are reset via `reset_for_restart()` to re-execute from PC=0 next tick.
+4. For each: check error recovery (if script errored last tick, full reset via `reset_for_restart()` and yield wait), then process active channel if present (phase effects, interruption check), otherwise take script state out, execute, handle instant actions via `try_handle_instant()` (Print — re-enter executor), collect tick-consuming action, put state back. Brain scripts that halt are reset via `reset_for_brain_loop(brain_pc)` to re-enter the `brain()` function next tick (global vars preserved).
 5. Resolve all actions against world state
 6. Tick passive systems (cooldowns, behavior cooldowns)
 6b. Tick buffs: run per_tick effects, decrement durations, handle expiry (reverse modifiers, fire on_expire)

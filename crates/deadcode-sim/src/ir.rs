@@ -73,6 +73,9 @@ pub enum Instruction {
     /// Custom action defined by mods. Args are already on the stack.
     /// The String is the command name; arg count is looked up from the command registry.
     ActionCustom(String),
+    /// Custom query defined by mods. Like ActionCustom but does not consume tick.
+    /// Returns a value to the script stack via try_handle_instant.
+    QueryCustom(String),
 
     // --- Local variable access (var_base-relative for function params/locals) ---
     /// Load function-local variable at var_base + offset.
@@ -117,6 +120,8 @@ pub enum Instruction {
     // --- Misc ---
     /// Pop value, emit as script output.
     Print,
+    /// Do nothing — consume the tick.
+    Wait,
     /// Halt execution.
     Halt,
 }
@@ -137,10 +142,10 @@ pub struct CompiledScript {
     pub functions: Vec<FunctionEntry>,
     /// Total number of variable slots needed (params + locals + temporaries).
     pub num_variables: usize,
-    /// PC of the auto-generated `Call brain()` instruction.
+    /// PC of the auto-generated `Call soul()` instruction.
     /// When present, the script loops by jumping to this PC instead of PC=0,
     /// preserving global variables across ticks.
-    pub brain_entry_pc: Option<usize>,
+    pub soul_entry_pc: Option<usize>,
 }
 
 impl CompiledScript {
@@ -149,7 +154,7 @@ impl CompiledScript {
             instructions,
             functions: Vec::new(),
             num_variables,
-            brain_entry_pc: None,
+            soul_entry_pc: None,
         }
     }
 }

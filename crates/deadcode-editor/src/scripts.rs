@@ -14,9 +14,9 @@ pub struct Script {
 pub enum ScriptType {
     UnitBrain,
     Behavior,
-    /// Brain type script — drives entity execution.
-    TypeBrain,
-    /// Non-brain type script — provides library functions.
+    /// Soul type script — drives entity execution.
+    TypeSoul,
+    /// Non-soul type script — provides library functions.
     TypeLibrary,
 }
 
@@ -25,7 +25,7 @@ impl ScriptType {
         match self {
             ScriptType::UnitBrain => "unit_brain",
             ScriptType::Behavior => "behavior",
-            ScriptType::TypeBrain => "type_brain",
+            ScriptType::TypeSoul => "type_soul",
             ScriptType::TypeLibrary => "type_library",
         }
     }
@@ -91,9 +91,9 @@ impl ScriptStore {
                                 .to_string_lossy()
                                 .to_string();
                             let id = uuid::Uuid::new_v4().to_string();
-                            // Type scripts infer brain vs library from registered type defs.
-                            // Default to TypeBrain; app layer can override.
-                            let script_type = ScriptType::TypeBrain;
+                            // Type scripts infer soul vs library from registered type defs.
+                            // Default to TypeSoul; app layer can override.
+                            let script_type = ScriptType::TypeSoul;
                             self.scripts.insert(
                                 id.clone(),
                                 Script {
@@ -123,7 +123,7 @@ impl ScriptStore {
             script.content = content.clone();
             // Type scripts live in types/ subdirectory.
             let path = match script.script_type {
-                ScriptType::TypeBrain | ScriptType::TypeLibrary => {
+                ScriptType::TypeSoul | ScriptType::TypeLibrary => {
                     self.scripts_dir.join("types").join(format!("{}.gs", script.name))
                 }
                 _ => self.scripts_dir.join(format!("{}.gs", script.name)),
@@ -134,29 +134,29 @@ impl ScriptStore {
 
     /// Ensure type scripts exist in `scripts/types/` directory.
     /// Creates files from mod defaults if they don't already exist.
-    /// `type_defs` maps type name → (is_brain, default_source).
+    /// `type_defs` maps type name → (is_soul, default_source).
     pub fn ensure_type_scripts(
         &mut self,
-        type_defs: &[(String, bool, String)], // (name, is_brain, default_source)
+        type_defs: &[(String, bool, String)], // (name, is_soul, default_source)
     ) {
         let types_dir = self.scripts_dir.join("types");
         let _ = std::fs::create_dir_all(&types_dir);
 
-        for (name, is_brain, default_source) in type_defs {
+        for (name, is_soul, default_source) in type_defs {
             let path = types_dir.join(format!("{name}.gs"));
             if !path.exists() {
                 let _ = std::fs::write(&path, default_source);
             }
             // Check if we already loaded this script; if so, fix its type.
             let already_loaded = self.scripts.values_mut().find(|s| {
-                s.name == *name && matches!(s.script_type, ScriptType::TypeBrain | ScriptType::TypeLibrary)
+                s.name == *name && matches!(s.script_type, ScriptType::TypeSoul | ScriptType::TypeLibrary)
             });
             if let Some(existing) = already_loaded {
-                existing.script_type = if *is_brain { ScriptType::TypeBrain } else { ScriptType::TypeLibrary };
+                existing.script_type = if *is_soul { ScriptType::TypeSoul } else { ScriptType::TypeLibrary };
             } else {
                 let content = std::fs::read_to_string(&path).unwrap_or_default();
                 let id = uuid::Uuid::new_v4().to_string();
-                let script_type = if *is_brain { ScriptType::TypeBrain } else { ScriptType::TypeLibrary };
+                let script_type = if *is_soul { ScriptType::TypeSoul } else { ScriptType::TypeLibrary };
                 self.scripts.insert(
                     id.clone(),
                     Script {
@@ -174,7 +174,7 @@ impl ScriptStore {
     pub fn find_type_script(&self, type_name: &str) -> Option<&Script> {
         self.scripts.values().find(|s| {
             s.name == type_name
-                && matches!(s.script_type, ScriptType::TypeBrain | ScriptType::TypeLibrary)
+                && matches!(s.script_type, ScriptType::TypeSoul | ScriptType::TypeLibrary)
         })
     }
 
@@ -188,8 +188,8 @@ impl ScriptStore {
             })
             .collect();
         infos.sort_by(|a, b| {
-            let a_main = a.name == "main";
-            let b_main = b.name == "main";
+            let a_main = a.name == "grimoire";
+            let b_main = b.name == "grimoire";
             match (a_main, b_main) {
                 (true, false) => std::cmp::Ordering::Less,
                 (false, true) => std::cmp::Ordering::Greater,

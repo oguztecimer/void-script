@@ -42,8 +42,8 @@ pub struct Compiler<'a> {
     available_commands: Option<HashSet<String>>,
     /// Command name → metadata (from mod definitions — includes all game builtins and custom commands).
     custom_commands: HashMap<String, CommandMeta>,
-    /// When true, emit an auto-call to `brain()` after `main()` if a `brain()` function is defined.
-    enable_brain_loop: bool,
+    /// When true, emit an auto-call to `soul()` after `main()` if a `soul()` function is defined.
+    enable_soul_loop: bool,
 }
 
 impl<'a> Compiler<'a> {
@@ -59,7 +59,7 @@ impl<'a> Compiler<'a> {
             pending_calls: Vec::new(),
             available_commands,
             custom_commands: HashMap::new(),
-            enable_brain_loop: false,
+            enable_soul_loop: false,
         }
     }
 
@@ -68,8 +68,8 @@ impl<'a> Compiler<'a> {
         self
     }
 
-    pub fn with_brain_loop(mut self, enable: bool) -> Self {
-        self.enable_brain_loop = enable;
+    pub fn with_soul_loop(mut self, enable: bool) -> Self {
+        self.enable_soul_loop = enable;
         self
     }
 
@@ -150,14 +150,14 @@ impl<'a> Compiler<'a> {
             None
         };
 
-        // Auto-call brain() if enabled and defined.
-        // Use rfind to get the last brain() definition (brain type script comes last).
-        let has_brain_func = self.enable_brain_loop
-            && self.func_defs.iter().any(|f| f.name == "brain");
-        let brain_call_patch = if has_brain_func {
+        // Auto-call soul() if enabled and defined.
+        // Use rfind to get the last soul() definition (soul type script comes last).
+        let has_soul_func = self.enable_soul_loop
+            && self.func_defs.iter().any(|f| f.name == "soul");
+        let soul_call_patch = if has_soul_func {
             let idx = self.instructions.len();
             self.emit(Instruction::Call(0, 0)); // placeholder
-            self.emit(Instruction::Pop); // discard brain's return value
+            self.emit(Instruction::Pop); // discard soul's return value
             Some(idx)
         } else {
             None
@@ -207,9 +207,9 @@ impl<'a> Compiler<'a> {
                     self.instructions[patch_idx] = Instruction::Call(func_pc, 0);
                 }
             }
-            // Patch brain() call — overwrite on each match so the last compiled body wins.
-            if func_def.name == "brain" {
-                if let Some(patch_idx) = brain_call_patch {
+            // Patch soul() call — overwrite on each match so the last compiled body wins.
+            if func_def.name == "soul" {
+                if let Some(patch_idx) = soul_call_patch {
                     self.instructions[patch_idx] = Instruction::Call(func_pc, 0);
                 }
             }
@@ -231,7 +231,7 @@ impl<'a> Compiler<'a> {
             instructions: self.instructions,
             functions: self.functions,
             num_variables,
-            brain_entry_pc: brain_call_patch,
+            soul_entry_pc: soul_call_patch,
         })
     }
 
@@ -779,7 +779,11 @@ impl<'a> Compiler<'a> {
                     for arg in args {
                         self.compile_expr(arg)?;
                     }
-                    self.emit(Instruction::ActionCustom(name.to_string()));
+                    if matches!(meta.kind, CommandKind::Query) {
+                        self.emit(Instruction::QueryCustom(name.to_string()));
+                    } else {
+                        self.emit(Instruction::ActionCustom(name.to_string()));
+                    }
                     return Ok(());
                 }
 
@@ -914,6 +918,12 @@ impl<'a> Compiler<'a> {
                     self.compile_expr(arg)?;
                 }
                 self.emit(Instruction::Random(args.len() as u8));
+            }
+            StdlibBuiltin::Wait => {
+                if !args.is_empty() {
+                    return Err(CompileError::new(line, "wait() takes no arguments"));
+                }
+                self.emit(Instruction::Wait);
             }
         }
         Ok(())
@@ -1130,9 +1140,9 @@ impl<'a> Compiler<'a> {
         match &expr.kind {
             ExprKind::Call { func, .. } => {
                 if let ExprKind::Name(name) = &func.kind {
-                    // print() is void
+                    // print() and wait() are void
                     if builtins::classify_stdlib(name).is_some() {
-                        return matches!(builtins::classify_stdlib(name), Some(StdlibBuiltin::Print));
+                        return matches!(builtins::classify_stdlib(name), Some(StdlibBuiltin::Print | StdlibBuiltin::Wait));
                     }
                     // Actions and Custom commands are void (consume tick)
                     if let Some(meta) = self.custom_commands.get(name.as_str()) {

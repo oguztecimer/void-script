@@ -33,7 +33,7 @@ pub struct ModManifest {
     /// Buff definitions (temporary stat modifiers with automatic expiry).
     #[serde(default)]
     pub buffs: Vec<BuffDef>,
-    /// Type definitions: composable type tags with stats, commands, and brain scripts.
+    /// Type definitions: composable type tags with stats, commands, and soul scripts.
     #[serde(default)]
     pub types: Vec<TypeDef>,
 }
@@ -114,14 +114,14 @@ pub struct ModMeta {
     pub world_width: Option<i64>,
 }
 
-/// A type definition: composable tag with optional stats, commands, and brain script.
+/// A type definition: composable tag with optional stats, commands, and soul script.
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
 pub struct TypeDef {
     pub name: String,
-    /// If true, this type drives entity execution via a `.gs` brain script.
+    /// If true, this type drives entity execution via a `.gs` soul script.
     #[serde(default)]
-    pub brain: bool,
+    pub soul: bool,
     /// Stats provided by this type (merged in type order).
     #[serde(default)]
     pub stats: indexmap::IndexMap<String, i64>,
@@ -797,14 +797,14 @@ pub fn validate_entity_defs(mods: &[LoadedMod], all_type_defs: &HashMap<String, 
                 }
             }
 
-            // Check brain count — entities with multiple brain types are rejected.
-            let brain_count = types.iter()
-                .filter(|t| all_type_defs.get(*t).map_or(false, |td| td.brain))
+            // Check soul count — entities with multiple soul types are rejected.
+            let soul_count = types.iter()
+                .filter(|t| all_type_defs.get(*t).map_or(false, |td| td.soul))
                 .count();
-            if brain_count > 1 {
+            if soul_count > 1 {
                 eprintln!(
-                    "[mod:{mod_id}] error: entity '{}' has {} brain types (expected 0 or 1) — entity will not be loaded",
-                    def_id, brain_count
+                    "[mod:{mod_id}] error: entity '{}' has {} soul types (expected 0 or 1) — entity will not be loaded",
+                    def_id, soul_count
                 );
                 rejected.insert(def_id);
             }

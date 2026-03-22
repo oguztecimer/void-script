@@ -7,7 +7,7 @@ world_width = 1000
 # --- Type Definitions ---
 
 [[types]]
-name = "main"
+name = "grimoire"
 stats = { health = 100, speed = 1 }
 commands = ["help", "trance", "raise", "harvest", "pact"]
 
@@ -18,13 +18,13 @@ commands = ["walk_left","walk_right"]
 
 [[types]]
 name = "summoner"
-brain = true
+soul = true
 stats = { health = 100 }
 commands = ["help", "trance", "raise", "harvest", "pact"]
 
 [[types]]
 name = "skeleton"
-brain = true
+soul = true
 stats = { health = 5 }
 
 # --- Entity Definitions ---

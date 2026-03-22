@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use softbuffer::{Context, Surface};
@@ -108,6 +109,11 @@ pub struct App {
     /// Buffered sim events from Lua on_init, replayed when editor becomes ready.
     pending_init_events: Vec<deadcode_sim::SimEvent>,
 
+    /// Mod hot-reload: mod_id → (mod.lua path, last modified time).
+    mod_lua_watch: Vec<(String, PathBuf, SystemTime)>,
+    /// Timer for mod.lua polling.
+    last_mod_lua_check: Instant,
+
     /// Whether the background tick thread has been spawned (Windows only).
     #[cfg(target_os = "windows")]
     tick_thread_started: bool,
@@ -166,6 +172,8 @@ impl App {
             entity_unit_map: HashMap::new(),
             initial_effects_pending: true,
             pending_init_events: Vec::new(),
+            mod_lua_watch: Vec::new(),
+            last_mod_lua_check: Instant::now(),
 
             #[cfg(target_os = "windows")]
             tick_thread_started: false,
@@ -223,7 +231,7 @@ impl App {
 
                     // Forward events to editor console and apply to render units.
                     let events = sim.take_events();
-                    // Collect newly spawned entities (id + entity_type) for brain assignment.
+                    // Collect newly spawned entities (id + entity_type) for soul assignment.
                     for event in &events {
                         if let deadcode_sim::SimEvent::EntitySpawned { entity_id, entity_type, .. } = event {
                             spawned_entities.push((*entity_id, entity_type.clone()));
@@ -233,12 +241,12 @@ impl App {
                     }
                 }
             }
-            // Assign brain scripts to newly spawned entities (outside sim borrow).
+            // Assign soul scripts to newly spawned entities (outside sim borrow).
             if !spawned_entities.is_empty() {
                 let cmd_meta = self.command_metadata();
                 for (eid, etype) in &spawned_entities {
                     if let Some(types) = self.entity_types.get(etype).cloned() {
-                        self.compile_and_assign_entity_brain(*eid, &types, &cmd_meta);
+                        self.compile_and_assign_entity_soul(*eid, &types, &cmd_meta);
                     }
                 }
             }
@@ -317,6 +325,12 @@ impl App {
                 let _ = w.set_cursor_hittest(false);
                 self.hittest_disabled = true;
             }
+        }
+
+        // --- Mod.lua hot-reload polling (every 1s) ---
+        if self.last_mod_lua_check.elapsed() >= Duration::from_secs(1) {
+            self.last_mod_lua_check = Instant::now();
+            self.poll_mod_lua_reload();
         }
 
         // --- Editor IPC polling ---
@@ -621,8 +635,8 @@ impl ApplicationHandler<UserEvent> for App {
             }
         }
 
-        // Spawn the main brain entity (real entity, no sprite).
-        sim.spawn_main_brain_entity();
+        // Spawn the grimoire entity (real entity, no sprite).
+        sim.spawn_grimoire_entity();
 
         // Auto-start simulation — it runs continuously from game open.
         sim.start();
@@ -638,6 +652,7 @@ impl ApplicationHandler<UserEvent> for App {
                     description: meta.description.clone(),
                     args: meta.args.clone(),
                     unlisted: meta.unlisted,
+                    kind: meta.kind.clone(),
                     ..Default::default()
                 };
                 sim.register_custom_command(&cmd_def);
@@ -648,7 +663,7 @@ impl ApplicationHandler<UserEvent> for App {
 
             // Run init handlers (replaces [initial].effects for Lua mods).
             {
-                let caster_id = sim.main_brain_id().unwrap_or(deadcode_sim::EntityId(1));
+                let caster_id = sim.grimoire_id().unwrap_or(deadcode_sim::EntityId(1));
                 let mut access = deadcode_sim::WorldAccess::new_from_world_ptr(&mut sim, caster_id);
                 let init_events = lua_runtime.run_init(&mut access);
                 let access_events = std::mem::take(&mut access.events);
@@ -657,6 +672,17 @@ impl ApplicationHandler<UserEvent> for App {
             }
 
             sim.command_handler = Some(Box::new(lua_runtime));
+        }
+
+        // Populate mod.lua file watch list for hot-reload.
+        for m in &mods {
+            let lua_path = m.mod_dir.join("mod.lua");
+            if lua_path.exists() {
+                if let Ok(meta) = std::fs::metadata(&lua_path) {
+                    let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+                    self.mod_lua_watch.push((m.manifest.meta.id.clone(), lua_path, mtime));
+                }
+            }
         }
 
         self.unit_manager = Some(um);
@@ -687,25 +713,25 @@ impl ApplicationHandler<UserEvent> for App {
         let mut type_script_defs: Vec<(String, bool, String)> = self.type_defs.iter()
             .map(|(name, tdef)| {
                 let default_src = self.type_scripts.get(name).cloned().unwrap_or_default();
-                // "main" is always a brain regardless of mod.toml brain flag.
-                let is_brain = tdef.brain || name == "main";
-                (name.clone(), is_brain, default_src)
+                // "grimoire" is always a soul regardless of mod.toml soul flag.
+                let is_soul = tdef.soul || name == "grimoire";
+                (name.clone(), is_soul, default_src)
             })
             .collect();
-        // Always include main.gs (entity-less main brain).
-        if !type_script_defs.iter().any(|(n, _, _)| n == "main") {
-            let main_default = self.type_scripts.get("main").cloned()
-                .unwrap_or_else(|| "# Main brain — runs every tick before entities\n# No self, no position — use resource ops, queries, print\n".to_string());
-            type_script_defs.push(("main".to_string(), true, main_default));
+        // Always include grimoire.gs (the grimoire script).
+        if !type_script_defs.iter().any(|(n, _, _)| n == "grimoire") {
+            let grimoire_default = self.type_scripts.get("grimoire").cloned()
+                .unwrap_or_else(|| "# Grimoire — runs every tick before entities\n# No self, no position — use resource ops, queries, print\n".to_string());
+            type_script_defs.push(("grimoire".to_string(), true, grimoire_default));
         }
         store.ensure_type_scripts(&type_script_defs);
 
         self.script_store = Some(store);
 
-        // --- Compile brain scripts and assign to entities ---
+        // --- Compile soul scripts and assign to entities ---
         // Must run after script store is initialized so get_type_script_source
         // can read user scripts from scripts/types/.
-        self.compile_and_assign_all_brains();
+        self.compile_and_assign_all_souls();
 
         open_editor(&mut self.webview_manager, &self.ipc_sender, self.settings.editor_window.as_ref().map(|g| (g.x, g.y, g.width, g.height)));
 
@@ -911,13 +937,13 @@ impl App {
 
     /// Compile and execute a console command through the sim.
     ///
-    /// The command is compiled to IR and executed against the main brain
-    /// (entity-less, EntityId(0)). Actions are resolved and events forwarded
-    /// to the editor. This ensures custom commands, queries, and all builtins
-    /// work in the console.
+    /// The command is compiled to IR and executed against the grimoire
+    /// entity. Actions are resolved and events forwarded to the editor.
+    /// This ensures custom commands, queries, and all builtins work in
+    /// the console.
     fn handle_console_command_sim(&mut self, source: &str) {
-        // Terminal uses the main brain entity's effective commands (type-gated).
-        let available = self.effective_commands_for_main_brain();
+        // Terminal uses the grimoire entity's effective commands (type-gated).
+        let available = self.effective_commands_for_grimoire();
         let custom = self.command_metadata();
 
         // Prepend library functions from mods.
@@ -927,8 +953,8 @@ impl App {
         match compiled {
             Ok(script) => {
                 if let Some(sim) = &mut self.sim_world {
-                    // Terminal commands run as the main brain entity.
-                    let main_id = sim.main_brain_id()
+                    // Terminal commands run as the grimoire entity.
+                    let main_id = sim.grimoire_id()
                         .unwrap_or(deadcode_sim::entity::EntityId(0));
 
                     let num_vars = script.num_variables;
@@ -1056,17 +1082,17 @@ impl App {
     }
 
 
-    /// Get effective commands for the main brain entity (type-gated).
-    fn effective_commands_for_main_brain(&self) -> Option<HashSet<String>> {
+    /// Get effective commands for the grimoire entity (type-gated).
+    fn effective_commands_for_grimoire(&self) -> Option<HashSet<String>> {
         if deadcode_desktop::is_dev_mode() {
             return None;
         }
-        // Get main brain entity's types.
+        // Get grimoire entity's types.
         let main_types = self.sim_world.as_ref()
-            .and_then(|sim| sim.main_brain_id())
+            .and_then(|sim| sim.grimoire_id())
             .and_then(|eid| self.sim_world.as_ref().unwrap().get_entity(eid))
             .map(|e| e.types.clone())
-            .unwrap_or_else(|| vec!["main".to_string()]);
+            .unwrap_or_else(|| vec!["grimoire".to_string()]);
         modding::compute_effective_commands(&main_types, &self.type_defs)
     }
 
@@ -1081,27 +1107,27 @@ impl App {
         }
     }
 
-    /// Compile and assign brain scripts to all entities and the main brain.
+    /// Compile and assign soul scripts to all entities and the grimoire.
     /// Called at startup and during auto-reload.
-    fn compile_and_assign_all_brains(&mut self) {
+    fn compile_and_assign_all_souls(&mut self) {
         let cmd_meta = self.command_metadata();
 
-        // Compile and assign main brain.
-        let main_source = self.get_type_script_source("main");
+        // Compile and assign grimoire.
+        let main_source = self.get_type_script_source("grimoire");
         if !main_source.is_empty() {
-            let available = self.effective_commands_for_main_brain();
+            let available = self.effective_commands_for_grimoire();
             let full_source = self.prepend_library_source(&main_source);
-            let enable_brain_loop = deadcode_sim::compiler::source_defines_function(&main_source, "brain");
-            match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta.clone(), enable_brain_loop) {
+            let enable_soul_loop = deadcode_sim::compiler::source_defines_function(&main_source, "soul");
+            match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta.clone(), enable_soul_loop) {
                 Ok(script) => {
                     if let Some(sim) = &mut self.sim_world {
                         let num_vars = script.num_variables;
                         let state = deadcode_sim::entity::ScriptState::new(script, num_vars);
-                        sim.main_brain = Some(state);
+                        sim.grimoire = Some(state);
                     }
                 }
                 Err(err) => {
-                    eprintln!("[brain] error compiling main.gs: {err}");
+                    eprintln!("[soul] error compiling grimoire.gs: {err}");
                 }
             }
         }
@@ -1118,29 +1144,29 @@ impl App {
             };
 
         for (eid, types) in entity_info {
-            self.compile_and_assign_entity_brain(eid, &types, &cmd_meta);
+            self.compile_and_assign_entity_soul(eid, &types, &cmd_meta);
         }
     }
 
-    /// Compile and assign a brain script to a single entity.
-    fn compile_and_assign_entity_brain(
+    /// Compile and assign a soul script to a single entity.
+    fn compile_and_assign_entity_soul(
         &mut self,
         eid: deadcode_sim::entity::EntityId,
         types: &[String],
         cmd_meta: &HashMap<String, deadcode_sim::compiler::CommandMeta>,
     ) {
-        // Find the brain type for this entity.
-        let brain_type = types.iter()
-            .find(|t| self.type_defs.get(*t).map_or(false, |td| td.brain));
+        // Find the soul type for this entity.
+        let soul_type = types.iter()
+            .find(|t| self.type_defs.get(*t).map_or(false, |td| td.soul));
 
-        let brain_type = match brain_type {
+        let soul_type = match soul_type {
             Some(bt) => bt.clone(),
-            None => return, // No brain type — entity doesn't execute scripts.
+            None => return, // No soul type — entity doesn't execute scripts.
         };
 
-        // Get brain script source.
-        let brain_source = self.get_type_script_source(&brain_type);
-        if brain_source.is_empty() {
+        // Get soul script source.
+        let soul_source = self.get_type_script_source(&soul_type);
+        if soul_source.is_empty() {
             // Empty script — clear the entity's script state so it stops executing.
             if let Some(sim) = &mut self.sim_world {
                 if let Some(entity) = sim.get_entity_mut(eid) {
@@ -1151,11 +1177,11 @@ impl App {
             return;
         }
 
-        // Build library source from non-brain types' scripts.
+        // Build library source from non-soul types' scripts.
         let mut type_lib_source = String::new();
         for t in types {
-            if self.type_defs.get(t).map_or(false, |td| td.brain) {
-                continue; // Skip brain types in library.
+            if self.type_defs.get(t).map_or(false, |td| td.soul) {
+                continue; // Skip soul types in library.
             }
             let src = self.get_type_script_source(t);
             if !src.is_empty() {
@@ -1166,7 +1192,7 @@ impl App {
             }
         }
 
-        // Compose: type library + mod library + brain script.
+        // Compose: type library + mod library + soul script.
         let mut full_source = String::new();
         if !type_lib_source.is_empty() {
             full_source.push_str(&type_lib_source);
@@ -1176,7 +1202,7 @@ impl App {
             full_source.push_str(&self.library_source);
             full_source.push('\n');
         }
-        full_source.push_str(&brain_source);
+        full_source.push_str(&soul_source);
 
         // Compute effective commands for this entity (type-gated).
         let available = if deadcode_desktop::is_dev_mode() {
@@ -1185,10 +1211,10 @@ impl App {
             modding::compute_effective_commands(types, &self.type_defs)
         };
 
-        // Pre-scan: does the brain type's own script define brain()?
-        let enable_brain_loop = deadcode_sim::compiler::source_defines_function(&brain_source, "brain");
+        // Pre-scan: does the soul type's own script define soul()?
+        let enable_soul_loop = deadcode_sim::compiler::source_defines_function(&soul_source, "soul");
 
-        match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta.clone(), enable_brain_loop) {
+        match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta.clone(), enable_soul_loop) {
             Ok(script) => {
                 if let Some(sim) = &mut self.sim_world {
                     let num_vars = script.num_variables;
@@ -1204,7 +1230,7 @@ impl App {
                 }
             }
             Err(err) => {
-                eprintln!("[brain] error compiling {brain_type}.gs for entity: {err}");
+                eprintln!("[soul] error compiling {soul_type}.gs for entity: {err}");
             }
         }
     }
@@ -1222,40 +1248,106 @@ impl App {
         self.type_scripts.get(type_name).cloned().unwrap_or_default()
     }
 
+    /// Poll mod.lua files for changes and hot-reload when modified.
+    fn poll_mod_lua_reload(&mut self) {
+        let mut reloads: Vec<(String, String)> = Vec::new();
+
+        for (mod_id, path, last_mtime) in &mut self.mod_lua_watch {
+            let current_mtime = std::fs::metadata(&*path)
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            if current_mtime > *last_mtime {
+                *last_mtime = current_mtime;
+                match std::fs::read_to_string(&*path) {
+                    Ok(source) => {
+                        reloads.push((mod_id.clone(), source));
+                    }
+                    Err(e) => {
+                        eprintln!("[mod reload] failed to read {}: {e}", path.display());
+                    }
+                }
+            }
+        }
+
+        for (mod_id, source) in reloads {
+            if let Some(sim) = &mut self.sim_world {
+                if let Some(handler) = &mut sim.command_handler {
+                    match handler.reload_mod(&mod_id, &source) {
+                        Ok(()) => {
+                            // Re-register command metadata after reload.
+                            let meta = handler.command_metadata();
+                            for (name, cmd_meta) in &meta {
+                                let cmd_def = deadcode_sim::CommandDef {
+                                    name: name.clone(),
+                                    description: cmd_meta.description.clone(),
+                                    args: cmd_meta.args.clone(),
+                                    unlisted: cmd_meta.unlisted,
+                                    kind: cmd_meta.kind.clone(),
+                                    ..Default::default()
+                                };
+                                sim.register_custom_command(&cmd_def);
+                                if !self.command_order.contains(name) {
+                                    self.command_order.push(name.clone());
+                                }
+                                self.command_defs.insert(name.clone(), cmd_def);
+                            }
+                            sim.command_order = self.command_order.clone();
+
+                            let msg = format!("[mod] reloaded {mod_id}/mod.lua");
+                            eprintln!("{msg}");
+                            self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                                text: msg,
+                                level: "info".into(),
+                            });
+                        }
+                        Err(e) => {
+                            let msg = format!("[mod] error reloading {mod_id}/mod.lua: {e}");
+                            eprintln!("{msg}");
+                            self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
+                                text: msg,
+                                level: "error".into(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Handle auto-reload when a type script is saved.
     /// Recompiles and hot-swaps all affected entities.
     fn handle_type_script_reload(&mut self, type_name: &str) {
         let cmd_meta = self.command_metadata();
 
-        if type_name == "main" {
-            // Recompile main brain.
-            let main_source = self.get_type_script_source("main");
+        if type_name == "grimoire" {
+            // Recompile grimoire.
+            let main_source = self.get_type_script_source("grimoire");
             if main_source.is_empty() {
-                // Empty script — clear the main brain so it stops executing.
+                // Empty script — clear the grimoire so it stops executing.
                 if let Some(sim) = &mut self.sim_world {
-                    sim.main_brain = None;
+                    sim.grimoire = None;
                 }
                 return;
             }
             {
-                let available = self.effective_commands_for_main_brain();
+                let available = self.effective_commands_for_grimoire();
                 let full_source = self.prepend_library_source(&main_source);
-                let enable_brain_loop = deadcode_sim::compiler::source_defines_function(&main_source, "brain");
-                match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta, enable_brain_loop) {
+                let enable_soul_loop = deadcode_sim::compiler::source_defines_function(&main_source, "soul");
+                match deadcode_sim::compiler::compile_source_full(&full_source, available, cmd_meta, enable_soul_loop) {
                     Ok(script) => {
                         if let Some(sim) = &mut self.sim_world {
                             let num_vars = script.num_variables;
                             let state = deadcode_sim::entity::ScriptState::new(script, num_vars);
-                            sim.main_brain = Some(state);
+                            sim.grimoire = Some(state);
                         }
                         self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
-                            text: "[reload] main.gs recompiled and loaded".to_string(),
+                            text: "[reload] grimoire.gs recompiled and loaded".to_string(),
                             level: "info".to_string(),
                         });
                     }
                     Err(err) => {
                         self.webview_manager.send_to_all(&RustToJs::ConsoleOutput {
-                            text: format!("[error] main.gs: {err}"),
+                            text: format!("[error] grimoire.gs: {err}"),
                             level: "error".to_string(),
                         });
                     }
@@ -1265,7 +1357,7 @@ impl App {
         }
 
         // Determine which entities are affected.
-        let is_brain = self.type_defs.get(type_name).map_or(false, |td| td.brain);
+        let is_soul = self.type_defs.get(type_name).map_or(false, |td| td.soul);
 
         let affected: Vec<(deadcode_sim::entity::EntityId, Vec<String>)> = if let Some(sim) = &self.sim_world {
             sim.entities()
@@ -1283,15 +1375,15 @@ impl App {
         let cmd_meta = self.command_metadata();
         let count = affected.len();
         for (eid, types) in affected {
-            if is_brain {
-                // Brain type changed — recompile this entity's brain.
-                self.compile_and_assign_entity_brain(eid, &types, &cmd_meta);
+            if is_soul {
+                // Soul type changed — recompile this entity's soul.
+                self.compile_and_assign_entity_soul(eid, &types, &cmd_meta);
             } else {
-                // Non-brain type changed — library changed, find the brain and recompile.
-                let has_brain = types.iter()
-                    .any(|t| self.type_defs.get(t).map_or(false, |td| td.brain));
-                if has_brain {
-                    self.compile_and_assign_entity_brain(eid, &types, &cmd_meta);
+                // Non-soul type changed — library changed, find the soul and recompile.
+                let has_soul = types.iter()
+                    .any(|t| self.type_defs.get(t).map_or(false, |td| td.soul));
+                if has_soul {
+                    self.compile_and_assign_entity_soul(eid, &types, &cmd_meta);
                 }
             }
         }
@@ -1323,7 +1415,7 @@ impl App {
                     );
                     self.send_available_commands();
 
-                    // Flush pending spawns from Lua init and assign brain scripts.
+                    // Flush pending spawns from Lua init and assign soul scripts.
                     // Replay buffered init events (from Lua on_init) now that the editor is ready.
                     let init_events = std::mem::take(&mut self.pending_init_events);
                     for event in &init_events {
@@ -1342,7 +1434,7 @@ impl App {
                             self.forward_sim_event_to_editor(event);
                             self.apply_sim_event_to_units(event);
                         }
-                        self.compile_and_assign_all_brains();
+                        self.compile_and_assign_all_souls();
                     }
                 }
                 JsToRust::ScriptSave { script_id, content } => {
@@ -1350,7 +1442,7 @@ impl App {
                     let type_name = self.script_store.as_ref()
                         .and_then(|s| s.scripts.get(&script_id))
                         .filter(|s| matches!(s.script_type,
-                            deadcode_editor::scripts::ScriptType::TypeBrain |
+                            deadcode_editor::scripts::ScriptType::TypeSoul |
                             deadcode_editor::scripts::ScriptType::TypeLibrary))
                         .map(|s| s.name.clone());
 
@@ -1391,7 +1483,7 @@ impl App {
                     let type_name = self.script_store.as_ref()
                         .and_then(|s| s.scripts.get(&script_id))
                         .filter(|s| matches!(s.script_type,
-                            deadcode_editor::scripts::ScriptType::TypeBrain |
+                            deadcode_editor::scripts::ScriptType::TypeSoul |
                             deadcode_editor::scripts::ScriptType::TypeLibrary))
                         .map(|s| s.name.clone());
                     if let Some(tname) = type_name {

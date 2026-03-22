@@ -72,14 +72,14 @@ pub fn compile_source_with(
 }
 
 /// Parse source code and compile to IR, with command gating, custom commands,
-/// and optional brain loop. When `enable_brain_loop` is true and the source
-/// defines a `brain()` function, the compiler emits an auto-call to `brain()`
-/// and records the PC as `brain_entry_pc` for tick-loop restart.
+/// and optional soul loop. When `enable_soul_loop` is true and the source
+/// defines a `soul()` function, the compiler emits an auto-call to `soul()`
+/// and records the PC as `soul_entry_pc` for tick-loop restart.
 pub fn compile_source_full(
     source: &str,
     available_commands: Option<HashSet<String>>,
     custom_commands: HashMap<String, CommandMeta>,
-    enable_brain_loop: bool,
+    enable_soul_loop: bool,
 ) -> Result<CompiledScript, String> {
     let tokens = grimscript_lang::lexer::Lexer::new(source).tokenize()
         .map_err(|e| format!("syntax error (line {}): {}", e.line, e.message))?;
@@ -88,7 +88,7 @@ pub fn compile_source_full(
         .map_err(|e| format!("parse error (line {}): {}", e.line, e.message))?;
     let compiler = emit::Compiler::new(available_commands)
         .with_custom_commands(custom_commands)
-        .with_brain_loop(enable_brain_loop);
+        .with_soul_loop(enable_soul_loop);
     compiler.compile(&program)
         .map_err(|e| format!("compile error (line {}): {}", e.line, e.message))
 }

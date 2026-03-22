@@ -139,10 +139,10 @@ pub struct SimWorld {
     pub unlisted_commands: HashSet<String>,
     /// Buff name → buff definition registry.
     pub buff_registry: IndexMap<String, BuffDef>,
-    /// Main brain script state — runs first each tick, backed by a real entity.
-    pub main_brain: Option<crate::entity::ScriptState>,
-    /// Entity ID for the main brain entity.
-    pub main_brain_entity: Option<EntityId>,
+    /// Grimoire script state — runs first each tick, backed by a real entity.
+    pub grimoire: Option<crate::entity::ScriptState>,
+    /// Entity ID for the grimoire entity.
+    pub grimoire_entity: Option<EntityId>,
     /// External command handler (Lua runtime). Custom commands are dispatched here.
     pub command_handler: Option<Box<dyn crate::action::CommandHandler>>,
     /// Width of the 1D world strip in logical units.
@@ -172,8 +172,8 @@ impl SimWorld {
             available_resources: None,
             unlisted_commands: HashSet::new(),
             buff_registry: IndexMap::new(),
-            main_brain: None,
-            main_brain_entity: None,
+            grimoire: None,
+            grimoire_entity: None,
             command_handler: None,
             world_width: DEFAULT_WORLD_WIDTH,
         }
@@ -254,27 +254,27 @@ impl SimWorld {
         self.seed ^ self.tick
     }
 
-    /// Spawn the main brain entity and return its ID.
-    /// The main brain is a real entity (so it can hold channel state, buffs, etc.).
-    /// Stats and types come from the "main" entity config/types if defined in mods.
-    pub fn spawn_main_brain_entity(&mut self) -> EntityId {
-        let config = self.entity_configs.get("main").cloned();
-        let types = self.entity_types_registry.get("main").cloned()
-            .unwrap_or_else(|| vec!["main".to_string()]);
+    /// Spawn the grimoire entity and return its ID.
+    /// The grimoire is a real entity (so it can hold channel state, buffs, etc.).
+    /// Stats and types come from the "grimoire" entity config/types if defined in mods.
+    pub fn spawn_grimoire_entity(&mut self) -> EntityId {
+        let config = self.entity_configs.get("grimoire").cloned();
+        let types = self.entity_types_registry.get("grimoire").cloned()
+            .unwrap_or_else(|| vec!["grimoire".to_string()]);
         let eid = self.spawn_entity_with_types(
-            "main".into(),
+            "grimoire".into(),
             types,
-            "main".into(),
+            "grimoire".into(),
             500,
             config.as_ref(),
         );
-        self.main_brain_entity = Some(eid);
+        self.grimoire_entity = Some(eid);
         eid
     }
 
-    /// Get the main brain entity ID (if spawned).
-    pub fn main_brain_id(&self) -> Option<EntityId> {
-        self.main_brain_entity
+    /// Get the grimoire entity ID (if spawned).
+    pub fn grimoire_id(&self) -> Option<EntityId> {
+        self.grimoire_entity
     }
 
     /// Start the simulation.
@@ -473,15 +473,15 @@ impl SimWorld {
             }
         }
 
-        // 2c. Execute main brain (backed by a real entity, runs first before entity shuffle).
-        let brain_eid = self.main_brain_entity;
-        let mut brain_state = self.main_brain.take();
-        if let (Some(state), Some(eid)) = (&mut brain_state, brain_eid) {
-            // Process active channel on the main brain entity first.
+        // 2c. Execute grimoire (backed by a real entity, runs first before entity shuffle).
+        let grimoire_eid = self.grimoire_entity;
+        let mut grimoire_state = self.grimoire.take();
+        if let (Some(state), Some(eid)) = (&mut grimoire_state, grimoire_eid) {
+            // Process active channel on the grimoire entity first.
             let has_channel = self.get_entity(eid).map_or(false, |e| e.active_channel.is_some());
             if has_channel {
                 // Let channel processing happen in the normal entity loop (step 4).
-                // Just skip main brain script execution this tick.
+                // Just skip grimoire script execution this tick.
             } else if let Some(err_msg) = state.error.take() {
                 // Error recovery: clear error, reset script, yield wait this tick.
                 state.pc = 0;
@@ -497,12 +497,12 @@ impl SimWorld {
                 });
             } else if state.pc < state.program.instructions.len() {
                 let mut instant_count = 0u32;
-                let mut brain_restarted = false;
+                let mut soul_restarted = false;
                 loop {
                     instant_count += 1;
                     if instant_count > 1000 {
-                        state.error = Some("main brain: too many instant actions".to_string());
-                        self.events.push(Self::script_error_event(eid, "main brain: too many instant actions", state));
+                        state.error = Some("grimoire: too many instant actions".to_string());
+                        self.events.push(Self::script_error_event(eid, "grimoire: too many instant actions", state));
                         break;
                     }
                     match executor::execute_unit(eid, state, self) {
@@ -518,10 +518,10 @@ impl SimWorld {
                             }
                         }
                         Ok(None) => {
-                            if let Some(brain_pc) = state.program.brain_entry_pc {
-                                state.reset_for_brain_loop(brain_pc);
-                                if !brain_restarted {
-                                    brain_restarted = true;
+                            if let Some(soul_pc) = state.program.soul_entry_pc {
+                                state.reset_for_soul_loop(soul_pc);
+                                if !soul_restarted {
+                                    soul_restarted = true;
                                     continue;
                                 }
                             }
@@ -537,18 +537,18 @@ impl SimWorld {
                 if state.step_limit_hit {
                     self.events.push(SimEvent::ScriptOutput {
                         entity_id: eid,
-                        text: "[warning] Main brain exceeded step limit — auto-yielded".into(),
+                        text: "[warning] Grimoire exceeded step limit — auto-yielded".into(),
                     });
                 }
             }
         }
-        self.main_brain = brain_state;
+        self.grimoire = grimoire_state;
 
         // 3. Collect scriptable entity IDs (including channeling entities), shuffle.
         //    Skip entities that are still spawning.
-        //    Exclude main brain entity from script execution (step 2c handles it),
+        //    Exclude grimoire entity from script execution (step 2c handles it),
         //    but include it if it has an active channel (phased command in progress).
-        let main_eid = self.main_brain_entity;
+        let main_eid = self.grimoire_entity;
         let mut scriptable_ids: Vec<EntityId> = self
             .entities
             .iter()
@@ -556,7 +556,7 @@ impl SimWorld {
             .filter(|e| {
                 if let Some(mid) = main_eid {
                     if e.id == mid {
-                        // Only include main brain entity if it has an active channel.
+                        // Only include grimoire entity if it has an active channel.
                         return e.active_channel.is_some();
                     }
                 }
@@ -597,7 +597,7 @@ impl SimWorld {
                             state.variables[0] = SimValue::EntityRef(eid);
                         } else {
                             let mut instant_count = 0u32;
-                            let mut brain_restarted = false;
+                            let mut soul_restarted = false;
                             loop {
                                 instant_count += 1;
                                 if instant_count > 1000 { break; }
@@ -614,10 +614,10 @@ impl SimWorld {
                                         }
                                     }
                                     Ok(None) => {
-                                        if let Some(brain_pc) = state.program.brain_entry_pc {
-                                            state.reset_for_brain_loop(brain_pc);
-                                            if !brain_restarted {
-                                                brain_restarted = true;
+                                        if let Some(soul_pc) = state.program.soul_entry_pc {
+                                            state.reset_for_soul_loop(soul_pc);
+                                            if !soul_restarted {
+                                                soul_restarted = true;
                                                 continue;
                                             }
                                         }
@@ -728,11 +728,11 @@ impl SimWorld {
             }
 
             // Execute until a tick-consuming action, error, or halt.
-            // Brain scripts get one restart per tick: if they halt without yielding
+            // Soul scripts get one restart per tick: if they halt without yielding
             // a tick-consuming action, they reset and re-enter immediately so the
             // halt instruction doesn't waste a tick.
             let mut instant_count = 0u32;
-            let mut brain_restarted = false;
+            let mut soul_restarted = false;
             loop {
                 instant_count += 1;
                 if instant_count > 1000 {
@@ -749,10 +749,10 @@ impl SimWorld {
                         // Instant action handled, continue executing.
                     }
                     Ok(None) => {
-                        if let Some(brain_pc) = script_state.program.brain_entry_pc {
-                            script_state.reset_for_brain_loop(brain_pc);
-                            if !brain_restarted {
-                                brain_restarted = true;
+                        if let Some(soul_pc) = script_state.program.soul_entry_pc {
+                            script_state.reset_for_soul_loop(soul_pc);
+                            if !soul_restarted {
+                                soul_restarted = true;
                                 continue; // Re-enter executor once to avoid wasting the tick.
                             }
                         }

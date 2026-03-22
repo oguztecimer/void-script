@@ -74,11 +74,11 @@ impl ScriptState {
         }
     }
 
-    /// Reset script to re-enter the brain() function on the next tick.
+    /// Reset script to re-enter the soul() function on the next tick.
     /// Preserves global variables (init state persists across loops).
-    /// Only clears execution state (stack, call stack) and jumps to brain_pc.
-    pub fn reset_for_brain_loop(&mut self, brain_pc: usize) {
-        self.pc = brain_pc;
+    /// Only clears execution state (stack, call stack) and jumps to soul_pc.
+    pub fn reset_for_soul_loop(&mut self, soul_pc: usize) {
+        self.pc = soul_pc;
         self.stack.clear();
         self.call_stack.clear();
         self.yielded = false;

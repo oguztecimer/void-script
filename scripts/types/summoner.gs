@@ -1,3 +1,2 @@
-
-def brain():
-    goto(100)
+def soul():
+    act()

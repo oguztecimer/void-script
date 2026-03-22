@@ -54,7 +54,7 @@
   transition: background-color var(--transition-hover);
 }
 
-.brainIcon {
+.soulIcon {
   flex-shrink: 0;
   color: var(--text-tertiary);
 }
